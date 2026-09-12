@@ -204,18 +204,40 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 //     neither AWOK nor cyd35 ever calls touch.begin() or
 //     touchSPI.begin() on it.
 // Boards whose resistive touch chip shares the DISPLAY's SPI bus rather than
-// getting a dedicated one, and is therefore driven through TFT_eSPI's own
-// touch path instead of the XPT2046_Touchscreen library. Two peripherals
-// driving one set of pins is the thing this avoids.
-#if defined(AWOK) || defined(RLPHANTOM_R)
+// getting a dedicated one. Two peripherals driving one set of pins is the
+// thing this avoids: the XPT2046_Touchscreen library is never begin()'d on
+// any of them, and raw reads go through TFT_eSPI's own accessors.
+//
+// They then split on what to do with those raw values:
+//
+//   TOUCH_ON_DISPLAY_BUS  -- AWOK. Hand the whole job to TFT_eSPI
+//     (calibrateTouch/setTouch/getTouch), which returns finished screen
+//     coordinates. Simple, but the calibration blob bakes the axis
+//     swap/invert in at calibration time, so it is only correct for the
+//     rotation it was taken at. Fine on AWOK, which has no rotate button.
+//
+//   TOUCH_RAW_SHARED_BUS  -- the RL Phantom's resistive variant. Read RAW
+//     values off the same bus, then run the 2.8" board's own rotation maths
+//     (the landscape/flipped block in pollTouch). The Phantom is a bare board
+//     with the rotate icon live, so touch has to follow the screen round --
+//     and this way it uses the ordinary TouchCal flow and defaults too.
+#if defined(AWOK)
     #define TOUCH_ON_DISPLAY_BUS 1
+#endif
+#if defined(RLPHANTOM_R)
+    #define TOUCH_RAW_SHARED_BUS 1
+#endif
+// Everything that is true of BOTH: no dedicated touch peripheral, so nothing
+// ever calls touch.begin()/touchSPI.begin().
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(TOUCH_RAW_SHARED_BUS)
+    #define TOUCH_SHARES_DISPLAY_BUS 1
 #endif
 
 #if defined(CYD35)
     #define TOUCH_SCK  TFT_SCLK
     #define TOUCH_MOSI TFT_MOSI
     #define TOUCH_MISO TFT_MISO
-#elif defined(TOUCH_ON_DISPLAY_BUS)
+#elif defined(TOUCH_SHARES_DISPLAY_BUS)
     // No dedicated touch bus on AWOK — TFT_eSPI drives touch on the
     // display's own VSPI. Values below are placeholders so the compile
     // still works; the AWOK branches skip touchSPI.begin() entirely.
@@ -456,6 +478,11 @@ static void applyColorOrder() {
 
 // ---- Touch helpers ----
 struct TouchPoint { bool valid; int x; int y; };
+
+// Defined further down with the other raw readers, but pollTouch() needs it
+// above them on the boards whose touch shares the display bus: there is no
+// dedicated peripheral to read from, so the raw values come through here.
+static bool rawReadResistive(int16_t& a, int16_t& b);
 
 // CST816/CST820 native coordinate range — factory defaults measured
 // against one specific JC2432W328C unit's 4 corners in landscape
@@ -793,10 +820,27 @@ static TouchPoint pollTouch() {
 #endif
 
     // Resistive XPT2046 path (original jczn_2432s028r board) —
-    // unchanged from the earlier single-board firmware.
+    // unchanged from the earlier single-board firmware, except that the
+    // Phantom reads its raw values off the shared display bus instead of a
+    // dedicated peripheral. Everything below this point -- the rotation
+    // maths, the clamp, the calibration constants -- is identical for both,
+    // which is the whole point of doing it this way.
+#if defined(TOUCH_RAW_SHARED_BUS)
+    // No touch IRQ pin wired on this board, so pressure is the "finger down"
+    // gate, same as rawReadResistive() uses.
+    TS_Point p(0, 0, 0);
+    {
+        int16_t ra, rb;
+        if (!rawReadResistive(ra, rb)) return tp;
+        p.x = ra;
+        p.y = rb;
+    }
+    {
+#else
     if (!touch.tirqTouched()) return tp;
     if (touch.touched()) {
         TS_Point p = touch.getPoint();
+#endif
         if (!landscape) {
             tp.x = flipped ? map(p.x, RAW_X_MIN, RAW_X_MAX, w, 0) : map(p.x, RAW_X_MIN, RAW_X_MAX, 0, w);
             tp.y = flipped ? map(p.y, RAW_Y_MIN, RAW_Y_MAX, h, 0) : map(p.y, RAW_Y_MIN, RAW_Y_MAX, 0, h);
@@ -837,7 +881,7 @@ static bool rawReadCap(int16_t& a, int16_t& b) {
 }
 
 static bool rawReadResistive(int16_t& a, int16_t& b) {
-#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35)
     // Neither board's `touch` (XPT2046_Touchscreen) object is ever
     // begin()'d — both drive touch natively through TFT_eSPI instead
     // (see their setup() branches) — so this goes through TFT_eSPI's
@@ -1022,6 +1066,18 @@ static bool    s_confirmArmed = false;
 static void runTouchCalibration() {
 #if defined(TOUCH_ON_DISPLAY_BUS)
     awokRunCalibration();
+#elif defined(TOUCH_RAW_SHARED_BUS)
+    // The ordinary TouchCal flow -- the same one the 2.8" boards use, which
+    // records the raw extremes rather than a rotation-baked blob.
+    {
+        TouchCal::Cal newCal;
+        if (TouchCal::runInteractive(tft, rawReadResistive, Theme::BG, Theme::WHITE,
+                                     Theme::CYAN, newCal, RESISTIVE_MIN_SPREAD)) {
+            TouchCal::save(newCal);
+            applyCal(newCal);
+            s_usingSavedCal = true;
+        }
+    }
 #elif defined(CYD35)
     cyd35RunCalibration();
 #else
@@ -1637,6 +1693,14 @@ void setup() {
     // CYD35 branch (tft.getTouch()).
     usingCapTouch = false;
     Serial.println("cyd35 build -- XPT2046 on shared VSPI bus via TFT_eSPI.");
+#elif defined(TOUCH_RAW_SHARED_BUS)
+    // RL Phantom, resistive variant. The chip sits on the display's own bus
+    // (TOUCH_CS=33, armed by TFT_eSPI once rlphantom_r_user_setup.h is in
+    // scope), so there is no probe, no touch.begin() and no touchSPI -- but
+    // unlike AWOK the raw values come back to us and pollTouch() does its own
+    // rotation maths on them, so touch follows the screen round.
+    usingCapTouch = false;
+    Serial.println("RL Phantom (resistive) -- XPT2046 on shared bus, raw reads + rotation maths.");
 #elif defined(TOUCH_ON_DISPLAY_BUS)
     // AWOK's XPT2046 sits on the display's own shared VSPI bus (TOUCH_CS=21,
     // already armed by TFT_eSPI itself once awok_user_setup.h's #define
@@ -1725,6 +1789,28 @@ void setup() {
     // (awokEnsureCal() does that automatically when awokLoadTouchCal()
     // finds nothing saved).
     awokEnsureCal();
+#elif defined(TOUCH_RAW_SHARED_BUS)
+    // RL Phantom, resistive. The same trap AWOK's comment above describes: the
+    // 2.8" board's 200..3800 defaults do not describe a shared-bus digitiser,
+    // so an EMPTY board would boot with touch landing in the wrong places --
+    // and the very first screen, the colour check, needs taps to get past.
+    // That would strand a new owner with no way forward except a hold-at-boot
+    // gesture nobody would guess.
+    //
+    // So: use a saved calibration if one exists, otherwise run the four
+    // corners right now, before anything on screen needs a tap. The result is
+    // an ordinary TouchCal, which is rotation-aware -- unlike AWOK's blob.
+    {
+        TouchCal::Cal savedCal;
+        if (TouchCal::load(savedCal, RESISTIVE_MIN_SPREAD)) {
+            applyCal(savedCal);
+            s_usingSavedCal = true;
+            Serial.println("Loaded saved touch calibration.");
+        } else {
+            Serial.println("RL Phantom: no saved touch calibration -- running it now.");
+            runTouchCalibration();
+        }
+    }
 #elif defined(CYD35)
     // Same reasoning as AWOK above, but keyed to the current rotation
     // -- see cyd35EnsureCal()'s comment for why one blob per rotation

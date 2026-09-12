@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       lab:
-        description: "Lab build: publish the unlisted mesh firmware, skip notes and Release"
+        description: "Lab build: publish any unlisted lab boards, skip notes and Release"
         type: boolean
         default: false
 
@@ -128,15 +128,12 @@ jobs:
         # loops on real hardware -- see platformio.ini) -- the rest are
         # and get built/published together below.
         run: |
-          pio run -e cyd -e cyd-ili9341 -e awok -e cyd-fast -e cyd-ili9341-fast
-          # The lab variants are built on every tag, not just lab-* ones, so a
-          # real release proves they still compile. They are only PUBLISHED on
-          # a lab tag -- see the Pages step.
-          #
-          # rlphantom is the RL Phantom 2.4" (Sunton ESP32-2432S024). Nobody
-          # here has run SquachWatch on one, which is exactly why it goes out
-          # through the lab entry rather than the public picker.
-          pio run -e cyd-fast-mesh -e rlphantom -e rlphantom-r
+          # rlphantom-r is the RL Phantom 2.4" (Sunton ESP32-2432S024R), the
+          # resistive-touch version, confirmed on real boards.
+          pio run -e cyd -e cyd-ili9341 -e awok -e rlphantom-r -e cyd-fast -e cyd-ili9341-fast
+          # The Phantom's capacitive version has never run on a real board, so
+          # it is compiled to keep its code honest but NOT published anywhere.
+          pio run -e rlphantom
 
       - name: Merge into one flashable image (per board)
         run: |
@@ -159,15 +156,12 @@ jobs:
             0x1000  .pio/build/awok/bootloader.bin \
             0x8000  .pio/build/awok/partitions.bin \
             0x10000 .pio/build/awok/firmware.bin
-          # Lab board, published only on a lab tag. Merged anyway so the image
-          # exists for a manual esptool write if the flasher route fails on it.
           python -m esptool --chip esp32 merge_bin \
-            -o firmware-rlphantom-merged.bin \
+            -o firmware-rlphantom-r-merged.bin \
             --flash_mode dio --flash_freq 40m --flash_size 4MB \
-            0x1000  .pio/build/rlphantom/bootloader.bin \
-            0x8000  .pio/build/rlphantom/partitions.bin \
-            0x10000 .pio/build/rlphantom/firmware.bin
-          python -m esptool --chip esp32 merge_bin             -o firmware-rlphantom-r-merged.bin             --flash_mode dio --flash_freq 40m --flash_size 4MB             0x1000  .pio/build/rlphantom-r/bootloader.bin             0x8000  .pio/build/rlphantom-r/partitions.bin             0x10000 .pio/build/rlphantom-r/firmware.bin
+            0x1000  .pio/build/rlphantom-r/bootloader.bin \
+            0x8000  .pio/build/rlphantom-r/partitions.bin \
+            0x10000 .pio/build/rlphantom-r/firmware.bin
           # Every board's raw PlatformIO artifacts share the same basenames
           # (bootloader.bin/partitions.bin/firmware.bin), and release assets
           # need unique names -- the very first two-board release failed
@@ -191,7 +185,7 @@ jobs:
           # board that looks bricked.
           for f in bootloader partitions; do
             ref="$(sha256sum ".pio/build/cyd/$f.bin" | cut -d' ' -f1)"
-            for v in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast cyd-fast-mesh rlphantom rlphantom-r; do
+            for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
               got="$(sha256sum ".pio/build/$v/$f.bin" | cut -d' ' -f1)"
               if [ "$got" != "$ref" ]; then
                 echo "::error::$v/$f.bin differs from cyd/$f.bin."
@@ -212,7 +206,7 @@ jobs:
           # merged image for those on purpose: the merged blob is a
           # manual-recovery artifact, and recovery should land you on the
           # spec-compliant build rather than the overclocked one.
-          for v in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast cyd-fast-mesh rlphantom rlphantom-r; do
+          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
             cp ".pio/build/$v/firmware.bin" "$v-firmware.bin"
           done
 
@@ -223,8 +217,6 @@ jobs:
           for p in ("web-flasher/manifest-cyd.json", "web-flasher/manifest-cyd-ili9341.json",
                     "web-flasher/manifest-awok.json", "web-flasher/manifest-cyd-fast.json",
                     "web-flasher/manifest-cyd-ili9341-fast.json",
-                    "web-flasher/manifest-cyd-fast-mesh.json",
-                    "web-flasher/manifest-rlphantom.json",
                     "web-flasher/manifest-rlphantom-r.json"):
               m = json.load(open(p))
               m["version"] = "${{ steps.ver.outputs.version }}"
@@ -243,6 +235,7 @@ jobs:
           cp web-flasher/manifest-awok.json manifest-awok.json
           cp web-flasher/manifest-cyd-fast.json manifest-cyd-fast.json
           cp web-flasher/manifest-cyd-ili9341-fast.json manifest-cyd-ili9341-fast.json
+          cp web-flasher/manifest-rlphantom-r.json manifest-rlphantom-r.json
 
       - name: Create GitHub Release with build artifacts
         # A lab tag publishes a flashable build and nothing else. Creating a
@@ -263,11 +256,19 @@ jobs:
             cyd-firmware.bin \
             cyd-ili9341-firmware.bin \
             awok-firmware.bin \
+            rlphantom-r-firmware.bin \
             cyd-fast-firmware.bin \
             cyd-ili9341-fast-firmware.bin \
             firmware-cyd-merged.bin \
             firmware-cyd-ili9341-merged.bin \
-            firmware-awok-merged.bin             manifest-cyd.json             manifest-cyd-ili9341.json             manifest-awok.json             manifest-cyd-fast.json             manifest-cyd-ili9341-fast.json
+            firmware-awok-merged.bin \
+            firmware-rlphantom-r-merged.bin \
+            manifest-cyd.json \
+            manifest-cyd-ili9341.json \
+            manifest-awok.json \
+            manifest-rlphantom-r.json \
+            manifest-cyd-fast.json \
+            manifest-cyd-ili9341-fast.json
 
       - name: Build the browser emulator
         # Skipped on a lab run, which serves the released emulator instead --
@@ -323,6 +324,7 @@ jobs:
           cp web-flasher/manifest-awok.json _site/manifest-awok.json
           cp web-flasher/manifest-cyd-fast.json _site/manifest-cyd-fast.json
           cp web-flasher/manifest-cyd-ili9341-fast.json _site/manifest-cyd-ili9341-fast.json
+          cp web-flasher/manifest-rlphantom-r.json _site/manifest-rlphantom-r.json
           # A LAB RUN MUST NOT CHANGE WHAT THE PUBLIC PAGE SERVES.
           #
           # A Pages deploy is wholesale -- there is no partial update -- so a
@@ -344,20 +346,16 @@ jobs:
             echo "Restoring root site from $LATEST"
             gh release download "$LATEST" -D _site --clobber \
               -p '*-firmware.bin' -p 'manifest-*.json' -p 'esp32-*.bin'
-            cp web-flasher/manifest-cyd-fast-mesh.json _site/manifest-cyd-fast-mesh.json
-            cp cyd-fast-mesh-firmware.bin _site/cyd-fast-mesh-firmware.bin
-            cp web-flasher/manifest-rlphantom.json _site/manifest-rlphantom.json
-            cp rlphantom-firmware.bin _site/rlphantom-firmware.bin
-            cp web-flasher/manifest-rlphantom-r.json _site/manifest-rlphantom-r.json
-            cp rlphantom-r-firmware.bin _site/rlphantom-r-firmware.bin
-            echo "lab builds published alongside $LATEST: cyd-fast-mesh, rlphantom, rlphantom-r"
+            # Lab boards get copied in here, after the restore. None right
+            # now -- see the lab list in web-flasher/index.html.
+            echo "root site restored from $LATEST; no lab boards to add"
           fi
           # One shared bootloader and partition table (see the build step
           # for why that is safe and how it is enforced), then one app per
           # variant. Every manifest points at the same two shared files.
           cp esp32-bootloader.bin _site/esp32-bootloader.bin
           cp esp32-partitions.bin _site/esp32-partitions.bin
-          for board in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast; do
+          for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
             cp "$board-firmware.bin" "_site/$board-firmware.bin"
           done
           # The browser emulator: this firmware compiled to WebAssembly,

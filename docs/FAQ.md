@@ -21,6 +21,8 @@ Two options right now:
 
 There's also an **AWOK 2.4"** (ESP32-Marauder V6.1) port, contributed and working, if that's the board you already own.
 
+And the **RL Phantom 2.4"** (Sunton ESP32-2432S024R, the resistive-touch one) works too. The capacitive version (the one ending in **C**) isn't supported yet.
+
 Either way: no GPS, no buzzer, no extra modules. The board *is* the whole device. Plug it into USB-C and you're done.
 
 ## Do I need to build it myself?

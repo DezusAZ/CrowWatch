@@ -6,21 +6,17 @@
 //
 // WHY THAT ONE LINE IS THE WHOLE DIFFERENCE. This board's XPT2046 sits on the
 // DISPLAY's SPI bus, not a dedicated one, exactly like AWOK's. Arming TOUCH_CS
-// here is what switches TFT_eSPI's own touch path on, and main.cpp's
-// TOUCH_ON_DISPLAY_BUS branches then drive touch through that path
-// (getTouch/getTouchRaw/calibrateTouch) instead of the XPT2046_Touchscreen
-// library on a separate HSPI peripheral.
+// here lets TFT_eSPI read raw touch values off that bus, and main.cpp's
+// TOUCH_RAW_SHARED_BUS branches then run the 2.8" board's rotation maths on
+// them, so touch follows the screen when it rotates.
 //
 // The standard path would look for the touch chip on GPIO 25/32/39. On this
 // board those are the capacitive controller's reset, the I2C clock, and an
-// unrelated input -- so a resistive Phantom finds nothing at all there. That
-// is the bug this variant exists to rule out.
+// unrelated input -- so a resistive Phantom finds nothing at all there.
 //
-// WHICH ONE DO I HAVE? Nobody can tell from the outside, which is why both
-// builds are offered. Flash one; if touch is dead, flash the other. The same
-// arrangement the 2.8" board has for its two display drivers.
-//   ESP32-2432S024C -- capacitive CST820 -> use rlphantom_user_setup.h
-//   ESP32-2432S024R -- resistive XPT2046 -> this file
+// WHICH ONE DO I HAVE? The part number ends in R (resistive, this file) or C
+// (capacitive, rlphantom_user_setup.h). Only this resistive build is on the
+// public flasher; the capacitive one has never run on a real board.
 #pragma once
 
 #define USER_SETUP_INFO    "SquachWatch-CYD / RL Phantom 2.4 inch resistive / ILI9341"

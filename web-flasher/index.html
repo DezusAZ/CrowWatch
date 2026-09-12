@@ -698,6 +698,7 @@
       <option value="./manifest-cyd.json" data-cyd28="1" data-fast="./manifest-cyd-fast.json" selected>2.8&quot; CYD &mdash; ST7789 (default)</option>
       <option value="./manifest-cyd-ili9341.json" data-cyd28="1" data-fast="./manifest-cyd-ili9341-fast.json">2.8&quot; CYD &mdash; ILI9341 (older)</option>
       <option value="./manifest-awok.json">AWOK 2.4&quot;</option>
+      <option value="./manifest-rlphantom-r.json">RL Phantom 2.4&quot;</option>
     </select>
     <p class="white-screen-note" id="whiteScreenNote">
       The 2.8&quot; CYD ships with one of two different display drivers depending on manufacturing
@@ -1432,9 +1433,12 @@
         // One entry per lab board. Each is added only if its manifest is
         // actually deployed, so a site built without one silently leaves the
         // picker alone rather than offering a button that 404s.
-        ['./manifest-cyd-fast-mesh.json',
-         './manifest-rlphantom.json',
-         './manifest-rlphantom-r.json'].forEach(function (path) {
+        //
+        // Empty right now: the RL Phantom graduated to the public picker and
+        // the SquachMesh build became the normal firmware. To offer a new lab
+        // board, list its manifest here AND copy it in the release workflow's
+        // lab branch.
+        [].forEach(function (path) {
           fetch(path, { cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (m) {
@@ -1468,13 +1472,26 @@
       var seq = ++versionReqSeq;
       versionNote.textContent = 'checking latest version…';
       fetch(manifestUrl, { cache: 'no-store' })
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+          // A board added in a newer release has no manifest in an older
+          // release's directory. Say so and hide the button, rather than
+          // letting the install dialog fail on a 404 it cannot explain.
+          if (r.status === 404) return { missing: true };
+          return r.json();
+        })
         .then(function (m) {
           if (seq !== versionReqSeq) return; // a newer request already landed
+          if (m && m.missing) {
+            versionNote.textContent = 'this board is not in that version — pick a newer one';
+            installBtn.style.display = 'none';
+            return;
+          }
+          installBtn.style.display = '';
           versionNote.textContent = m && m.version ? ('latest firmware: v' + m.version) : '';
         })
         .catch(function () {
           if (seq !== versionReqSeq) return;
+          installBtn.style.display = '';
           versionNote.textContent = '';
         });
     }
@@ -1487,8 +1504,8 @@
     // has to find on a display that may be the thing that broke.
     //
     // Offered for the 2.8" boards only, hence data-fast living on those
-    // two <option>s rather than a flag here: AWOK runs its touchscreen
-    // on the display's SPI bus through TFT_eSPI's own touch path, which
+    // two <option>s rather than a flag here: AWOK and the RL Phantom run
+    // their touchscreen on the display's SPI bus through TFT_eSPI's own touch path, which
     // reads SPI_FREQUENCY directly, so overclocking the panel would
     // also overclock touch. An option with no data-fast disables the
     // row instead of silently ignoring the tick.

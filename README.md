@@ -84,8 +84,8 @@ from your browser:
 
 **[https://squachwatch.com/](https://squachwatch.com/)**
 
-Works in Firefox, Chrome, Edge, or Brave on desktop. Pick your board (2.8" CYD
-or AWOK 2.4"), plug in, click Connect & Install, done.
+Works in Firefox, Chrome, Edge, or Brave on desktop. Pick your board (2.8" CYD,
+AWOK 2.4" or RL Phantom 2.4"), plug in, click Connect & Install, done.
 
 ## Build
 
