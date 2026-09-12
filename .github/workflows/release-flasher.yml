@@ -136,7 +136,7 @@ jobs:
           # rlphantom is the RL Phantom 2.4" (Sunton ESP32-2432S024). Nobody
           # here has run SquachWatch on one, which is exactly why it goes out
           # through the lab entry rather than the public picker.
-          pio run -e cyd-fast-mesh -e rlphantom
+          pio run -e cyd-fast-mesh -e rlphantom -e rlphantom-r
 
       - name: Merge into one flashable image (per board)
         run: |
@@ -167,6 +167,7 @@ jobs:
             0x1000  .pio/build/rlphantom/bootloader.bin \
             0x8000  .pio/build/rlphantom/partitions.bin \
             0x10000 .pio/build/rlphantom/firmware.bin
+          python -m esptool --chip esp32 merge_bin             -o firmware-rlphantom-r-merged.bin             --flash_mode dio --flash_freq 40m --flash_size 4MB             0x1000  .pio/build/rlphantom-r/bootloader.bin             0x8000  .pio/build/rlphantom-r/partitions.bin             0x10000 .pio/build/rlphantom-r/firmware.bin
           # Every board's raw PlatformIO artifacts share the same basenames
           # (bootloader.bin/partitions.bin/firmware.bin), and release assets
           # need unique names -- the very first two-board release failed
@@ -190,7 +191,7 @@ jobs:
           # board that looks bricked.
           for f in bootloader partitions; do
             ref="$(sha256sum ".pio/build/cyd/$f.bin" | cut -d' ' -f1)"
-            for v in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast cyd-fast-mesh rlphantom; do
+            for v in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast cyd-fast-mesh rlphantom rlphantom-r; do
               got="$(sha256sum ".pio/build/$v/$f.bin" | cut -d' ' -f1)"
               if [ "$got" != "$ref" ]; then
                 echo "::error::$v/$f.bin differs from cyd/$f.bin."
@@ -211,7 +212,7 @@ jobs:
           # merged image for those on purpose: the merged blob is a
           # manual-recovery artifact, and recovery should land you on the
           # spec-compliant build rather than the overclocked one.
-          for v in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast cyd-fast-mesh rlphantom; do
+          for v in cyd cyd-ili9341 awok cyd-fast cyd-ili9341-fast cyd-fast-mesh rlphantom rlphantom-r; do
             cp ".pio/build/$v/firmware.bin" "$v-firmware.bin"
           done
 
@@ -223,7 +224,8 @@ jobs:
                     "web-flasher/manifest-awok.json", "web-flasher/manifest-cyd-fast.json",
                     "web-flasher/manifest-cyd-ili9341-fast.json",
                     "web-flasher/manifest-cyd-fast-mesh.json",
-                    "web-flasher/manifest-rlphantom.json"):
+                    "web-flasher/manifest-rlphantom.json",
+                    "web-flasher/manifest-rlphantom-r.json"):
               m = json.load(open(p))
               m["version"] = "${{ steps.ver.outputs.version }}"
               json.dump(m, open(p, "w"), indent=2)
@@ -346,7 +348,9 @@ jobs:
             cp cyd-fast-mesh-firmware.bin _site/cyd-fast-mesh-firmware.bin
             cp web-flasher/manifest-rlphantom.json _site/manifest-rlphantom.json
             cp rlphantom-firmware.bin _site/rlphantom-firmware.bin
-            echo "lab builds published alongside $LATEST: cyd-fast-mesh, rlphantom"
+            cp web-flasher/manifest-rlphantom-r.json _site/manifest-rlphantom-r.json
+            cp rlphantom-r-firmware.bin _site/rlphantom-r-firmware.bin
+            echo "lab builds published alongside $LATEST: cyd-fast-mesh, rlphantom, rlphantom-r"
           fi
           # One shared bootloader and partition table (see the build step
           # for why that is safe and how it is enforced), then one app per

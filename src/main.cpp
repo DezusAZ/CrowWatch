@@ -203,11 +203,19 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 //     built below regardless of board (it costs nothing unused), but
 //     neither AWOK nor cyd35 ever calls touch.begin() or
 //     touchSPI.begin() on it.
+// Boards whose resistive touch chip shares the DISPLAY's SPI bus rather than
+// getting a dedicated one, and is therefore driven through TFT_eSPI's own
+// touch path instead of the XPT2046_Touchscreen library. Two peripherals
+// driving one set of pins is the thing this avoids.
+#if defined(AWOK) || defined(RLPHANTOM_R)
+    #define TOUCH_ON_DISPLAY_BUS 1
+#endif
+
 #if defined(CYD35)
     #define TOUCH_SCK  TFT_SCLK
     #define TOUCH_MOSI TFT_MOSI
     #define TOUCH_MISO TFT_MISO
-#elif defined(AWOK)
+#elif defined(TOUCH_ON_DISPLAY_BUS)
     // No dedicated touch bus on AWOK — TFT_eSPI drives touch on the
     // display's own VSPI. Values below are placeholders so the compile
     // still works; the AWOK branches skip touchSPI.begin() entirely.
@@ -496,8 +504,10 @@ static bool touchCalPlausible(const uint16_t* p) {
     return ok(p[0], p[1]) && ok(p[2], p[3]);
 }
 
-#if defined(AWOK)
-// ---- AWOK: TFT_eSPI-native touch calibration ----
+#if defined(TOUCH_ON_DISPLAY_BUS)
+// ---- TFT_eSPI-native touch calibration (shared display bus) ----
+// Named awok* because AWOK was the first board to need it; the RL Phantom's
+// resistive variant sits on the same kind of bus and reuses it unchanged.
 // AWOK's XPT2046 sits on the display's own shared VSPI bus, so it goes
 // through TFT_eSPI's own calibrateTouch()/setTouch()/getTouch() path
 // instead of the raw-ADC + map() approach the other two boards use --
@@ -746,7 +756,7 @@ static TouchPoint pollTouch() {
         tp.valid = sane;
     }
     return tp;
-#elif defined(AWOK)
+#elif defined(TOUCH_ON_DISPLAY_BUS)
     // TFT_eSPI-native touch path. getTouch() returns already-
     // calibrated, already-rotated screen coordinates directly -- no
     // map()/raw-ADC axis math needed, unlike the other two boards.
@@ -827,7 +837,7 @@ static bool rawReadCap(int16_t& a, int16_t& b) {
 }
 
 static bool rawReadResistive(int16_t& a, int16_t& b) {
-#if defined(AWOK) || defined(CYD35)
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
     // Neither board's `touch` (XPT2046_Touchscreen) object is ever
     // begin()'d — both drive touch natively through TFT_eSPI instead
     // (see their setup() branches) — so this goes through TFT_eSPI's
@@ -1010,7 +1020,7 @@ static bool    s_confirmArmed = false;
 // in front of that row. Callers decide where to go afterwards, which is the
 // only thing that ever differed between them.
 static void runTouchCalibration() {
-#if defined(AWOK)
+#if defined(TOUCH_ON_DISPLAY_BUS)
     awokRunCalibration();
 #elif defined(CYD35)
     cyd35RunCalibration();
@@ -1561,7 +1571,11 @@ void setup() {
     // HIGH. BL_CH_ORIG/GPIO21 is skipped on AWOK because it's TOUCH_CS
     // there (same reasoning as the digitalWrite skip above) — attaching
     // LEDC to it would fight TFT_eSPI's control of the pin.
-#if !defined(AWOK)
+// GPIO21 is the backlight on the 2.8" boards and NOT on two others: it is
+// TOUCH_CS on AWOK, and the capacitive controller's INTERRUPT line on the RL
+// Phantom. Driving a 5 kHz PWM onto either is the kind of fault that looks
+// like dead touch, which is exactly how it presented on the Phantom.
+#if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
     ledcSetup(BL_CH_ORIG, 5000, 8);
     ledcAttachPin(BL_PIN_ORIG, BL_CH_ORIG);
 #endif
@@ -1620,7 +1634,7 @@ void setup() {
     // CYD35 branch (tft.getTouch()).
     usingCapTouch = false;
     Serial.println("cyd35 build -- XPT2046 on shared VSPI bus via TFT_eSPI.");
-#elif defined(AWOK)
+#elif defined(TOUCH_ON_DISPLAY_BUS)
     // AWOK's XPT2046 sits on the display's own shared VSPI bus (TOUCH_CS=21,
     // already armed by TFT_eSPI itself once awok_user_setup.h's #define
     // is in scope) and is driven entirely through TFT_eSPI's own touch
@@ -1670,7 +1684,7 @@ void setup() {
                 if (holdStart == 0) holdStart = millis();
                 else if (millis() - holdStart > 800) {
                     TouchCal::reset();
-#if defined(AWOK)
+#if defined(TOUCH_ON_DISPLAY_BUS)
                     // TouchCal::reset() only clears the "touchcal"
                     // namespace the other boards use -- AWOK's blob
                     // lives in a separate one and would otherwise
@@ -1699,7 +1713,7 @@ void setup() {
     }
     tft.fillScreen(Theme::BG);
 
-#if defined(AWOK)
+#if defined(TOUCH_ON_DISPLAY_BUS)
     // The compiled-in defaults for the CYD 2.8" board's XPT2046
     // (RAW_X_MIN=200..RAW_X_MAX=3800) don't match the shared-bus
     // XPT2046 on this board, so an uncalibrated first boot leaves
@@ -3526,7 +3540,7 @@ void loop() {
         }
         case AppState::DIAGNOSTICS: {
             DiagnosticsInfo info;
-#if defined(AWOK)
+#if defined(TOUCH_ON_DISPLAY_BUS)
             info.hasRaw = false;
             info.rawTouching = false;
             info.rawA = info.rawB = 0;

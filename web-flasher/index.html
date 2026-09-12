@@ -1433,7 +1433,8 @@
         // actually deployed, so a site built without one silently leaves the
         // picker alone rather than offering a button that 404s.
         ['./manifest-cyd-fast-mesh.json',
-         './manifest-rlphantom.json'].forEach(function (path) {
+         './manifest-rlphantom.json',
+         './manifest-rlphantom-r.json'].forEach(function (path) {
           fetch(path, { cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (m) {
