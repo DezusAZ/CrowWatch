@@ -2,7 +2,10 @@
 #include "sd_log.h"
 #include <SD.h>
 #include <stdio.h>
-#if !defined(CYD)
+// The Phantoms define CYD (they ARE a CYD) but still need this reference,
+// because their touch shares the display's bus and SdLog::begin() has to hand
+// SD the display's own SPI instance -- see the comment on that branch below.
+#if !defined(CYD) || defined(RLPHANTOM) || defined(RLPHANTOM_R)
 #include <TFT_eSPI.h>
 // The single TFT_eSPI instance main.cpp already owns and has already
 // init()'d by the time SdLog::begin() runs (see the comment below for
@@ -24,7 +27,15 @@ extern TFT_eSPI tft;
 
 bool SdLog::begin() {
     if (_ready) return true;
-#if defined(CYD35)
+#if defined(CYD35) || defined(RLPHANTOM) || defined(RLPHANTOM_R)
+    // The RL Phantom lands here for the same reason cyd35 does, and it cost a
+    // tester an evening: its resistive touch chip sits on the DISPLAY's bus, so
+    // the extra pins this attaches corrupt MISO for every touch read afterwards.
+    // The symptom is precise and was reported exactly as described below --
+    // the 4-corner calibration works (it runs BEFORE engine.init() brings SD up)
+    // and touch is dead on the very next screen. Not a bad calibration blob: a
+    // corrupted bus underneath a perfectly good one.
+    //
     // SD.begin(csPin) defaults its SPIClass& parameter to the Arduino
     // *global* `SPI` object -- a separate, never-begun C++ instance
     // from TFT_eSPI's own internal one, even though both ultimately

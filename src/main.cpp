@@ -1525,7 +1525,10 @@ void setup() {
     // would be harmless on its own, but the LEDC attach further down
     // would fight TFT_eSPI's control of the pin, so pin 21 is skipped
     // off entirely on AWOK for consistency with that.
-#if !defined(AWOK)
+// Not on AWOK (TOUCH_CS there) and not on either RL Phantom, where GPIO21 is
+// the capacitive controller's INTERRUPT line. Driving it high at boot is the
+// same mistake as the LEDC attach further down, just earlier.
+#if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
     pinMode(21, OUTPUT); digitalWrite(21, HIGH);
 #endif
     pinMode(27, OUTPUT); digitalWrite(27, HIGH);
