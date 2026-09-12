@@ -1429,16 +1429,22 @@
     // button that 404s.
     try {
       if (/(?:^|[?&])lab=1(?:&|$)/.test(window.location.search)) {
-        fetch('./manifest-cyd-fast-mesh.json', { cache: 'no-store' })
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (m) {
-            if (!m) return;
-            var o = document.createElement('option');
-            o.value = './manifest-cyd-fast-mesh.json';
-            o.textContent = 'LAB — ' + (m.name || 'development build');
-            select.appendChild(o);
-          })
-          .catch(function () { /* no lab build deployed; nothing to add */ });
+        // One entry per lab board. Each is added only if its manifest is
+        // actually deployed, so a site built without one silently leaves the
+        // picker alone rather than offering a button that 404s.
+        ['./manifest-cyd-fast-mesh.json',
+         './manifest-rlphantom.json'].forEach(function (path) {
+          fetch(path, { cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (m) {
+              if (!m) return;
+              var o = document.createElement('option');
+              o.value = path;
+              o.textContent = 'LAB — ' + (m.name || 'development build');
+              select.appendChild(o);
+            })
+            .catch(function () { /* not deployed; nothing to add */ });
+        });
       }
     } catch (e) { /* location unavailable in some embeddings */ }
 
