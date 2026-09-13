@@ -57,6 +57,12 @@
 #define SPI_TOUCH_FREQUENCY    2500000
 
 #define LOAD_GLCD
+// And font 2, the 16-row proportional face, for the speech bubbles: the
+// 6x8 font was a squint on a 2.4" screen and the only other size it comes
+// in is double. About 3 KB of glyphs.
+// NOTE: editing this file does not rebuild the library -- delete
+// .pio/build/<env>/lib*/TFT_eSPI first, or the board runs the old config.
+#define LOAD_FONT2
 #define LOAD_FONT2
 #define LOAD_FONT4
 #define SMOOTH_FONT

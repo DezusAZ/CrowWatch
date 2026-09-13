@@ -132,7 +132,8 @@ enum class AppState : uint8_t {
     SQUAD            = 25, // every SquachWatch in range, and the inbox
     UPDATE           = 26, // UPDATE FIRMWARE, from Settings' SYSTEM page:
                             // WiFi or Bluetooth update, or switch slots
-    WIFI_PASS        = 27  // typing a WiFi password, from UPDATE's network list
+    WIFI_PASS        = 27, // typing a WiFi password, from UPDATE's network list
+    STATUS_LIGHT     = 28  // the RGB LED's settings, from the APPEARANCE page
 };
 
 enum class ButtonId : uint8_t {

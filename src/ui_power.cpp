@@ -14,10 +14,13 @@ static PowerRow rowAt(uint8_t i) { return (PowerRow)i; }
 // needs a live TFT_eSPI& since it depends on real font metrics, and is
 // shared by drawing and hit-testing so the two cannot drift apart.
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
-    top = TOP_MARGIN;
-    bodyBottom = screenH - 4;
+    top = TOP_MARGIN + Theme::LIST_HEADING_H;
+    bodyBottom = screenH - Theme::PINNED_BACK_H - 2;
     t.setTextSize(2);
-    rowH = t.fontHeight() + 8;
+    // Two pixels taller than the text strictly needs on each side: a 24 px
+    // row was a near miss for a thumb, 26 is not, and seven of them still
+    // fit above the BACK strip in landscape.
+    rowH = t.fontHeight() + 10;
 }
 
 void uiPowerInit(TFT_eSPI& t) {
@@ -102,19 +105,13 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, PowerRow r, bool compact
     // A solid panel under the row, the way the settings screen does it. The
     // labels used to sit straight on the dimmed background, and the synthwave
     // sun came through the gaps in every word in every theme.
-    {
-        const int x0 = 3, ww = w - 10, hh = hgt - 2;
-        if (ww > 0 && hh > 0) {
-            t.fillRect(x0, y, ww, hh, Theme::BG);
-            t.drawRect(x0, y, ww, hh, Theme::PURPLE);
-        }
-    }
+    Theme::drawListRowPanel(t, w, y, hgt);
 
     t.setTextSize(compact ? 1 : 2);
-    // The master switch keeps full contrast at all times; the rest fade to
-    // the dim grey the rest of the UI already uses for inactive text.
-    const uint16_t lab = dimmed ? Theme::blend(Theme::BG, Theme::CYAN, 110)
-                                : (r == PowerRow::ENABLED ? Theme::AMBER : Theme::CYAN);
+    // The colour of the Settings row that opened this screen, as every
+    // sub-list wears; the rows under the master switch fade to the dim grey
+    // the rest of the UI already uses for inactive text.
+    const uint16_t lab = dimmed ? Theme::blend(Theme::BG, Theme::VAPOR_PURPLE, 110) : Theme::VAPOR_PURPLE;
     t.setTextColor(lab, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(label);
@@ -168,6 +165,7 @@ switch (Settings::background()) {
     Theme::restorePalette(saved);
 
     Theme::drawTitleBar(t, ">> POWER SAVER <<");
+    Theme::drawListHeading(t, "POWER SAVER", Theme::VAPOR_PURPLE);
 
     // Portrait is 240px wide, which is not enough for "SCREEN TIMEOUT" and
     // its value side by side at size 2's 12px per glyph -- the same collision
@@ -187,6 +185,7 @@ switch (Settings::background()) {
     }
 
     Theme::drawScrollbar(t, w - 4, top, bodyBottom - top, n, visibleCount, g_scroll);
+    Theme::drawPinnedBack(t, "[ BACK ]");
 }
 
 PowerRow uiPowerHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {

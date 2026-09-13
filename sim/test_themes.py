@@ -29,7 +29,7 @@ THEME_SRC = os.path.join(HERE, "..", "src", "theme.cpp")
 
 SCREENS = [
     ("clear", []), ("clear", ["--noseed"]), ("log", []), ("alert", []), ("watchalert", []),
-    ("settings", []), ("settings", ["--scroll", "8"]), ("detfilter", []), ("power", []),
+    ("settings", []), ("settings", ["--scroll", "8"]), ("detfilter", []), ("power", []), ("light", []), ("security", []), ("ignorelist", []),
     ("diary", []), ("hunt", []), ("rawscan", []), ("diagnostics", []), ("colorcheck", []),
     ("boot", []), ("phone", []), ("phone", ["--qwerty"]), ("meshmenu", []), ("meshwarn", []),
     ("phrase", []), ("compose", []), ("update", []), ("wifipass", []),

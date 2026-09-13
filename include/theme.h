@@ -120,6 +120,31 @@ namespace Theme {
     // top-right corner (unless hidden, see setRotateIconVisible()).
     void drawTitleBar(TFT_eSPI& t, const char* title);
 
+    // The chrome every list screen BELOW Settings shares, so they read as
+    // one family with it: a small heading at the top in the colour of the
+    // Settings row that opened them, the same row panels, and a BACK strip
+    // pinned to the bottom edge. Before this each of them had a title that
+    // drawTitleBar() no longer draws, no way back but the gear, and rows
+    // in whatever colour the file happened to use.
+    static const int LIST_TOP       = 16;   // under the corner icons
+    static const int LIST_HEADING_H = 14;   // the Settings group header's height
+    static const int PINNED_BACK_H  = 26;
+    void drawListHeading(TFT_eSPI& t, const char* text, uint16_t color);
+
+    // The face speech bubbles are set in. Chosen at compile time by
+    // BUBBLE_FONT: 2 is TFT_eSPI's built-in 16-row font, anything else is a
+    // GFX face named by BUBBLE_GFX_FONT. The GFX faces print from the
+    // baseline, so a caller adds bubbleAscent() to the cursor's y; font 2
+    // prints from the top and reports 0. Every bubble goes through these
+    // four so the face is one decision, made in one place.
+    void bubbleFontOn(TFT_eSPI& t);
+    void bubbleFontOff(TFT_eSPI& t);
+    int  bubbleTextH();      // ascent + descent, the rows a line occupies
+    int  bubbleAscent();
+    void drawListRowPanel(TFT_eSPI& t, int w, int y, int hgt);
+    void drawPinnedBack(TFT_eSPI& t, const char* label);
+    bool pinnedBackHit(int x, int y, int screenW, int screenH);
+
     // Hides (or restores) the rotate icon drawTitleBar() would
     // otherwise always draw -- AWOK calls this once at boot with
     // false, since that board has no rotate button at all (see

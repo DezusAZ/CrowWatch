@@ -161,6 +161,26 @@ namespace Settings {
     bool       wakeOnAlert();
     void       toggleWakeOnAlert();
 
+    // ---- STATUS LIGHT ----------------------------------------------------
+    // The RGB LED on the back of the 2.8" CYD. See status_light.h for the
+    // rules it follows; these are only the knobs. Every one of them is
+    // independent: LIGHT is the master switch and the others keep their
+    // values while it is off, the same shape as the power saver.
+    bool        lightOn();
+    void        toggleLight();
+    bool        lightAlerts();           // detection flashes
+    void        toggleLightAlerts();
+    bool        lightMessages();         // the unread blink, and squad visits
+    void        toggleLightMessages();
+    uint8_t     lightIdle();             // 0 OFF, 1 BREATHE, 2 SOLID
+    void        cycleLightIdle();
+    const char* lightIdleName();
+    uint8_t     lightColor();            // 0 THEME, 1..9 fixed colours, 10 BACKGROUND
+    void        cycleLightColor();
+    const char* lightColorName();
+    uint8_t     lightBrightness();       // 1..5, caps everything
+    void        cycleLightBrightness();
+
     // What is CONFIGURED, ignoring the master switch. Only the power menu
     // wants these: it has to show you what you have chosen while the feature
     // is still switched off, which is the order most people will set it up in.

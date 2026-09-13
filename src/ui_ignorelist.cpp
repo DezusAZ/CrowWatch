@@ -12,8 +12,8 @@ static int g_scroll = 0;
 // Same fixed-height-at-size-2 approach Settings and the detection filter
 // use -- shared by drawing and hit-testing so the two cannot drift apart.
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
-    top = TOP_MARGIN;
-    bodyBottom = screenH - 4;
+    top = TOP_MARGIN + Theme::LIST_HEADING_H;
+    bodyBottom = screenH - Theme::PINNED_BACK_H - 2;
     // Two lines per row now -- type above, MAC below -- so this is a fixed
     // height rather than one derived from a single line of text.
     (void)t;
@@ -71,6 +71,8 @@ void uiIgnoreListTick(TFT_eSPI& t, uint32_t now) {
 
     t.fillRect(0, 0, w, h, Theme::BG);
     Theme::drawTitleBar(t, ">> IGNORED <<");
+    Theme::drawListHeading(t, "IGNORED", Theme::AMBER);
+    Theme::drawPinnedBack(t, "[ BACK ]");
 
     const uint8_t n = IgnoreList::count();
     if (n == 0) {
@@ -104,7 +106,7 @@ void uiIgnoreListTick(TFT_eSPI& t, uint32_t now) {
     snprintf(cnt, sizeof(cnt), "%u / %u", (unsigned)n, (unsigned)IgnoreList::MAX);
     t.setTextSize(1);
     t.setTextColor(Theme::VAPOR_PURPLE, Theme::BG);
-    t.setCursor(w - t.textWidth(cnt) - 6, h - 12);
+    t.setCursor(w - t.textWidth(cnt) - 8, Theme::LIST_TOP + (Theme::LIST_HEADING_H - t.fontHeight()) / 2);
     t.print(cnt);
 
     if ((int)n > (bodyBottom - top) / rowH) {

@@ -172,6 +172,8 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 #include "ota_wifi.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
+#include "status_light.h"
+#include "ui_light.h"
 
 // Two CYD board variants are supported from this one firmware:
 //   - jczn_2432s028r (original): resistive XPT2046 touch on its own
@@ -1502,6 +1504,9 @@ static void physicalNvsWipe() {
 // and every open handle to the old store with it. `after` is how the board
 // comes back; see takeWipeBoot().
 static void performWipe(WipeBoot after) {
+    // Dark first. A duress restart has to look like any other restart, and
+    // the light is the one thing visible from the back of the board.
+    StatusLight::off();
     Security::wipeSecrets();
     engine.sd().wipe();
 #if HAVE_NVS_ERASE
@@ -1531,6 +1536,12 @@ static void enterPower() {
     state = AppState::POWER_SAVER;
     transitionStart = millis();
     uiPowerInit(*canvas);
+}
+
+static void enterLight() {
+    state = AppState::STATUS_LIGHT;
+    transitionStart = millis();
+    uiLightInit(*canvas);
 }
 
 // Runtime UART speed -- set per-board in platformio.ini (-DSERIAL_BAUD=...)
@@ -1707,6 +1718,9 @@ void setup() {
     // A saved core clock has to be restored here too, or the setting silently
     // reverts to 240 MHz on every reboot and looks like it never took.
     applyCpuClock();
+    // The light on the back, and its half-second sweep during the splash.
+    StatusLight::begin();
+    StatusLight::boot(millis());
 
 #if defined(CYD35)
     // No FULL-screen double buffer on this board — confirmed on real
@@ -2023,6 +2037,7 @@ void loop() {
         (state == AppState::CLEAR || state == AppState::LOG || state == AppState::SETTINGS ||
          state == AppState::OUTFIT || state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
          state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER || state == AppState::SECURITY ||
+         state == AppState::STATUS_LIGHT ||
          state == AppState::DIARY || state == AppState::HUNT || state == AppState::DIAGNOSTICS) &&
         Theme::lockButtonHit(tp.x, tp.y, tft.width())) {
         lastTouch = now;
@@ -2123,7 +2138,7 @@ void loop() {
                       state == AppState::SETTINGS || state == AppState::OUTFIT ||
                       state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
                       state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER ||
-                      state == AppState::SECURITY) &&
+                      state == AppState::SECURITY || state == AppState::STATUS_LIGHT) &&
         Theme::settingsButtonHit(tp.x, tp.y) &&
         // ...but not where the watch/hunt pill is sitting. The gear's tap box
         // is 55x50, much larger than its 28px glyph, so it reaches into the
@@ -2132,7 +2147,12 @@ void loop() {
         !(state == AppState::CLEAR && uiClearWatchPillHit(tp.x, tp.y)) &&
         (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
         lastTouch = now;
-        if (state == AppState::OUTFIT || state == AppState::DETECTION_FILTER ||
+        if (state == AppState::STATUS_LIGHT) {
+            // Back to the APPEARANCE page it was opened from, not the top.
+            enterSettings();
+            uiSettingsOpenAppearance(true);
+        }
+        else if (state == AppState::OUTFIT || state == AppState::DETECTION_FILTER ||
             state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER ||
             state == AppState::SECURITY) enterSettings();
         else if (state == AppState::SETTINGS) {
@@ -3266,6 +3286,7 @@ void loop() {
                         case SettingsRow::CONFIDENCE: Settings::cycleMinConfidence(); break;
                         case SettingsRow::DETECTION_FILTER: enterDetFilter(); break;
                         case SettingsRow::POWER_SAVER: enterPower(); break;
+                        case SettingsRow::STATUS_LIGHT: enterLight(); break;
                         case SettingsRow::SECURITY:    enterSecurity(); break;
                         case SettingsRow::IGNORED_DEVICES:  enterIgnoreList(); break;
 #if SQUACH_MESH
@@ -3367,6 +3388,11 @@ void loop() {
         }
         case AppState::MESH_MENU: {
             uiMeshMenuTick(*canvas, now, engine);
+            if (touchJustDown && Theme::pinnedBackHit(tp.x, tp.y, canvas->width(), canvas->height())) {
+                lastTouch = now;
+                enterSettings();
+                break;
+            }
             if (touchJustDown) {
                 switch (uiMeshMenuHitTest(*canvas, tp.x, tp.y,
                                           canvas->width(), canvas->height())) {
@@ -3599,6 +3625,12 @@ void loop() {
                 }
             }
             if (touchJustUp && ilActive) {
+                if (!ilMoved && Theme::pinnedBackHit(ilStartX, ilStartY, tft.width(), tft.height())) {
+                    ilActive = false;
+                    lastTouch = now;
+                    enterSettings();
+                    break;
+                }
                 if (!ilMoved) {
                     uint8_t hit = uiIgnoreListHitRemove(*canvas, ilStartX, ilStartY,
                                                         tft.width(), tft.height());
@@ -3646,6 +3678,12 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
+                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                    gestureActive = false;
+                    lastTouch = now;
+                    enterSettings();
+                    break;
+                }
                 if (!gestureMoved) {
                     lastTouch = now;
                     DetectionType hit = uiDetFilterHitTest(*canvas, gestureStartX, gestureStartY, tft.width(), tft.height());
@@ -3689,6 +3727,11 @@ void loop() {
             }
             if (touchJustUp && gestureActive) {
                 gestureActive = false;
+                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                    lastTouch = now;
+                    enterSettings();
+                    break;
+                }
                 if (!gestureMoved) {
                     lastTouch = now;
                     const bool on = Security::enabled();
@@ -3853,6 +3896,12 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
+                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                    gestureActive = false;
+                    lastTouch = now;
+                    enterSettings();
+                    break;
+                }
                 if (!gestureMoved) {
                     lastTouch = now;
                     PowerRow hit = uiPowerHitTest(*canvas, gestureStartX, gestureStartY,
@@ -3881,6 +3930,51 @@ void loop() {
                             applyCpuClock();
                             break;
                         case PowerRow::WAKE_ON_ALERT: Settings::toggleWakeOnAlert(); break;
+                        default: break;
+                    }
+                }
+                gestureActive = false;
+            }
+            break;
+        }
+        case AppState::STATUS_LIGHT: {
+            uiLightTick(*canvas, now, engine);
+            static bool gestureActive = false;
+            static bool gestureMoved  = false;
+            static int  gestureStartX = 0, gestureStartY = 0;
+            static int  lastY = -1;
+            if (touchJustDown) {
+                gestureActive = true; gestureMoved = false;
+                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y;
+            }
+            if (tp.valid && gestureActive) {
+                int dy = tp.y - lastY;
+                if (abs(dy) > 10) {
+                    gestureMoved = true;
+                    uiLightScroll(dy > 0 ? -1 : 1);
+                    lastY = tp.y;
+                }
+            }
+            if (touchJustUp && gestureActive) {
+                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                    gestureActive = false;
+                    lastTouch = now;
+                    enterSettings();
+                    uiSettingsOpenAppearance(true);
+                    break;
+                }
+                if (!gestureMoved) {
+                    lastTouch = now;
+                    LightRow hit = uiLightHitTest(*canvas, gestureStartX, gestureStartY,
+                                                  tft.width(), tft.height());
+                    switch (hit) {
+                        case LightRow::ENABLED:    Settings::toggleLight(); break;
+                        case LightRow::ALERTS:     Settings::toggleLightAlerts(); break;
+                        case LightRow::MESSAGES:   Settings::toggleLightMessages(); break;
+                        case LightRow::IDLE:       Settings::cycleLightIdle(); break;
+                        case LightRow::IDLE_COLOR: Settings::cycleLightColor(); break;
+                        case LightRow::BRIGHTNESS: Settings::cycleLightBrightness(); break;
+                        case LightRow::TEST:       StatusLight::test(now); break;
                         default: break;
                     }
                 }
@@ -4111,5 +4205,33 @@ void loop() {
         }
     }
 
+    // The light on the back reads the state machine rather than being told
+    // about transitions, so there is no exit path it can miss.
+    {
+        StatusLight::Context lc;
+        lc.alert      = (state == AppState::ALERT);
+        lc.alertColor = Theme::colorFor(lastAlertType);
+#if SQUACH_MESH
+        lc.unread     = MeshTalk::inbox().unread;
+        lc.visiting   = Squachy::visiting();
+#else
+        lc.unread     = false;
+        lc.visiting   = false;
+#endif
+        lc.update = 0;
+        {
+            const OtaBle::State  b = OtaBle::state();
+            const OtaWifi::State w = OtaWifi::state();
+            if (b == OtaBle::State::DONE || w == OtaWifi::State::DONE) lc.update = 2;
+            else if (b == OtaBle::State::FAILED || w == OtaWifi::State::FAILED) lc.update = 3;
+            else if (b == OtaBle::State::RECEIVING || b == OtaBle::State::VERIFYING ||
+                     w == OtaWifi::State::CONNECTING || w == OtaWifi::State::CHECKING ||
+                     w == OtaWifi::State::DOWNLOADING || w == OtaWifi::State::VERIFYING) lc.update = 1;
+        }
+        lc.quiet        = (state == AppState::LOCKED || state == AppState::PIN_ENTRY);
+        lc.screenDimmed = s_screenDimmed;
+        lc.screenDark   = s_screenDimmed && Settings::dimLevel() == 0;
+        StatusLight::tick(now, lc);
+    }
     prevTouchValid = tp.valid;
 }

@@ -82,6 +82,22 @@ static uint8_t  s_idleAfterIx  = 1;    // 10 s
 static uint8_t  s_cpuIx        = 0;    // 240 MHz, the stock clock
 static bool     s_wakeOnAlert  = true;
 
+// ---- status light --------------------------------------------------------
+static bool    s_lightOn     = true;
+static bool    s_lightAlerts = true;
+static bool    s_lightMsgs   = true;
+static uint8_t s_lightIdle   = 1;    // BREATHE
+static uint8_t s_lightColor  = 0;    // THEME
+static uint8_t s_lightBright = 2;    // of 5
+static const char* const LIGHT_IDLE_NAMES[]  = { "OFF", "BREATHE", "SOLID" };
+// BACKGROUND is stored as 10, after the fixed colours, so the indices saved
+// by the first build stay what they were; the cycle below still visits it
+// second, next to THEME, which is where it belongs on the screen.
+static const char* const LIGHT_COLOR_NAMES[] = { "THEME", "RED", "ORANGE", "YELLOW", "GREEN",
+                                                 "CYAN", "BLUE", "PURPLE", "PINK", "WHITE",
+                                                 "BACKGROUND" };
+static const uint8_t LIGHT_COLOR_N = sizeof(LIGHT_COLOR_NAMES) / sizeof(LIGHT_COLOR_NAMES[0]);
+
 const char* backgroundName(Background b) {
     switch (b) {
         case Background::DIGITAL:    return "DIGITAL RAIN";
@@ -201,6 +217,15 @@ void load() {
     s_idleAfterIx  = s_prefs.getUChar("pwrIdleT", 1);
     s_cpuIx        = s_prefs.getUChar("pwrCpu", 0);
     s_wakeOnAlert  = s_prefs.getBool("pwrWake", true);
+    s_lightOn      = s_prefs.getBool("ltOn", true);
+    s_lightAlerts  = s_prefs.getBool("ltAlert", true);
+    s_lightMsgs    = s_prefs.getBool("ltMsg", true);
+    s_lightIdle    = s_prefs.getUChar("ltIdle", 1);
+    s_lightColor   = s_prefs.getUChar("ltColor", 0);
+    s_lightBright  = s_prefs.getUChar("ltBright", 2);
+    if (s_lightIdle > 2)                 s_lightIdle = 1;
+    if (s_lightColor >= LIGHT_COLOR_N)   s_lightColor = 0;
+    if (s_lightBright < 1 || s_lightBright > 5) s_lightBright = 2;
     // A saved index from a build with more steps than this one must not walk
     // off the end of the table.
     if (s_scrTimeoutIx >= SCREEN_TIMEOUTS_N) s_scrTimeoutIx = 2;
@@ -332,6 +357,28 @@ void toggleBackgroundLocked() {
     s_backgroundLocked = !s_backgroundLocked;
     s_prefs.putBool("bglock", s_backgroundLocked);
 }
+
+bool        lightOn()         { return s_lightOn; }
+bool        lightAlerts()     { return s_lightAlerts; }
+bool        lightMessages()   { return s_lightMsgs; }
+uint8_t     lightIdle()       { return s_lightIdle; }
+uint8_t     lightColor()      { return s_lightColor; }
+uint8_t     lightBrightness() { return s_lightBright; }
+const char* lightIdleName()   { return LIGHT_IDLE_NAMES[s_lightIdle > 2 ? 1 : s_lightIdle]; }
+const char* lightColorName()  { return LIGHT_COLOR_NAMES[s_lightColor < LIGHT_COLOR_N ? s_lightColor : 0]; }
+void toggleLight()         { s_lightOn = !s_lightOn;         s_prefs.putBool("ltOn", s_lightOn); }
+void toggleLightAlerts()   { s_lightAlerts = !s_lightAlerts; s_prefs.putBool("ltAlert", s_lightAlerts); }
+void toggleLightMessages() { s_lightMsgs = !s_lightMsgs;     s_prefs.putBool("ltMsg", s_lightMsgs); }
+void cycleLightIdle()      { s_lightIdle = (uint8_t)((s_lightIdle + 1) % 3);            s_prefs.putUChar("ltIdle", s_lightIdle); }
+void cycleLightColor() {
+    // THEME -> BACKGROUND -> RED ... WHITE -> THEME.
+    if      (s_lightColor == 0)  s_lightColor = 10;
+    else if (s_lightColor == 10) s_lightColor = 1;
+    else if (s_lightColor >= 9)  s_lightColor = 0;
+    else                         s_lightColor++;
+    s_prefs.putUChar("ltColor", s_lightColor);
+}
+void cycleLightBrightness() { s_lightBright = (uint8_t)(s_lightBright % 5 + 1);          s_prefs.putUChar("ltBright", s_lightBright); }
 
 bool boringMode() { return s_boringMode; }
 

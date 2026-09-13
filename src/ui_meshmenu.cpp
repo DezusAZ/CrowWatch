@@ -12,8 +12,8 @@
 
 namespace {
 
-const int TOP_MARGIN = 34;   // room for the heading
-const uint8_t ROW_N = 7;
+const int TOP_MARGIN = Theme::LIST_TOP + Theme::LIST_HEADING_H;   // under the heading
+const uint8_t ROW_N = 6;     // BACK is pinned to the bottom edge now, not a row
 
 // Row height from live font metrics, shared by drawing and hit-testing so
 // the two cannot drift -- the same reason every other row list in this
@@ -33,7 +33,7 @@ void row(TFT_eSPI& t, int w, int y, int hgt, const char* label,
     t.drawRect(3, y, w - 6, hgt - 2, Theme::PURPLE);
     t.setTextSize(2);
     t.setTextWrap(false);
-    t.setTextColor(Theme::CYAN, Theme::BG);
+    t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(label);
     if (!value) return;
@@ -59,12 +59,7 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 128);
 
-    t.setTextSize(2);
-    t.setTextWrap(false);
-    t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
-    t.fillRect(3, 3, t.textWidth("SQUACHMESH") + 10, t.fontHeight() + 10, Theme::BG);
-    t.setCursor(8, 8);
-    t.print("SQUACHMESH");
+    Theme::drawListHeading(t, "SQUACHMESH", Theme::VAPOR_PINK);
 
     int top, rowH;
     geom(t, top, rowH);
@@ -95,7 +90,6 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         MeshTalk::havePhrase() ? "SET >" : "NONE >",
         MeshTalk::havePhrase() ? Theme::VAPOR_YELLOW : Theme::W95_SHADOW);
     row(t, w, top + 5 * rowH, rowH, "NAME",     nm, Theme::VAPOR_YELLOW);
-    row(t, w, top + 6 * rowH, rowH, "[ BACK ]", nullptr, Theme::CYAN);
 
     // One line saying what the two switches actually mean together, because
     // "DETECT off, TRANSMIT on" is not self-evidently "they can see you but
@@ -123,6 +117,7 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         t.setCursor(8, top + ROW_N * rowH + 6 + t.fontHeight() + 3);
         t.print(mnote);
     }
+    Theme::drawPinnedBack(t, "[ BACK ]");
 }
 
 MeshMenuRow uiMeshMenuHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {

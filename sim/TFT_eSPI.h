@@ -42,6 +42,8 @@
 #include <vector>
 #include <algorithm>
 #include "glcdfont_data.h"
+#include "font16_data.h"
+#include "gfxff/gfxfont.h"
 
 // The GLCD font's cell, matching the real library exactly. Five glyph
 // columns plus one blank spacer column (6 across), and EIGHT rows, not
@@ -130,7 +132,53 @@ public:
     virtual void end_nin_write() {}
 
     // ---- text glyphs (also virtual upstream, for the same reason) --
+    // Font 2: the library's 16-row proportional face, drawn the way its own
+    // drawChar does it -- (width + 6) / 8 bytes per row, MSB first, and the
+    // width table already carries the one-pixel gap after each glyph.
+    int16_t drawChar2(uint16_t c, int32_t x, int32_t y) {
+        if (c < 32 || c > 127) return 0;
+        const unsigned char* g = chrtbl_f16[c - 32];
+        const int width = widtbl_f16[c - 32];
+        const int wb = (width + 6) / 8;
+        for (int row = 0; row < 16; row++) {
+            for (int k = 0; k < wb; k++) {
+                const uint8_t line = g[wb * row + k];
+                for (int bit = 0; bit < 8; bit++) {
+                    const int col = k * 8 + bit;
+                    if (col >= width) break;
+                    const bool on = (line >> (7 - bit)) & 1;
+                    if (!on && transparent) continue;
+                    const uint16_t col565 = on ? textcolor : textbgcolor;
+                    if (textsize == 1) drawPixel(x + col, y + row, col565);
+                    else fillRect(x + col * textsize, y + row * textsize, textsize, textsize, col565);
+                }
+            }
+        }
+        return width * textsize;
+    }
+
+    // An Adafruit GFX face, the way the real library prints one: the cursor
+    // is the BASELINE, glyphs sit at (x + xOffset, y + yOffset), bits packed
+    // row-major with no padding, and the cursor moves on by xAdvance.
+    int16_t drawCharGfx(uint16_t c, int32_t x, int32_t y) {
+        if (c < gfxFont->first || c > gfxFont->last) return 0;
+        const GFXglyph& g = gfxFont->glyph[c - gfxFont->first];
+        const uint8_t* bm = gfxFont->bitmap + g.bitmapOffset;
+        uint32_t bit = 0;
+        for (int yy = 0; yy < g.height; yy++) {
+            for (int xx = 0; xx < g.width; xx++, bit++) {
+                const bool on = (bm[bit >> 3] >> (7 - (bit & 7))) & 1;
+                if (!on) continue;
+                if (textsize == 1) drawPixel(x + g.xOffset + xx, y + g.yOffset + yy, textcolor);
+                else fillRect(x + (g.xOffset + xx) * textsize, y + (g.yOffset + yy) * textsize, textsize, textsize, textcolor);
+            }
+        }
+        return g.xAdvance * textsize;
+    }
+
     virtual int16_t drawChar(uint16_t c, int32_t x, int32_t y, uint8_t /*font*/ = 1) {
+        if (gfxFont) return drawCharGfx(c, x, y);
+        if (textfont == 2) return drawChar2(c, x, y);
         if (c > 255) return GLCD_ADVANCE * textsize;
         // GLCD_ADVANCE columns, not GLCD_W. The sixth is always blank and
         // exists to be painted in the background colour: real TFT_eSPI writes
@@ -311,10 +359,26 @@ public:
     // (not "helpfully" treating the argument as a size) is deliberate:
     // it's what would surface a real latent bug in the caller instead
     // of hiding it.
-    int16_t fontHeight(int font) const { return font == 1 ? GLCD_H * textsize : 0; }  // 8 * size, per fontdata[1].height
-    int16_t fontHeight() const { return GLCD_H * textsize; }
+    int16_t fontHeight(int font) const { return font == 1 ? GLCD_H * textsize : (font == 2 ? 16 * textsize : 0); }
+    int16_t fontHeight() const { return gfxFont ? gfxFont->yAdvance * textsize : fontHeight(textfont); }
+    void setTextFont(uint8_t f) { textfont = (f == 2) ? 2 : 1; gfxFont = nullptr; }
+    void setFreeFont(const GFXfont* f) { gfxFont = f; textfont = 1; }
     int16_t textWidth(const char* s) const {
         int16_t w = 0;
+        if (gfxFont) {
+            // xAdvance for every glyph but the last, which counts only what it draws.
+            for (; *s; s++) {
+                const unsigned char c = (unsigned char)*s;
+                if (c < gfxFont->first || c > gfxFont->last) continue;
+                const GFXglyph& g = gfxFont->glyph[c - gfxFont->first];
+                w += (s[1] ? g.xAdvance : (g.xOffset + g.width)) * textsize;
+            }
+            return w;
+        }
+        if (textfont == 2) {
+            for (; *s; s++) { const unsigned char c = (unsigned char)*s; if (c >= 32 && c <= 127) w += widtbl_f16[c - 32] * textsize; }
+            return w;
+        }
         for (; *s; s++) w += GLCD_ADVANCE * textsize;
         return w;
     }
@@ -359,6 +423,8 @@ protected:
     int32_t cursor_x = 0, cursor_y = 0;
     uint16_t textcolor = 0xFFFF, textbgcolor = 0x0000;
     uint8_t textsize = 1;
+    uint8_t textfont = 1;
+    const GFXfont* gfxFont = nullptr;
     bool transparent = false;
 
 private:

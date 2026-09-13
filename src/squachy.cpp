@@ -1495,8 +1495,23 @@ static void drawBubbleTail(TFT_eSPI& t, int bx, int bw, int ybot, int tailX) {
 // tailX: where the tail should point, or NO_TAIL for none.
 static const int NO_TAIL = -10000;
 
+// Font 2 for what he says: the 16-row proportional face, about one and a
+// half times the 6x8 font the rest of the UI is laid out in. The bubble is
+// the one piece of text on the main screen that is READ rather than
+// glanced at, and on the 2.4" board it was a squint. The font is put back
+// on the way out, so nothing drawn after a bubble notices.
+static void drawBubbleIn(TFT_eSPI& t, int cx, int topY, const char* text,
+                         uint32_t now, bool mayRise, int tailX);
 static void drawBubble(TFT_eSPI& t, int cx, int topY, const char* text,
                        uint32_t now, bool mayRise = false, int tailX = NO_TAIL) {
+    Theme::bubbleFontOn(t);
+    drawBubbleIn(t, cx, topY, text, now, mayRise, tailX);
+    Theme::bubbleFontOff(t);
+}
+
+
+static void drawBubbleIn(TFT_eSPI& t, int cx, int topY, const char* text,
+                         uint32_t now, bool mayRise, int tailX) {
     t.setTextSize(1);
     t.setTextWrap(false);
     int screenW = t.width();
@@ -1506,7 +1521,7 @@ static void drawBubble(TFT_eSPI& t, int cx, int topY, const char* text,
     if (tw <= maxW - 10) {
         // Fits on one line -- the original compact box.
         int bw = tw + 10;
-        int bh = 14;
+        int bh = Theme::bubbleTextH() + 6;
         int bx = cx - bw / 2;
         if (bx + bw > screenW - 2) bx = screenW - 2 - bw;
         if (bx < 2) bx = 2;
@@ -1515,7 +1530,7 @@ static void drawBubble(TFT_eSPI& t, int cx, int topY, const char* text,
         t.fillRoundRect(bx, by, bw, bh, 3, Theme::BG);
         t.drawRoundRect(bx, by, bw, bh, 3, Theme::VAPOR_PINK);
         t.setTextColor(Theme::WHITE, Theme::BG);
-        t.setCursor(bx + 5, by + 3);
+        t.setCursor(bx + 5, by + 3 + Theme::bubbleAscent());
         t.print(text);
         lastBubbleX = bx;
         lastBubbleY = by;
@@ -1538,8 +1553,8 @@ static void drawBubble(TFT_eSPI& t, int cx, int topY, const char* text,
     char lines[BUBBLE_MAX_LINES][48];
     uint8_t n = Theme::wrapText(t, text, bw - 10, lines, BUBBLE_MAX_LINES);
 
-    const int lineH = 11;
-    int bh = 6 + (int)n * lineH + 3;
+    const int lineH = Theme::bubbleTextH() + 1;
+    int bh = 3 + (int)n * lineH + 3;
 
     // Asked the same question, and the width answers it: a wrapped box is
     // always too wide to clear the corners, so this always returns topY.
@@ -1552,7 +1567,7 @@ static void drawBubble(TFT_eSPI& t, int cx, int topY, const char* text,
     t.setTextColor(Theme::WHITE, Theme::BG);
     for (uint8_t i = 0; i < n; i++) {
         int lw = t.textWidth(lines[i]);
-        t.setCursor(bx + (bw - lw) / 2, by + 3 + i * lineH);
+        t.setCursor(bx + (bw - lw) / 2, by + 3 + i * lineH + Theme::bubbleAscent());
         t.print(lines[i]);
     }
     lastBubbleX = bx;
@@ -1948,6 +1963,7 @@ static const char* const WINK_LINES[] = {
 // two speech bubbles on a 240px-tall screen is not a conversation, it is a
 // pile-up; taking turns is what makes it read as talking.
 void setVisiting(bool v) { s_visiting = v; }
+bool visiting() { return s_visiting; }
 void setListening(bool v) { s_listening = v; }
 
 static const char* const MEET_HOST_LINES[] = {

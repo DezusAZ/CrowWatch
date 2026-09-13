@@ -85,6 +85,8 @@ static const SettingsRow APPEARANCE_ROWS[] = {
     // Then how the SCREEN looks.
     SettingsRow::THEME, SettingsRow::BACKGROUND, SettingsRow::BACKGROUND_LOCK, SettingsRow::BRIGHTNESS,
     SettingsRow::INVERT, SettingsRow::RGB_SWAP, SettingsRow::ROTATION_LOCK,
+    // And the one light that is not on the screen at all.
+    SettingsRow::STATUS_LIGHT,
 };
 
 // The SYSTEM page: the rarely-needed machinery, off the main list.
@@ -138,6 +140,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::INVERT:
         case SettingsRow::RGB_SWAP:
         case SettingsRow::ROTATION_LOCK:
+        case SettingsRow::STATUS_LIGHT:
         case SettingsRow::SHADES_COLOR:
         case SettingsRow::TOP_HAT:
         // SIZE, OUTFIT and PET moved onto the APPEARANCE page with the rest of
@@ -293,7 +296,10 @@ static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom,
     // above it -- otherwise the last row draws underneath and cannot be tapped.
     bodyBottom = screenH - PINNED_BACK_H - 2;
     t.setTextSize(2);
-    rowH = t.fontHeight() + 8;
+    // Two pixels taller than the text strictly needs on each side: a 24 px
+    // row was a near miss for a thumb, 26 is not, and seven of them still
+    // fit above the BACK strip in landscape.
+    rowH = t.fontHeight() + 10;
     const int big = t.fontHeight();
     t.setTextSize(1);
     headerH = t.fontHeight() + 6;
@@ -667,6 +673,9 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::POWER_SAVER:
             label = "POWER SAVER"; value = Settings::powerSaver() ? "ON" : "OFF";
+            break;
+        case SettingsRow::STATUS_LIGHT:
+            label = "STATUS LIGHT"; value = Settings::lightOn() ? "ON" : "OFF";
             break;
         case SettingsRow::SECURITY:
             label = "SECURITY"; value = Security::enabled() ? "PIN ON" : "OFF";

@@ -299,6 +299,67 @@ bool lockButtonHit(int x, int y, int w) {
 // sixteen freed rows would have made him a tenth bigger and moved everything
 // hanging off him. The rows are freed on screen without being offered to the
 // layout, which is the whole trick.
+// TFT_eSPI's font 2: the built-in 16-row proportional face. A dozen fonts
+// with more personality were tried in its place (tools/ttf2gfx.py converts
+// any TrueType face; the emulator's shim renders the result) and every one
+// of them looked converted rather than native at this size. The plain one
+// reads best. A build can still try another with -DBUBBLE_FONT=3
+// -DBUBBLE_GFX_FONT=<name> and that face's header on the include path.
+#ifndef BUBBLE_FONT
+#define BUBBLE_FONT 2
+#endif
+#if BUBBLE_FONT == 2
+void bubbleFontOn(TFT_eSPI& t)  { t.setTextFont(2); }
+void bubbleFontOff(TFT_eSPI& t) { t.setTextFont(1); }
+int  bubbleTextH()  { return 16; }
+int  bubbleAscent() { return 0; }
+#else
+static int s_bubAb = -1, s_bubBb = 0;
+static void bubbleMeasure() {
+    if (s_bubAb >= 0) return;
+    s_bubAb = 0; s_bubBb = 0;
+    const GFXfont& f = BUBBLE_GFX_FONT;
+    for (int c = 0; c <= (int)(f.last - f.first); c++) {
+        const int ab = -f.glyph[c].yOffset;
+        const int bb = f.glyph[c].height - ab;
+        if (ab > s_bubAb) s_bubAb = ab;
+        if (bb > s_bubBb) s_bubBb = bb;
+    }
+}
+void bubbleFontOn(TFT_eSPI& t)  { t.setFreeFont(&BUBBLE_GFX_FONT); }
+void bubbleFontOff(TFT_eSPI& t) { t.setTextFont(1); }
+int  bubbleTextH()  { bubbleMeasure(); return s_bubAb + s_bubBb; }
+int  bubbleAscent() { bubbleMeasure(); return s_bubAb; }
+#endif
+
+void drawListHeading(TFT_eSPI& t, const char* text, uint16_t color) {
+    t.setTextSize(1);
+    t.setTextColor(color, BG);
+    t.setCursor(8, LIST_TOP + (LIST_HEADING_H - t.fontHeight()) / 2);
+    t.print(text);
+}
+
+void drawListRowPanel(TFT_eSPI& t, int w, int y, int hgt) {
+    const int x0 = 3, ww = w - 10, hh = hgt - 2;
+    if (ww <= 0 || hh <= 0) return;
+    t.fillRect(x0, y, ww, hh, BG);
+    t.drawRect(x0, y, ww, hh, PURPLE);
+}
+
+void drawPinnedBack(TFT_eSPI& t, const char* label) {
+    const int w = t.width(), h = PINNED_BACK_H, y = t.height() - h;
+    t.fillRect(0, y, w, h, BG);
+    t.drawFastHLine(0, y, w, PURPLE);
+    t.setTextSize(2);
+    t.setTextColor(CYAN, BG);
+    t.setCursor((w - t.textWidth(label)) / 2, y + (h - t.fontHeight()) / 2);
+    t.print(label);
+}
+
+bool pinnedBackHit(int x, int y, int screenW, int screenH) {
+    return x >= 0 && x < screenW && y >= screenH - PINNED_BACK_H && y < screenH;
+}
+
 void drawTitleBar(TFT_eSPI& t, const char* title) {
     (void)title;
     int w = t.width();

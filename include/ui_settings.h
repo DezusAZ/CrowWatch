@@ -38,6 +38,7 @@ enum class SettingsRow : uint8_t {
     WATCH_TARGET,   // "WATCHING: <name>", only while a watch is set. Taps clear it.
     HUNT_TARGET,    // "HUNTING: <name>", same deal
     UPDATE_FIRMWARE, // on the SYSTEM page: Bluetooth update, or switch slots
+    STATUS_LIGHT,    // on the APPEARANCE page: opens the RGB LED's screen
     BACK,
     COUNT,
     NONE = 255

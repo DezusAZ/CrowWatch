@@ -254,6 +254,7 @@ namespace Squachy {
     // looks like. It is also just wrong: he should not be muttering about
     // the airwaves while there is somebody standing next to him.
     void setVisiting(bool v);
+    bool visiting();
 
     // True while the OTHER one is the one talking. It buys a slow nod, which
     // is the difference between a Squachy standing near a conversation and a

@@ -1,15 +1,17 @@
-// SquachWatch-CYD — SECURITY submenu. See include/ui_security.h.
-#include "ui_security.h"
+// SquachWatch-CYD — STATUS LIGHT screen implementation. A close copy of the
+// POWER SAVER screen: same geometry, same drag-to-scroll, same greyed rows
+// under a master switch.
+#include "ui_light.h"
 #include "theme.h"
 #include "settings.h"
-#include "security.h"
+#include "status_light.h"
 #include <Arduino.h>
 
 static const int TOP_MARGIN = 16;
 static int g_scroll = 0;
 
-static uint8_t rowCount() { return (uint8_t)SecurityRow::COUNT; }
-static SecurityRow rowAt(uint8_t i) { return (SecurityRow)i; }
+static uint8_t rowCount() { return (uint8_t)LightRow::COUNT; }
+static LightRow rowAt(uint8_t i) { return (LightRow)i; }
 
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
     top = TOP_MARGIN + Theme::LIST_HEADING_H;
@@ -21,58 +23,56 @@ static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int
     rowH = t.fontHeight() + 10;
 }
 
-void uiSecurityInit(TFT_eSPI& t) {
+void uiLightInit(TFT_eSPI& t) {
     g_scroll = 0;
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-void uiSecurityScroll(int delta) {
+void uiLightScroll(int delta) {
     g_scroll += delta;
     if (g_scroll < 0) g_scroll = 0;
 }
 
-// A row's label, its value, and whether it is greyed out. Everything past the
-// switch is dim until a PIN exists; PIN LENGTH is dim once one does, because
-// the length is baked into the stored hash and cannot change under it.
-static void rowContent(SecurityRow r, char* buf, size_t bufN,
+static void rowContent(LightRow r, char* valBuf, size_t valBufN,
                        const char*& label, const char*& value, bool& dimmed) {
-    const bool on = Security::enabled();
-    dimmed = !on;
+    // Everything under the master switch greys out while it is off, and stays
+    // tappable: setting the light up before turning it on is a perfectly
+    // reasonable order to work in.
+    dimmed = !Settings::lightOn();
     value = nullptr;
     switch (r) {
-        case SecurityRow::PIN_LOCK:
-            label = "PIN LOCK"; value = on ? "ON" : "OFF"; dimmed = false;
+        case LightRow::ENABLED:
+            label = "LIGHT"; value = Settings::lightOn() ? "ON" : "OFF";
+            dimmed = false;
             break;
-        case SecurityRow::PIN_LENGTH:
-            label = "PIN LENGTH";
-            snprintf(buf, bufN, "%u", (unsigned)Security::pinLength());
-            value = buf;
-            dimmed = on;    // fixed once a PIN is set
+        case LightRow::ALERTS:
+            label = "ALERTS"; value = Settings::lightAlerts() ? "ON" : "OFF";
             break;
-        case SecurityRow::CHANGE_PIN:
-            label = "CHANGE PIN"; value = on ? ">" : "--";
+        case LightRow::MESSAGES:
+            label = "MESSAGES"; value = Settings::lightMessages() ? "ON" : "OFF";
             break;
-        case SecurityRow::DURESS_PIN:
-            label = "DURESS PIN"; value = Security::hasDuress() ? "ON" : "OFF";
+        case LightRow::IDLE:
+            label = "IDLE"; value = Settings::lightIdleName();
             break;
-        case SecurityRow::AUTO_LOCK:
-            label = "AUTO-LOCK"; value = Security::autoLockLabel();
+        case LightRow::IDLE_COLOR:
+            label = "IDLE COLOR"; value = Settings::lightColorName();
             break;
-        case SecurityRow::LOCK_AT_BOOT:
-            label = "LOCK AT BOOT"; value = Security::lockAtBoot() ? "ON" : "OFF";
+        case LightRow::BRIGHTNESS:
+            label = "BRIGHTNESS";
+            snprintf(valBuf, valBufN, "%u/5", (unsigned)Settings::lightBrightness());
+            value = valBuf;
             break;
-        case SecurityRow::WIPE_ON_FAIL:
-            label = "WIPE AFTER 10"; value = Security::wipeOnFail() ? "ON" : "OFF";
+        case LightRow::TEST:
+            label = "TEST"; value = "PLAY";
             break;
-        case SecurityRow::LOCK_ALERTS:
-            label = "ALERTS LOCKED"; value = Security::lockAlertsLabel();
+        default:
+            label = "?";
             break;
-        default: label = "?"; break;
     }
 }
 
-static void drawRow(TFT_eSPI& t, int w, int y, int hgt, SecurityRow r, bool compact) {
-    char buf[12];
+static void drawRow(TFT_eSPI& t, int w, int y, int hgt, LightRow r, bool compact) {
+    char buf[16];
     const char* label = "";
     const char* value = nullptr;
     bool dimmed = false;
@@ -81,28 +81,21 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, SecurityRow r, bool comp
     Theme::drawListRowPanel(t, w, y, hgt);
 
     t.setTextSize(compact ? 1 : 2);
-    const uint16_t lab = dimmed ? Theme::blend(Theme::BG, Theme::VAPOR_PURPLE, 110) : Theme::VAPOR_PURPLE;
+    const uint16_t lab = dimmed ? Theme::blend(Theme::BG, Theme::CYAN, 110) : Theme::CYAN;
     t.setTextColor(lab, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(label);
 
     if (value) {
-        uint16_t vc = dimmed ? Theme::blend(Theme::BG, Theme::WHITE, 110) : Theme::WHITE;
-        // DURESS ON and WIPE ON are the two that erase; flag them red so a
-        // glance down the list shows which switches bite.
-        if (!dimmed &&
-            ((r == SecurityRow::DURESS_PIN && Security::hasDuress()) ||
-             (r == SecurityRow::WIPE_ON_FAIL && Security::wipeOnFail())))
-            vc = Theme::RED;
-        t.setTextColor(vc, Theme::BG);
+        t.setTextColor(dimmed ? Theme::blend(Theme::BG, Theme::WHITE, 110) : Theme::WHITE,
+                       Theme::BG);
         int vw = t.textWidth(value);
         t.setCursor(w - 18 - vw, y + (hgt - t.fontHeight()) / 2);
         t.print(value);
     }
-    t.drawFastHLine(4, y + hgt - 1, w - 8, Theme::PURPLE);
 }
 
-void uiSecurityTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiLightTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     int w = t.width(), h = t.height();
     int top, bodyBottom, rowH;
     computeGeom(t, h, top, bodyBottom, rowH);
@@ -120,36 +113,56 @@ void uiSecurityTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         case Settings::Background::TUNNEL:    Theme::drawWireframeTunnel(t, now, bgTop, bodyBottom); break;
         case Settings::Background::SPECTRUM:  Theme::drawGibson(t, now, bgTop, bodyBottom, eng); break;
         case Settings::Background::SYNTHWAVE: Theme::drawSynthwave(t, now, bgTop, bodyBottom); break;
-        case Settings::Background::BLACK:     t.fillRect(0, bgTop, w, bodyBottom - bgTop, Theme::BG); break;
+        case Settings::Background::BLACK:      t.fillRect(0, bgTop, t.width(), bodyBottom - bgTop, Theme::BG); break;
         default:                              Theme::drawDigitalRain(t, now, bgTop, bodyBottom, true); break;
     }
     Theme::restorePalette(saved);
 
-    Theme::drawTitleBar(t, ">> SECURITY <<");
-    Theme::drawListHeading(t, "SECURITY", Theme::VAPOR_PURPLE);
+    Theme::drawTitleBar(t, ">> STATUS LIGHT <<");
+    Theme::drawListHeading(t, "STATUS LIGHT", Theme::CYAN);
 
     const bool compact = (w < 300);
+
     uint8_t n = rowCount();
-    int y = top, idx = g_scroll, visibleCount = 0;
+    int y = top;
+    int idx = g_scroll;
+    int visibleCount = 0;
     while (idx < n) {
         if (y + rowH > bodyBottom) break;
         drawRow(t, w, y, rowH, rowAt((uint8_t)idx), compact);
-        y += rowH; idx++; visibleCount++;
+        y += rowH;
+        idx++;
+        visibleCount++;
     }
+
+    // On a board with no known LED the list still opens -- the settings are
+    // real and travel with the owner's preferences -- but it says so, in the
+    // space under the last row, rather than letting somebody tap TEST and
+    // wonder what they missed.
+    if (!StatusLight::available() && y + 12 <= bodyBottom) {
+        t.setTextSize(1);
+        t.setTextColor(Theme::blend(Theme::BG, Theme::WHITE, 150), Theme::BG);
+        t.setCursor(8, y + 4);
+        t.print("No LED known on this board yet.");
+    }
+
     Theme::drawScrollbar(t, w - 4, top, bodyBottom - top, n, visibleCount, g_scroll);
     Theme::drawPinnedBack(t, "[ BACK ]");
 }
 
-SecurityRow uiSecurityHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
+LightRow uiLightHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
     (void)x; (void)screenW;
     int top, bodyBottom, rowH;
     computeGeom(t, screenH, top, bodyBottom, rowH);
+
     uint8_t n = rowCount();
-    int cy = top, idx = g_scroll;
+    int cy = top;
+    int idx = g_scroll;
     while (idx < n) {
         if (cy + rowH > bodyBottom) break;
         if (y >= cy && y < cy + rowH) return rowAt((uint8_t)idx);
-        cy += rowH; idx++;
+        cy += rowH;
+        idx++;
     }
-    return SecurityRow::NONE;
+    return LightRow::NONE;
 }

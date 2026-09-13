@@ -48,6 +48,9 @@
 #include "ui_boot.h"
 #include "ui_detfilter.h"
 #include "ui_power.h"
+#include "ui_security.h"
+#include "ui_ignorelist.h"
+#include "ui_light.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
 #include "png_writer.h"
@@ -370,6 +373,9 @@ int main(int argc, char** argv) {
         else if (screen == "settings") uiSettingsTick(frame, t, engine);
         else if (screen == "detfilter") uiDetFilterTick(frame, t, engine);
         else if (screen == "power")    uiPowerTick(frame, t, engine);
+        else if (screen == "security") uiSecurityTick(frame, t, engine);
+        else if (screen == "ignorelist") uiIgnoreListTick(frame, t);
+        else if (screen == "light")    uiLightTick(frame, t, engine);
         else if (screen == "diary")    uiDiaryTick(frame, t, engine);
         else if (screen == "hunt")     uiHuntTick(frame, t, engine);
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);

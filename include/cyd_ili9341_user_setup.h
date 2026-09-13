@@ -53,6 +53,12 @@
 // LOAD_FONT2/4/6/7/8 and SMOOTH_FONT were ~11KB of glyph data plus the
 // .vlw renderer that nothing could reach.
 #define LOAD_GLCD
+// And font 2, the 16-row proportional face, for the speech bubbles: the
+// 6x8 font was a squint on a 2.4" screen and the only other size it comes
+// in is double. About 3 KB of glyphs.
+// NOTE: editing this file does not rebuild the library -- delete
+// .pio/build/<env>/lib*/TFT_eSPI first, or the board runs the old config.
+#define LOAD_FONT2
 
 // ILI9341 is normal (non-inverted) polarity, RGB order -- the two
 // lines that actually differ from cyd_user_setup.h's ST7789 config.

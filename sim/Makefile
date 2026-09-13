@@ -52,7 +52,8 @@ CXX      ?= g++
 # The sim dir comes first on the include path on purpose: that's what
 # makes <TFT_eSPI.h>, <Arduino.h> and <Preferences.h> resolve to the
 # shims here rather than to an ESP32 core that isn't installed.
-CXXFLAGS := -std=c++17 -O1 -g -Wall -Wno-unused-parameter \
+EXTRA_CXXFLAGS ?=
+CXXFLAGS := -std=c++17 -O1 -g -Wall -Wno-unused-parameter $(EXTRA_CXXFLAGS) \
             -I$(SIM_DIR) -I$(INC) -DSQUACH_MESH=1
 
 UI_SRCS  := $(SRC)/theme.cpp \
@@ -86,6 +87,8 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/idle_events.cpp \
             $(SRC)/ui_clear.cpp \
             $(SRC)/ui_power.cpp \
+            $(SRC)/ui_light.cpp \
+            $(SRC)/status_light.cpp \
             $(SRC)/pet.cpp \
             $(SRC)/ui_log.cpp \
             $(SRC)/ui_alert.cpp \
