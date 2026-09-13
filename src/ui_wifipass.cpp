@@ -7,6 +7,12 @@
 
 namespace {
 
+// macOS's <limits.h> defines PASS_MAX as a macro (the legacy getpass()
+// limit), which the emulator build there trips over. Nothing here wants
+// that one.
+#ifdef PASS_MAX
+#undef PASS_MAX
+#endif
 const uint8_t PASS_MAX = 63;          // the WPA2 limit
 
 // Keys that are not characters.
