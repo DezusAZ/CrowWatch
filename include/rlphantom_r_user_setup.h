@@ -26,6 +26,14 @@
 #define TFT_HEIGHT  320
 
 // Display, on VSPI. Identical to the 2.8" board and to the capacitive Phantom.
+// On the HSPI engine, whose native pins these are. Left unsaid, TFT_eSPI
+// takes VSPI, and so does the Arduino `SPI` object the SD card uses on
+// 18/19/23: two pin sets on one engine. On this board the touch chip reads
+// through the display's MISO, so the SD card's pins being attached to the
+// same engine killed touch, and handing the SD card the display's engine to
+// avoid that meant the card never saw a clock. Two engines, two buses, no
+// sharing: the display and touch here, the SD card on VSPI.
+#define USE_HSPI_PORT
 #define TFT_MISO  12
 #define TFT_MOSI  13
 #define TFT_SCLK  14

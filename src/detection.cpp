@@ -301,8 +301,13 @@ bool DetectionEngine::init() {
     if (g_engine) return true;
     g_engine = this;
 
-    // 1. SD card (best-effort)
-    _sd.begin();
+    // The SD card is mounted LAST, after both radios -- see the end of this
+    // function. It used to be first, and on a board with a card in the slot
+    // the mount took the heap Bluetooth's controller needs a moment later:
+    // NimBLEDevice::init() hit ESP_ERR_NO_MEM inside an ESP_ERROR_CHECK,
+    // aborted, and the board rebooted every three seconds, forever. That was
+    // "the SD boot loop", filed for months as a display-driver problem
+    // because the boards it showed on happened to be the ones with cards in.
 
     // Lifetime detection count survives reboots — Squachy references it
     // for milestone quips. Live _typeCounts above deliberately don't
@@ -443,6 +448,9 @@ bool DetectionEngine::init() {
         // taken it over. The v1.0 implementation is BLE-only for skimmers
         // (advertised name match). Documented in docs/DETECTIONS.md.
     }
+
+    // 5. SD card (best-effort), now that the radios have what they need.
+    _sd.begin();
 
     return true;
 }

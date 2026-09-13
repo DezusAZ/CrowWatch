@@ -7,6 +7,7 @@
 // SD the display's own SPI instance -- see the comment on that branch below.
 #if !defined(CYD) || defined(RLPHANTOM) || defined(RLPHANTOM_R)
 #include <TFT_eSPI.h>
+#include <esp_heap_caps.h>
 // The single TFT_eSPI instance main.cpp already owns and has already
 // init()'d by the time SdLog::begin() runs (see the comment below for
 // why AWOK/cyd35 specifically need this reference).
@@ -25,10 +26,22 @@ extern TFT_eSPI tft;
     #define SD_CS_PIN 5
 #endif
 
+// Room for two open files, not the library's default five. The FAT driver
+// reserves a 4 KB sector buffer per file slot up front, so five slots want a
+// 25 KB block -- more than is left once both radios are up (largest block
+// measured at 18 KB on the RL Phantom). This log has one file open at a time,
+// plus a directory handle while it prunes old days.
+static const uint8_t SD_MAX_FILES = 2;
+
 bool SdLog::begin() {
     if (_ready) return true;
-#if defined(CYD35) || defined(RLPHANTOM) || defined(RLPHANTOM_R)
-    // The RL Phantom lands here for the same reason cyd35 does, and it cost a
+    Serial.printf("[sd] mounting: heap %lu, largest block %lu\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#if defined(CYD35)
+    // (The RL Phantom used to land here too, and its SD card never worked as
+    // a result: the card is on 18/19/23, and the display's SPI engine never
+    // clocked those pins. Its display now runs on HSPI -- see its user setup
+    // -- so it takes the original board's branch below with a bus of its own.)
+    // The RL Phantom landed here for the same reason cyd35 does, and it cost a
     // tester an evening: its resistive touch chip sits on the DISPLAY's bus, so
     // the extra pins this attaches corrupt MISO for every touch read afterwards.
     // The symptom is precise and was reported exactly as described below --
@@ -63,20 +76,25 @@ bool SdLog::begin() {
     // no-op, and AWOK's touch chip is apparently more sensitive to
     // that than cyd35's) -- so it keeps the plain no-args SD.begin()
     // below, same as before this fix existed.
-    if (!SD.begin(SD_CS_PIN, tft.getSPIinstance())) {
+    if (!SD.begin(SD_CS_PIN, tft.getSPIinstance(), 4000000, "/sd", SD_MAX_FILES)) {
 #elif defined(AWOK)
-    if (!SD.begin(SD_CS_PIN)) {
+    if (!SD.begin(SD_CS_PIN, SPI, 4000000, "/sd", SD_MAX_FILES)) {
 #else
     // Original board only: a genuinely separate, dedicated SD bus (not
     // shared with the display), so it does need its own explicit begin()
     // -- SD.begin()'s internal default-pin fallback happens to match
     // this board's real wiring too, but stay explicit for clarity.
     SPI.begin(18, 19, 23, SD_CS_PIN);  // SCK, MISO, MOSI, CS
-    if (!SD.begin(SD_CS_PIN)) {
+    if (!SD.begin(SD_CS_PIN, SPI, 4000000, "/sd", SD_MAX_FILES)) {
 #endif
+        // Said out loud either way: a board with no card, or a card on the
+        // wrong pins, ran exactly like one that was logging, and the only
+        // way to tell was to pull the card and look.
+        Serial.println("[sd] no card, or it did not answer: nothing will be logged");
         _ready = false;
         return false;
     }
+    Serial.printf("[sd] card mounted: %llu MB\n", (unsigned long long)(SD.cardSize() >> 20));
     _ready = true;
     openDaily();
     return true;
