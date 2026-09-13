@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SquachWatch Bluetooth Update (Beta)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a000f;
+    --panel:rgba(13,0,26,0.85);
+    --cyan:#00fff5;
+    --pink:#ff2d78;
+    --vapor-pink:#ff71ce;
+    --vapor-purple:#b967ff;
+    --vapor-yellow:#fffb96;
+    --green:#00ff88;
+    --text:#e8e8ff;
+    --faint:#9a8fb5;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+    font-family:'Share Tech Mono', ui-monospace, Menlo, Consolas, monospace; font-size:16px; line-height:1.55;
+    background-image:linear-gradient(180deg, rgba(185,103,255,.10), transparent 40%);
+  }
+  .wrap{max-width:640px; margin:0 auto; padding:36px 18px 60px}
+  a{color:var(--cyan)}
+  h1{
+    font-family:'Orbitron', 'Share Tech Mono', sans-serif; font-weight:900; letter-spacing:.06em;
+    font-size:clamp(26px, 6vw, 40px); margin:0; line-height:1.1;
+    background:linear-gradient(90deg, var(--cyan), var(--vapor-pink), var(--vapor-purple));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .sub{color:var(--vapor-yellow); letter-spacing:.2em; font-size:13px; margin:6px 0 26px}
+  .card{background:var(--panel); border:1px solid rgba(185,103,255,.45); padding:18px; margin-bottom:14px}
+  .card h2{font-size:13px; letter-spacing:.18em; color:var(--vapor-pink); margin:0 0 10px; font-weight:400}
+  .card p{margin:0 0 8px}
+  .path{color:var(--cyan)}
+  .warn{border-color:var(--pink); color:var(--vapor-yellow)}
+  button{
+    font-family:inherit; font-size:16px; letter-spacing:.08em; cursor:pointer;
+    background:transparent; color:var(--cyan); border:2px solid var(--cyan); padding:10px 18px;
+  }
+  button.primary{background:var(--cyan); color:var(--bg)}
+  button:disabled{opacity:.35; cursor:not-allowed}
+  button:focus-visible, input:focus-visible{outline:2px solid var(--vapor-pink); outline-offset:2px}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  dl{display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:0}
+  dt{color:var(--faint)}
+  dd{margin:0; overflow-wrap:anywhere}
+  input.code{
+    font-family:inherit; font-size:26px; letter-spacing:.3em; width:9.5ch; padding:6px 10px;
+    background:#000; color:var(--vapor-pink); border:2px solid var(--vapor-purple);
+    font-variant-numeric:tabular-nums;
+  }
+  .bar{height:14px; border:1px solid var(--cyan); margin:12px 0 6px; position:relative}
+  .bar i{position:absolute; inset:2px auto 2px 2px; width:0; background:var(--vapor-pink)}
+  .status{min-height:1.5em}
+  .status.bad{color:var(--pink)}
+  .status.good{color:var(--green)}
+  .small{font-size:13px; color:var(--faint)}
+  [hidden]{display:none!important}
+  @media (prefers-reduced-motion: reduce){ .bar i{transition:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SQUACHWATCH</h1>
+  <p class="sub">BLUETOOTH UPDATE · BETA</p>
+
+  <div class="card">
+    <h2>THIS IS A BETA</h2>
+    <p>Bluetooth updates are new and haven’t been tested on many computers and phones yet. If it stalls, nothing on the board changes. The board’s own <span class="path">UPDATE OVER WIFI</span> is the dependable way to update.</p>
+  </div>
+
+  <div class="card warn" id="unsupported" hidden>
+    <h2>THIS BROWSER CAN'T DO BLUETOOTH</h2>
+    <p>Use Chrome or Edge on a computer, or Chrome on Android. iPhone and iPad browsers don't allow websites to use Bluetooth.</p>
+    <p>You can still switch back to the version in the other slot from the board itself, or install with the <a href="../">USB flasher</a>.</p>
+  </div>
+
+  <div class="card">
+    <h2>1 · ON THE BOARD</h2>
+    <p>Open <span class="path">Settings → SYSTEM → UPDATE FIRMWARE</span> and tap <span class="path">UPDATE OVER BLUETOOTH</span>. It shows a six-digit code.</p>
+  </div>
+
+  <div class="card">
+    <h2>2 · CONNECT</h2>
+    <p>Pick the one called <span class="path">SquachWatch-</span> followed by four letters and numbers.</p>
+    <div class="row"><button class="primary" id="connectBtn">CONNECT</button><button id="cancelBtn" hidden>DISCONNECT</button></div>
+    <dl id="boardInfo" hidden style="margin-top:14px">
+      <dt>Board</dt><dd id="biEnv"></dd>
+      <dt>Running</dt><dd id="biVer"></dd>
+      <dt>Latest</dt><dd id="biLatest">checking…</dd>
+    </dl>
+  </div>
+
+  <div class="card" id="installCard" hidden>
+    <h2>3 · INSTALL</h2>
+    <p>Type the code from the board's screen.</p>
+    <div class="row">
+      <input class="code" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="Six-digit code from the board">
+      <button class="primary" id="installBtn" disabled>INSTALL</button>
+    </div>
+    <div class="bar" id="bar" hidden><i id="barFill"></i></div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <p class="small" id="detail"></p>
+  </div>
+
+  <p class="small">Keep this tab open and the board close by until it says it's done. If anything goes wrong, nothing on the board changes. <a href="../">Back to the USB flasher</a></p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var SVC  = '9d1f0001-2a4b-4c8e-9b1e-5357574f5441';
+  var INFO = '9d1f0002-2a4b-4c8e-9b1e-5357574f5441';
+  var CTRL = '9d1f0003-2a4b-4c8e-9b1e-5357574f5441';
+  var DATA = '9d1f0004-2a4b-4c8e-9b1e-5357574f5441';
+
+  var CMD = { HELLO: 1, BEGIN: 2, SYNC: 3, END: 4, ABORT: 5 };
+  var R = { HELLO_OK: 0x81, BAD_CODE: 0x82, READY: 0x83, ACK: 0x84, DONE: 0x85, FAIL: 0x86 };
+  var WINDOW = 24;   // chunks between SYNCs: a lost one costs at most this many
+
+  // Where the firmware lives. The site root on squachwatch.com; ?base= for a
+  // local test server.
+  var params = new URLSearchParams(location.search);
+  var BASE = params.get('base') || '../';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var device = null, ctrl = null, data = null, board = null, busy = false;
+  var waiters = [];
+
+  if (!navigator.bluetooth) {
+    $('unsupported').hidden = false;
+    $('connectBtn').disabled = true;
+  }
+
+  function status(text, kind) {
+    var s = $('status');
+    s.textContent = text;
+    s.className = 'status' + (kind ? ' ' + kind : '');
+  }
+  function detail(text) { $('detail').textContent = text || ''; }
+  function progress(frac) {
+    $('bar').hidden = false;
+    $('barFill').style.width = 'calc(' + (frac * 100).toFixed(1) + '% - 4px)';
+  }
+
+  function u32(v, o) { return v.getUint32(o, true); }
+
+  function onNotify(e) {
+    var v = e.target.value;
+    var type = v.getUint8(0);
+    for (var i = 0; i < waiters.length; i++) {
+      var w = waiters[i];
+      if (type === R.FAIL || w.types.indexOf(type) >= 0) {
+        waiters.splice(i, 1);
+        clearTimeout(w.timer);
+        if (type === R.FAIL) {
+          var words = new TextDecoder().decode(new Uint8Array(v.buffer, v.byteOffset + 2, v.byteLength - 2));
+          w.reject(new Error(words || 'The board stopped the update.'));
+        } else {
+          w.resolve(v);
+        }
+        return;
+      }
+    }
+  }
+
+  function waitFor(types, ms, what) {
+    return new Promise(function (resolve, reject) {
+      var w = { types: types, resolve: resolve, reject: reject };
+      w.timer = setTimeout(function () {
+        waiters.splice(waiters.indexOf(w), 1);
+        reject(new Error('The board didn’t answer (' + what + '). Nothing was changed.'));
+      }, ms);
+      waiters.push(w);
+    });
+  }
+
+  function failAll(msg) {
+    var ws = waiters; waiters = [];
+    ws.forEach(function (w) { clearTimeout(w.timer); w.reject(new Error(msg)); });
+  }
+
+  function onDisconnected() {
+    failAll('The board disconnected. Nothing was changed.');
+    $('connectBtn').hidden = false;
+    $('cancelBtn').hidden = true;
+    if (!busy) {
+      $('installBtn').disabled = true;
+      status('Disconnected.', '');
+    }
+  }
+
+  function parseInfo(text) {
+    var o = {};
+    text.split(';').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) o[kv.slice(0, i)] = kv.slice(i + 1);
+    });
+    return o;
+  }
+
+  function codeOk() { return /^\d{6}$/.test($('codeInput').value.trim()); }
+  $('codeInput').addEventListener('input', function () {
+    this.value = this.value.replace(/\D/g, '').slice(0, 6);
+    $('installBtn').disabled = busy || !ctrl || !codeOk();
+  });
+
+  $('connectBtn').addEventListener('click', async function () {
+    try {
+      status('Choose your board in the list that opens.', '');
+      device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }] });
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      status('Connecting…', '');
+      var server = await device.gatt.connect();
+      var svc = await server.getPrimaryService(SVC);
+      var info = await svc.getCharacteristic(INFO);
+      ctrl = await svc.getCharacteristic(CTRL);
+      data = await svc.getCharacteristic(DATA);
+      await ctrl.startNotifications();
+      ctrl.addEventListener('characteristicvaluechanged', onNotify);
+      board = parseInfo(new TextDecoder().decode(await info.readValue()));
+
+      $('biEnv').textContent = board.env + ' (' + device.name + ')';
+      $('biVer').textContent = board.ver + ' in ' + board.slot;
+      $('boardInfo').hidden = false;
+      $('installCard').hidden = false;
+      $('connectBtn').hidden = true;
+      $('cancelBtn').hidden = false;
+      status('Connected. Type the code from the board.', 'good');
+      $('codeInput').focus();
+
+      try {
+        var m = await (await fetch(BASE + 'manifest-' + board.env + '.json', { cache: 'no-store' })).json();
+        var latest = m.version ? 'v' + m.version : '?';
+        $('biLatest').textContent = latest + (board.ver.indexOf(latest) === 0 ? ' (already installed)' : '');
+        $('installBtn').textContent = 'INSTALL ' + latest;
+      } catch (e) {
+        $('biLatest').textContent = 'couldn’t check';
+      }
+    } catch (e) {
+      if (e && e.name === 'NotFoundError') status('No board chosen.', '');
+      else status(e.message || String(e), 'bad');
+    }
+  });
+
+  $('cancelBtn').addEventListener('click', async function () {
+    try { if (ctrl) await ctrl.writeValueWithResponse(Uint8Array.of(CMD.ABORT)); } catch (e) {}
+    if (device && device.gatt.connected) device.gatt.disconnect();
+  });
+
+  $('installBtn').addEventListener('click', async function () {
+    if (busy || !ctrl || !codeOk()) return;
+    busy = true;
+    $('installBtn').disabled = true;
+    detail('');
+    try {
+      // The code first: the board refuses everything else until it matches.
+      var hello = new DataView(new ArrayBuffer(5));
+      hello.setUint8(0, CMD.HELLO);
+      hello.setUint32(1, parseInt($('codeInput').value, 10), true);
+      var p = waitFor([R.HELLO_OK, R.BAD_CODE], 5000, 'code');
+      await ctrl.writeValueWithResponse(hello.buffer);
+      var r = await p;
+      if (r.getUint8(0) === R.BAD_CODE) {
+        var left = r.getUint8(1);
+        status('That code doesn’t match the board. ' + left + (left === 1 ? ' try' : ' tries') + ' left.', 'bad');
+        return;
+      }
+
+      status('Downloading the firmware…', '');
+      var fwRes = await fetch(BASE + board.env + '-firmware.bin', { cache: 'no-store' });
+      var sigRes = await fetch(BASE + board.env + '-firmware.sig', { cache: 'no-store' });
+      if (!fwRes.ok) throw new Error('Couldn’t download the firmware for ' + board.env + '.');
+      if (!sigRes.ok) throw new Error('This release isn’t signed for Bluetooth updates yet. Use the USB flasher.');
+      var fw = new Uint8Array(await fwRes.arrayBuffer());
+      var sig = new Uint8Array(await sigRes.arrayBuffer());
+      if (board.max && fw.length > parseInt(board.max, 10)) throw new Error('That firmware is too big for this board.');
+
+      var begin = new Uint8Array(6 + sig.length);
+      new DataView(begin.buffer).setUint32(1, fw.length, true);
+      begin[0] = CMD.BEGIN;
+      begin[5] = sig.length;
+      begin.set(sig, 6);
+      status('The board is getting ready…', '');
+      p = waitFor([R.READY], 60000, 'getting ready');
+      await ctrl.writeValueWithResponse(begin);
+      r = await p;
+      var chunk = r.getUint16(1, true);
+
+      var off = 0, lastOff = -1, stalls = 0, t0 = performance.now();
+      progress(0);
+      while (off < fw.length) {
+        var sent = off;
+        for (var i = 0; i < WINDOW && sent < fw.length; i++) {
+          var n = Math.min(chunk, fw.length - sent);
+          var pkt = new Uint8Array(4 + n);
+          new DataView(pkt.buffer).setUint32(0, sent, true);
+          pkt.set(fw.subarray(sent, sent + n), 4);
+          await data.writeValueWithoutResponse(pkt);
+          sent += n;
+        }
+        p = waitFor([R.ACK], 10000, 'progress');
+        await ctrl.writeValueWithResponse(Uint8Array.of(CMD.SYNC));
+        r = await p;
+        off = u32(r, 1);
+        if (off === lastOff) {
+          if (++stalls > 6) throw new Error('The transfer kept stalling. Nothing was changed. Move closer and try again.');
+        } else {
+          stalls = 0;
+        }
+        lastOff = off;
+        var secs = (performance.now() - t0) / 1000;
+        var rate = off / 1024 / Math.max(secs, 0.1);
+        progress(off / fw.length);
+        status('Installing… ' + Math.floor(off * 100 / fw.length) + '%', '');
+        detail(Math.round(off / 1024) + ' of ' + Math.round(fw.length / 1024) + ' KB · ' + rate.toFixed(1) +
+               ' KB/s · about ' + Math.ceil((fw.length - off) / 1024 / Math.max(rate, 0.1)) + ' s left');
+      }
+
+      status('Checking the signature…', '');
+      p = waitFor([R.DONE], 30000, 'signature check');
+      await ctrl.writeValueWithResponse(Uint8Array.of(CMD.END));
+      await p;
+      progress(1);
+      status('Installed. The board is restarting.', 'good');
+      detail('Leave it on for 30 seconds after it comes back so it can confirm the new version. If it doesn’t start properly, it goes back to the old one by itself.');
+    } catch (e) {
+      status(e.message || String(e), 'bad');
+    } finally {
+      busy = false;
+      $('installBtn').disabled = !ctrl || !codeOk() || !(device && device.gatt.connected);
+    }
+  });
+})();
+</script>
+</body>
+</html>

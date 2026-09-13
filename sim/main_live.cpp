@@ -111,6 +111,8 @@ static const char* stateName(AppState s) {
         case AppState::LOCKED: return "LOCKED";
         case AppState::PIN_ENTRY: return "PIN_ENTRY";
         case AppState::SQUAD: return "SQUAD";
+        case AppState::UPDATE: return "UPDATE";
+        case AppState::WIFI_PASS: return "WIFI_PASS";
         case AppState::MESH_PHRASE: return "MESH_PHRASE";
         case AppState::MESH_COMPOSE: return "MESH_COMPOSE";
         default: return "?";

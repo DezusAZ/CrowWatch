@@ -215,6 +215,12 @@ public:
 
     void     stopRawScan();
 
+    // Bluetooth update mode (see ota_ble.h) gets the radio to itself: BLE
+    // scanning, WiFi capture and mesh advertising all stop until
+    // stopUpdateRadio(). Call startUpdateRadio() BEFORE OtaBle::begin().
+    void     startUpdateRadio();
+    void     stopUpdateRadio();
+
     // ---- Watched target ("stalker tracker") --------------------------
     // Session-only (not persisted to NVS -- resets on reboot). One
     // target at a time; setting a new one replaces whatever was being

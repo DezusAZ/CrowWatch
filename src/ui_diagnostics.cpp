@@ -99,6 +99,8 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
     }
     y = drawLine(t, y, Theme::CYAN, "HEAP:", "%lu free / %lu largest",
                  (unsigned long)info.freeHeap, (unsigned long)info.largestBlock);
+    y = drawLine(t, y, Theme::CYAN, "SLOT:", "%s  other: %s",
+                 info.otaSlot ? info.otaSlot : "?", info.otaOther ? info.otaOther : "none");
     y += 4;
 
     if (info.hasRaw) {

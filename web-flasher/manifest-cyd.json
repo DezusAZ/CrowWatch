@@ -16,6 +16,10 @@
           "offset": 32768
         },
         {
+          "path": "esp32-otadata.bin",
+          "offset": 57344
+        },
+        {
           "path": "cyd-firmware.bin",
           "offset": 65536
         }

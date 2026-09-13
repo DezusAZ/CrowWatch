@@ -80,7 +80,10 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/ui_ignorelist.cpp \
             $(SRC)/ui_detfilter.cpp \
             $(SRC)/ui_rawscan.cpp \
-            $(SRC)/ui_watchalert.cpp
+            $(SRC)/ui_watchalert.cpp \
+            $(SRC)/ui_update.cpp \
+            $(SRC)/ui_wifipass.cpp \
+            $(SIM_DIR)/ota_sim.cpp
 
 SIM_SRCS := $(SIM_DIR)/main_sim.cpp $(SIM_DIR)/detection_sim.cpp
 

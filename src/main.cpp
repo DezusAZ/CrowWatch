@@ -167,6 +167,11 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 #include "touch_cal.h"
 #include "settings.h"
 #include "signatures.h"
+#include "ota_core.h"
+#include "ota_ble.h"
+#include "ota_wifi.h"
+#include "ui_update.h"
+#include "ui_wifipass.h"
 
 // Two CYD board variants are supported from this one firmware:
 //   - jczn_2432s028r (original): resistive XPT2046 touch on its own
@@ -1217,7 +1222,39 @@ static void enterSettings() {
 static void enterDiagnostics() {
     state = AppState::DIAGNOSTICS;
     transitionStart = millis();
+    OtaCore::refreshOther();    // reads flash: once on the way in, not per frame
     uiDiagnosticsInit(*canvas);
+}
+
+static void enterUpdate() {
+    state = AppState::UPDATE;
+    transitionStart = millis();
+    uiUpdateInit(*canvas);
+}
+
+// A WiFi update's TLS handshake needs about 17 KB in ONE piece, and on the
+// bench the largest free block was 16 KB even with Bluetooth handed back --
+// "SSL - Memory allocation failed" on the first real HTTPS attempt. The frame
+// buffer is the biggest single allocation on the heap (77 KB at 320x240), and
+// nothing after this point needs it: a WiFi update ends in a restart whether
+// it succeeds, fails or is cancelled. So give it back and draw the update
+// screens straight to the panel, the fallback a failed rotate already uses.
+static void releaseFrameForDownload() {
+#if !defined(CYD35)
+    if (!frameBufferOk) return;
+    frame.deleteSprite();
+    frameBufferOk = false;
+    canvas = &tft;
+    tft.fillScreen(Theme::BG);
+    Serial.printf("[ota] frame buffer released: largest block %lu\n",
+                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
+}
+
+static void enterWifiPass(const char* ssid) {
+    state = AppState::WIFI_PASS;
+    transitionStart = millis();
+    uiWifiPassInit(*canvas, ssid);
 }
 
 static void enterHunt() {
@@ -1374,7 +1411,8 @@ struct KeptEntry {
 };
 
 static bool secretNamespace(const char* ns) {
-    return !strcmp(ns, "meshtalk") || !strcmp(ns, "ignore");
+    // "otawifi" is the saved WiFi password for firmware updates.
+    return !strcmp(ns, "meshtalk") || !strcmp(ns, "ignore") || !strcmp(ns, "otawifi");
 }
 
 static void physicalNvsWipe() {
@@ -1599,6 +1637,9 @@ void setup() {
     // saved rotation instead of always starting from the board default.
     Settings::load();
     Security::begin();
+    // Which version lives in this slot, and whether this boot is a fresh
+    // update on probation or the aftermath of one that was rolled back.
+    OtaCore::boot();
 #if !defined(AWOK)
     // AWOK has no rotate button and stays fixed at its one physical
     // orientation (see screenRotation's own comment above) -- only
@@ -1933,6 +1974,17 @@ void loop() {
     }
     engine.loop();
     crashCrumbTick(now, engine.lifetimeTotal(), (uint8_t)state);
+    // Confirms a probationary image once it has run long enough, and drives a
+    // Bluetooth update's flash work -- the BLE callbacks only hand it jobs.
+    OtaCore::tick(now);
+    OtaBle::tick(now);
+    OtaWifi::tick(now);
+    if (state == AppState::CLEAR) {
+        const char* sub = nullptr;
+        bool good = false;
+        if (const char* head = OtaCore::takeBootNote(&sub, &good))
+            Theme::showToast(head, sub, good ? Theme::CYAN : Theme::AMBER);
+    }
 #if SQUACH_MESH
     MeshProbe::tick(now);
     Mesh::tick(now);
@@ -3181,6 +3233,7 @@ void loop() {
                             break;
                         case SettingsRow::CHECK_COLORS: enterColorCheck(true); break;
                         case SettingsRow::DIAGNOSTICS:  enterDiagnostics(); break;
+                        case SettingsRow::UPDATE_FIRMWARE: enterUpdate(); break;
                         case SettingsRow::SHOW_OFF:
                             Squachy::startShowOff();
                             enterClear();
@@ -3270,6 +3323,126 @@ void loop() {
                     case MeshMenuRow::BACK:     enterSettings();               break;
                     default: break;
                 }
+            }
+            break;
+        }
+        case AppState::UPDATE: {
+            // An update in progress owns the screen. Dimming, auto-lock and
+            // the idle frame cap all run off lastTouch, so holding it at now
+            // keeps all three away until it is over.
+            if (OtaBle::state() != OtaBle::State::OFF || OtaWifi::state() != OtaWifi::State::OFF ||
+                OtaCore::restartPending()) lastTouch = now;
+            {
+                // Without the frame buffer every draw lands on the panel as it
+                // happens, so a full redraw each frame would flicker. Redraw
+                // only when something on the screen would actually change.
+                bool draw = true;
+                if (!frameBufferOk) {
+                    static uint32_t lastKey = 0xFFFFFFFFUL;
+                    const uint32_t key = ((uint32_t)OtaWifi::state() << 24) | ((uint32_t)OtaBle::state() << 20) |
+                                         ((uint32_t)OtaWifi::percent() << 8) | ((uint32_t)OtaWifi::netCount() << 1) |
+                                         (OtaCore::restartPending() ? 1u : 0u);
+                    draw = (key != lastKey) || touchJustDown;
+                    lastKey = key;
+                }
+                if (draw) uiUpdateTick(*canvas, now);
+            }
+            // touchJustDown, not the debounce timer: lastTouch is pinned above.
+            if (touchJustDown) {
+                int netIndex = -1;
+                switch (uiUpdateHitTest(*canvas, tp.x, tp.y, &netIndex)) {
+                    case UpdateHit::WIFI_START:
+                        engine.startUpdateRadio();
+                        if (!OtaWifi::begin()) {
+                            engine.stopUpdateRadio();
+                            Theme::showToast("CAN'T START UPDATE", "Unlock the board first", Theme::AMBER);
+                        }
+                        break;
+                    case UpdateHit::NETWORK: {
+                        const OtaWifi::Net* n = OtaWifi::net((uint8_t)netIndex);
+                        if (!n) break;
+                        if (OtaWifi::hasSaved() && !strcmp(n->ssid, OtaWifi::savedSsid())) {
+                            releaseFrameForDownload();
+                            OtaWifi::connectSaved();
+                        } else if (n->open) {
+                            releaseFrameForDownload();
+                            OtaWifi::connect(n->ssid, "", true);
+                        } else {
+                            enterWifiPass(n->ssid);
+                        }
+                        break;
+                    }
+                    case UpdateHit::RESCAN:    OtaWifi::rescan();   break;
+                    case UpdateHit::FORGET:
+                        OtaWifi::forget();
+                        Theme::showToast("WIFI FORGOTTEN", nullptr, Theme::CYAN);
+                        break;
+                    case UpdateHit::INSTALL:   OtaWifi::install();  break;
+                    case UpdateHit::TRY_AGAIN: OtaWifi::tryAgain(); break;
+                    case UpdateHit::BT_START:
+                        // The radio first: NimBLE will not register the update
+                        // service while a scan is still running.
+                        engine.startUpdateRadio();
+                        if (!OtaBle::begin()) {
+                            engine.stopUpdateRadio();
+                            Theme::showToast("CAN'T START UPDATE", "Leave and try again", Theme::AMBER);
+                        }
+                        break;
+                    case UpdateHit::SWITCH:        uiUpdateAskSwitch(true);  break;
+                    case UpdateHit::SWITCH_CANCEL: uiUpdateAskSwitch(false); break;
+                    case UpdateHit::SWITCH_CONFIRM:
+                        uiUpdateAskSwitch(false);
+                        if (OtaCore::switchToOther() != OtaCore::Fail::NONE)
+                            Theme::showToast("CAN'T SWITCH", "That version won't start", Theme::AMBER);
+                        break;
+                    case UpdateHit::CANCEL:
+                    case UpdateHit::OK:
+                        if (OtaWifi::state() != OtaWifi::State::OFF) {
+                            // True when Bluetooth was already handed back for
+                            // the download: the board restarts to recover it,
+                            // and resuming detection before then would talk
+                            // to a Bluetooth stack that no longer exists.
+                            if (!OtaWifi::end()) engine.stopUpdateRadio();
+                        } else {
+                            OtaBle::end();
+                            engine.stopUpdateRadio();
+                        }
+                        uiUpdateInit(*canvas);
+                        break;
+                    case UpdateHit::BACK:
+                        enterSettings();
+                        uiSettingsOpenPage(SettingsPage::SYSTEM);
+                        break;
+                    default: break;
+                }
+            }
+            break;
+        }
+        case AppState::WIFI_PASS: {
+            // Still inside update mode, with detection paused: the same pin on
+            // lastTouch keeps auto-lock from taking the screen mid-password.
+            lastTouch = now;
+            // Same flicker rule as UPDATE when there is no frame buffer (after a
+            // failed attempt's TRY AGAIN): redraw on touch, and slowly otherwise.
+            {
+                static uint32_t lastPassDraw = 0;
+                if (frameBufferOk || touchJustDown || touchJustUp || now - lastPassDraw > 700) {
+                    uiWifiPassTick(*canvas, now);
+                    lastPassDraw = now;
+                }
+            }
+            if (touchJustDown)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::DOWN);
+            else if (tp.valid)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::MOVE);
+            else if (touchJustUp) uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::UP);
+            const WifiPassResult r = uiWifiPassResult();
+            if (r == WifiPassResult::OK) {
+                releaseFrameForDownload();
+                OtaWifi::connect(uiWifiPassSsid(), uiWifiPassText(), true);
+                uiWifiPassClear();
+                enterUpdate();
+            } else if (r == WifiPassResult::BACK) {
+                uiWifiPassClear();
+                enterUpdate();
             }
             break;
         }
@@ -3679,6 +3852,8 @@ void loop() {
             info.freeHeap = ESP.getFreeHeap();
             info.largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
             info.resetReason = resetReasonName();
+            info.otaSlot  = OtaCore::runningSlot();
+            info.otaOther = OtaCore::otherVersion();
 
             uiDiagnosticsTick(*canvas, now, engine, info);
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS &&

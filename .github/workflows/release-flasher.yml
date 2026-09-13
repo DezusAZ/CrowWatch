@@ -199,6 +199,13 @@ jobs:
             cp ".pio/build/cyd/$f.bin" "esp32-$f.bin"
             echo "esp32-$f.bin is identical across all six builds ($ref)"
           done
+          # The OTA data partition (0xE000), written blank-but-valid on every
+          # USB install. Without it, a board that has taken a Bluetooth update
+          # keeps booting the slot that update went into, and a USB install --
+          # which always writes app0 -- would be silently ignored. It is the
+          # same boot_app0.bin `pio run -t upload` has always written.
+          cp "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" esp32-otadata.bin
+          test "$(stat -c%s esp32-otadata.bin)" -eq 8192
           # The app, which is the only part that actually differs. cyd-fast
           # and cyd-ili9341-fast are the 80MHz display-overclock variants
           # the flasher's "experimental overclock" checkbox targets,
@@ -209,6 +216,26 @@ jobs:
           for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
             cp ".pio/build/$v/firmware.bin" "$v-firmware.bin"
           done
+
+      - name: Sign firmware for Bluetooth updates
+        # Each board checks an update against the public key compiled into
+        # include/ota_pubkey.h, over a message that includes its own build
+        # name -- see tools/sign_firmware.py. No secret, no signatures: the
+        # release still ships, and the update page tells people to use USB.
+        env:
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::warning::OTA_SIGNING_KEY is not set; this release cannot be installed over Bluetooth."
+            exit 0
+          fi
+          umask 077
+          printf '%s\n' "$OTA_SIGNING_KEY" > "$RUNNER_TEMP/ota_key.pem"
+          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
+            python tools/sign_firmware.py --key "$RUNNER_TEMP/ota_key.pem" \
+              --env "$v" --bin "$v-firmware.bin" --out "$v-firmware.sig"
+          done
+          rm -f "$RUNNER_TEMP/ota_key.pem"
 
       - name: Stamp manifest versions
         run: |
@@ -253,6 +280,7 @@ jobs:
             --notes-file ".github/release-notes/${{ steps.ver.outputs.tag }}.md" \
             esp32-bootloader.bin \
             esp32-partitions.bin \
+            esp32-otadata.bin \
             cyd-firmware.bin \
             cyd-ili9341-firmware.bin \
             awok-firmware.bin \
@@ -268,7 +296,8 @@ jobs:
             manifest-awok.json \
             manifest-rlphantom-r.json \
             manifest-cyd-fast.json \
-            manifest-cyd-ili9341-fast.json
+            manifest-cyd-ili9341-fast.json \
+            $(ls *-firmware.sig 2>/dev/null)
 
       - name: Build the browser emulator
         # Skipped on a lab run, which serves the released emulator instead --
@@ -345,7 +374,7 @@ jobs:
             fi
             echo "Restoring root site from $LATEST"
             gh release download "$LATEST" -D _site --clobber \
-              -p '*-firmware.bin' -p 'manifest-*.json' -p 'esp32-*.bin'
+              -p '*-firmware.bin' -p 'manifest-*.json' -p 'esp32-*.bin' -p '*-firmware.sig' || true
             # Lab boards get copied in here, after the restore. None right
             # now -- see the lab list in web-flasher/index.html.
             echo "root site restored from $LATEST; no lab boards to add"
@@ -355,9 +384,15 @@ jobs:
           # variant. Every manifest points at the same two shared files.
           cp esp32-bootloader.bin _site/esp32-bootloader.bin
           cp esp32-partitions.bin _site/esp32-partitions.bin
+          cp esp32-otadata.bin    _site/esp32-otadata.bin
           for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
             cp "$board-firmware.bin" "_site/$board-firmware.bin"
+            # The Bluetooth update page fetches the image and its signature
+            # side by side from the site root.
+            if [ -f "$board-firmware.sig" ]; then cp "$board-firmware.sig" "_site/$board-firmware.sig"; fi
           done
+          mkdir -p _site/update
+          cp web-flasher/update/index.html _site/update/index.html
           # The browser emulator: this firmware compiled to WebAssembly,
           # so the site can offer "try it" next to "flash it".
           #
@@ -412,6 +447,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
+          # A lab run has no release tag of its own -- TAG is the branch name.
+          # The root site it serves was restored from the latest release, so
+          # that release is what "latest" means here. Without this the public
+          # version picker read "master (latest)" after the 2026-09-12 lab run.
+          if [ "${{ steps.ver.outputs.is_lab }}" = "true" ]; then
+            TAG="$(gh release list --limit 1 --json tagName -q '.[0].tagName')"
+          fi
           # Release assets carry no CORS headers, so a browser cannot fetch
           # them from the Releases tab -- everything the flasher touches has
           # to be same-origin on Pages. And a Pages deploy replaces the whole
@@ -435,6 +477,20 @@ jobs:
               -p '*-bootloader.bin' -p '*-partitions.bin' \
               -p '*-firmware.bin' -p 'manifest-*.json' \
               || echo "::warning::could not fetch $tag; skipping it"
+            # Releases from before Bluetooth updates have no otadata part in
+            # their manifests. Rolling back to one over USB must still take
+            # effect on a board that has updated since, so give them this
+            # release's (it is identical in every build) and add the part.
+            cp esp32-otadata.bin "_site/$tag/esp32-otadata.bin"
+            python3 - "$tag" <<'PY'
+          import glob, json, sys
+          for p in glob.glob("_site/%s/manifest-*.json" % sys.argv[1]):
+              m = json.load(open(p))
+              parts = m["builds"][0]["parts"]
+              if not any(x["path"] == "esp32-otadata.bin" for x in parts):
+                  parts.append({"path": "esp32-otadata.bin", "offset": 57344})
+                  json.dump(m, open(p, "w"), indent=2)
+          PY
           done
 
           # What the flasher offers in its version picker. Written as a

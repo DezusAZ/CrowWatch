@@ -83,6 +83,10 @@ struct DiagnosticsInfo {
     uint32_t    largestBlock;
     const char* resetReason;
     const char* boardName;
+    // Which app slot is running, and the version in the other one (nullptr
+    // when there is nothing there this board could switch to).
+    const char* otaSlot;
+    const char* otaOther;
     bool        usingCapTouch;
 };
 

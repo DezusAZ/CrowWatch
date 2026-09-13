@@ -1,5 +1,6 @@
 // SquachWatch-CYD — settings screen implementation
 #include "ui_settings.h"
+#include "ota_core.h"
 #include "theme.h"
 #include "settings.h"
 #include "security.h"
@@ -89,7 +90,7 @@ static const SettingsRow APPEARANCE_ROWS[] = {
 // The SYSTEM page: the rarely-needed machinery, off the main list.
 static const SettingsRow SYSTEM_ROWS[] = {
     SettingsRow::CALIBRATE, SettingsRow::CHECK_COLORS,
-    SettingsRow::DIAGNOSTICS, SettingsRow::RESET_STATS,
+    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::RESET_STATS,
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
@@ -220,6 +221,9 @@ static uint8_t buildDisplayList(DisplayItem* out) {
         // not wearing yet would be a switch that does nothing.
         if (r == SettingsRow::PET && !Squachy::petUnlocked()) continue;
         if (r == SettingsRow::TOP_HAT && !Squachy::hasTopHat()) continue;
+        // Not a secret, just impossible: a board without a second app slot or
+        // a Bluetooth server has nothing to update into.
+        if (r == SettingsRow::UPDATE_FIRMWARE && !OtaCore::available()) continue;
         rows[n++] = r;
     }
 
@@ -675,6 +679,9 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::DIAGNOSTICS:
             label = "DIAGNOSTICS";
+            break;
+        case SettingsRow::UPDATE_FIRMWARE:
+            label = "UPDATE FIRMWARE"; value = ">";
             break;
         case SettingsRow::REPLAY_INTRO:
             label = "REPLAY INTRO";

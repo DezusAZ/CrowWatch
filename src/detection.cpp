@@ -30,7 +30,7 @@ static DetectionEngine* g_engine = nullptr;
 // -------- manual raw scanner state (see startRawBleScan/startRawWifiScan) --------
 // NONE = normal continuous signature-matched scanning (the default).
 // Only one of these is ever active at a time -- see stopRawScan().
-enum class RawScanMode : uint8_t { NONE, BLE, WIFI };
+enum class RawScanMode : uint8_t { NONE, BLE, WIFI, UPDATE };
 static RawScanMode g_rawMode        = RawScanMode::NONE;
 static uint32_t    g_rawBleStartMs  = 0;
 // How long a raw BLE sweep stays open before the UI is told it's
@@ -96,7 +96,8 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         int8_t rssi = (int8_t)adv->getRSSI();
         g_engine->checkWatchBle(mac, rssi);
         g_engine->checkHuntBle(mac, rssi);
-        if (g_rawMode == RawScanMode::WIFI) return;   // radio's dedicated to the WiFi sweep right now
+        // The radio is dedicated to a WiFi sweep or a firmware update right now.
+        if (g_rawMode == RawScanMode::WIFI || g_rawMode == RawScanMode::UPDATE) return;
         if (g_rawMode == RawScanMode::BLE) {
             RawBleResult r;
             memset(&r, 0, sizeof(r));
@@ -587,6 +588,9 @@ static void setAdvertising(bool on, uint32_t now) {
     } else {
         adv->setScanResponse(false);
     }
+    // Never connectable. Update mode's server shares this advertiser, and a
+    // stack with the peripheral role compiled in defaults to connectable.
+    adv->setAdvertisementType(BLE_GAP_CONN_MODE_NON);
     adv->setMinInterval((uint16_t)(ADV_MS * 8 / 5));
     adv->setMaxInterval((uint16_t)(ADV_MS * 8 / 5 + 16));
     adv->start();
@@ -598,6 +602,8 @@ static void setAdvertising(bool on, uint32_t now) {
 }
 
 void radioTick(uint32_t now) {
+    // Update mode owns the advertiser; see DetectionEngine::startUpdateRadio().
+    if (g_rawMode == RawScanMode::UPDATE) return;
     // Our own address goes into the nonce of every message we send, so the
     // runtime needs it -- read once, after the stack is up, and copied out of
     // a named NimBLEAddress rather than via getNative() on a temporary.
@@ -622,6 +628,8 @@ void radioTick(uint32_t now) {
     }
     if (!want && s_advOn) setAdvertising(false, now);
 }
+
+void stopAdvertisingForUpdate() { setAdvertising(false, 0); }
 
 } // namespace Mesh
 #endif
@@ -1025,6 +1033,46 @@ void DetectionEngine::stopRawScan() {
     if (g_rawMode == RawScanMode::WIFI) WiFi.scanDelete();
     g_rawMode = RawScanMode::NONE;
     esp_wifi_set_promiscuous(true);
+}
+
+// ---- Bluetooth update mode --------------------------------------------------
+// The scan stops and starts ON THE HOST TASK, for the reason spelled out above
+// scanFlushOnHost(): the host hands its records to onResult() on the other
+// core, and a stop() from the loop task once freed one mid-callback.
+static struct ble_npl_event s_updStopEv;
+static struct ble_npl_event s_updStartEv;
+static bool                 s_updEvReady = false;
+
+static void updScanStopOnHost(struct ble_npl_event*) {
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    if (scan && scan->isScanning()) scan->stop();
+}
+
+static void updScanStartOnHost(struct ble_npl_event*) {
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    if (g_rawMode == RawScanMode::NONE && scan && !scan->isScanning()) scan->start(0, nullptr, false);
+}
+
+void DetectionEngine::startUpdateRadio() {
+    if (!s_updEvReady) {
+        ble_npl_event_init(&s_updStopEv,  updScanStopOnHost,  nullptr);
+        ble_npl_event_init(&s_updStartEv, updScanStartOnHost, nullptr);
+        s_updEvReady = true;
+    }
+    if (g_rawMode == RawScanMode::WIFI) WiFi.scanDelete();
+    g_rawMode = RawScanMode::UPDATE;
+    esp_wifi_set_promiscuous(false);
+#if SQUACH_MESH
+    Mesh::stopAdvertisingForUpdate();
+#endif
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_updStopEv);
+}
+
+void DetectionEngine::stopUpdateRadio() {
+    if (g_rawMode != RawScanMode::UPDATE) return;
+    g_rawMode = RawScanMode::NONE;
+    esp_wifi_set_promiscuous(true);
+    if (s_updEvReady) ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_updStartEv);
 }
 
 void DetectionEngine::watchBle(const uint8_t* mac, const char* name) {

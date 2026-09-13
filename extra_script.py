@@ -18,3 +18,9 @@ def get_version():
 
 
 env.Append(BUILD_FLAGS=['-DFIRMWARE_VERSION=\\"%s\\"' % get_version()])
+
+# The environment name, as SQW_ENV. A Bluetooth update is signed for exactly one
+# build and the board checks the signature against its own name, so an image
+# for a different board -- a different display driver, say -- is refused
+# rather than installed as a white screen. See include/ota_ble.h.
+env.Append(BUILD_FLAGS=['-DSQW_ENV=\\"%s\\"' % env["PIOENV"]])

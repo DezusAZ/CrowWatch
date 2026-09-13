@@ -37,6 +37,7 @@ enum class SettingsRow : uint8_t {
     SYSTEM,         // opens the SYSTEM page: calibrate, colours, diagnostics, reset
     WATCH_TARGET,   // "WATCHING: <name>", only while a watch is set. Taps clear it.
     HUNT_TARGET,    // "HUNTING: <name>", same deal
+    UPDATE_FIRMWARE, // on the SYSTEM page: Bluetooth update, or switch slots
     BACK,
     COUNT,
     NONE = 255

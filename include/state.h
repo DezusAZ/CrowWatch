@@ -129,7 +129,10 @@ enum class AppState : uint8_t {
     SECURITY         = 22, // the SECURITY submenu (PIN lock + the rest)
     LOCKED           = 23, // the lock screen: the payphone, digits only
     PIN_ENTRY        = 24, // setting, changing or checking a PIN, from SECURITY
-    SQUAD            = 25  // every SquachWatch in range, and the inbox
+    SQUAD            = 25, // every SquachWatch in range, and the inbox
+    UPDATE           = 26, // UPDATE FIRMWARE, from Settings' SYSTEM page:
+                            // WiFi or Bluetooth update, or switch slots
+    WIFI_PASS        = 27  // typing a WiFi password, from UPDATE's network list
 };
 
 enum class ButtonId : uint8_t {

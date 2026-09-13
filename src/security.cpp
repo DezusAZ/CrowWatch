@@ -266,6 +266,7 @@ const char* lockAlertsLabel() {
 
 void wipeSecrets() {
     clearNamespace("meshtalk");
+    clearNamespace("otawifi");       // the saved WiFi password for updates
     IgnoreList::clear();            // empties RAM and its NVS blob
 }
 
