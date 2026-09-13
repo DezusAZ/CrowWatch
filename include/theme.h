@@ -108,6 +108,11 @@ namespace Theme {
 
     // Linear blend between two RGB565 colors. t is 0..256 (8.8 fixed).
     uint16_t blend(uint16_t a, uint16_t b, uint16_t t);
+    // Black or white, whichever reads on `fill`. A selected button or tab is
+    // filled with PURPLE and used to keep a white label whatever the theme;
+    // GH0ST's PURPLE is near white, and three other themes' are pale enough
+    // that white on them measured under 2.5:1.
+    uint16_t labelOn(uint16_t fill);
 
     // Draws the gradient titlebar across the full width, with a 1-px
     // purple bottom border, centered white text, the settings (hamburger)

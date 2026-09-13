@@ -458,7 +458,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             t.fillRect(x, y0, tw, TH, on ? Theme::PURPLE : Theme::BG);
             t.drawRect(x, y0, tw, TH, on ? Theme::VAPOR_PINK : Theme::W95_SHADOW);
             const char* nm = EmoteScript::TAB_NAME[i];
-            t.setTextColor(on ? Theme::WHITE : Theme::W95_LIGHT, on ? Theme::PURPLE : Theme::BG);
+            t.setTextColor(on ? Theme::labelOn(Theme::PURPLE) : Theme::W95_LIGHT, on ? Theme::PURPLE : Theme::BG);
             t.setCursor(x + (tw - t.textWidth(nm)) / 2, y0 + (TH - 8) / 2);
             t.print(nm);
         }
@@ -500,7 +500,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             t.fillRect(x, y0, ltw, LTH, on ? Theme::PURPLE : Theme::BG);
             t.drawRect(x, y0, ltw, LTH, on ? Theme::VAPOR_PINK : Theme::W95_SHADOW);
             const char* nm = MeshMsg::CANNED_TAB_NAME[i];
-            t.setTextColor(on ? Theme::WHITE : Theme::W95_LIGHT, on ? Theme::PURPLE : Theme::BG);
+            t.setTextColor(on ? Theme::labelOn(Theme::PURPLE) : Theme::W95_LIGHT, on ? Theme::PURPLE : Theme::BG);
             t.setCursor(x + (ltw - t.textWidth(nm)) / 2, y0 + (LTH - 8) / 2);
             t.print(nm);
         }
@@ -516,7 +516,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             const uint16_t bg = sel ? Theme::PURPLE : Theme::BG;
             t.fillRect(x, y, cw, ch, bg);
             t.drawRect(x, y, cw, ch, sel ? Theme::VAPOR_PINK : Theme::CYAN);
-            t.setTextColor(Theme::WHITE, bg);
+            t.setTextColor(sel ? Theme::labelOn(bg) : Theme::WHITE, bg);
             t.setCursor(x + 6, y + (ch - 8) / 2);
             t.print(MeshMsg::CANNED[idx]);
         }

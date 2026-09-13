@@ -95,11 +95,18 @@ def check_contrast(pals):
         # on the message screen. A theme with a pale PURPLE makes that label
         # vanish, and nothing above measures it because the label is not
         # sitting on BG at all.
-        sel = contrast(white, rgb332(p["purple"]))
+        # The firmware picks the label colour with Theme::labelOn(): black on a
+        # pale fill, white on a dark one. Same arithmetic here, on the raw 565.
+        c565 = p["purple"]
+        r5, g6, b5 = (c565 >> 11) & 0x1F, (c565 >> 5) & 0x3F, c565 & 0x1F
+        luma = (r5 * 8 * 54 + g6 * 4 * 183 + b5 * 8 * 19) >> 8
+        label = (0, 0, 0) if luma > 120 else white
+        sel = contrast(label, rgb332(p["purple"]))
         sel_mark = "  <-- NEARLY INVISIBLE" if sel < 1.5 else ("  <-- hard to read" if sel < 3.0 else "")
+        who = "black label" if luma > 120 else "white label"
         if sel_mark:
-            flags.append("%-11s %-12s on selected fill (PURPLE): %.2f:1%s" % (name, "white label", sel, sel_mark))
-        lines.append("    %-12s on selected fill (PURPLE) %5.2f:1%s" % ("white label", sel, sel_mark))
+            flags.append("%-11s %-12s on selected fill (PURPLE): %.2f:1%s" % (name, who, sel, sel_mark))
+        lines.append("    %-12s on selected fill (PURPLE) %5.2f:1%s" % (who, sel, sel_mark))
         # Colours that stop being different once the buffer quantises them.
         seen = {}
         for field in TEXT:

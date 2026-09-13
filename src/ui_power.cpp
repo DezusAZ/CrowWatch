@@ -99,6 +99,17 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, PowerRow r, bool compact
     bool dimmed = false;
     rowContent(r, buf, sizeof(buf), label, value, dimmed);
 
+    // A solid panel under the row, the way the settings screen does it. The
+    // labels used to sit straight on the dimmed background, and the synthwave
+    // sun came through the gaps in every word in every theme.
+    {
+        const int x0 = 3, ww = w - 10, hh = hgt - 2;
+        if (ww > 0 && hh > 0) {
+            t.fillRect(x0, y, ww, hh, Theme::BG);
+            t.drawRect(x0, y, ww, hh, Theme::PURPLE);
+        }
+    }
+
     t.setTextSize(compact ? 1 : 2);
     // The master switch keeps full contrast at all times; the rest fade to
     // the dim grey the rest of the UI already uses for inactive text.
@@ -117,7 +128,6 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, PowerRow r, bool compact
         t.setCursor(w - 18 - vw, y + (hgt - t.fontHeight()) / 2);
         t.print(value);
     }
-    t.drawFastHLine(4, y + hgt - 1, w - 8, Theme::PURPLE);
 }
 
 void uiPowerTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {

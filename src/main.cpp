@@ -1156,8 +1156,14 @@ static bool maybeEnterOutfitUnlock() {
     return true;
 }
 
+// The alert card takes no touch until the finger that opened it has lifted.
+// Opened by a press-and-hold on NEARBY, the card appeared under a finger that
+// was still down, and the first frame read that as a tap and closed it.
+static bool s_alertArmed = true;
+
 static void enterAlert(const Detection& d) {
     state = AppState::ALERT;
+    s_alertArmed = false;
     alertStart = millis();
     transitionStart = alertStart;
     lastAlertType = d.type;
@@ -1417,6 +1423,12 @@ static bool secretNamespace(const char* ns) {
 
 static void physicalNvsWipe() {
     std::vector<KeptEntry> kept;
+    // Grown once, up front. Grown by doubling as entries arrived, the last
+    // step asked for more than the heap had left and the board panicked
+    // between the erase and the restart -- with the secrets already gone,
+    // which is the one part that mattered, but as a crash, not a quiet reboot.
+    kept.reserve(128);
+    Serial.printf("[wipe] keeping settings: heap %lu\n", (unsigned long)ESP.getFreeHeap());
     nvs_iterator_t it = nvs_entry_find(NVS_DEFAULT_PART_NAME, NULL, NVS_TYPE_ANY);
     while (it) {
         nvs_entry_info_t info;
@@ -1456,6 +1468,8 @@ static void physicalNvsWipe() {
         it = nvs_entry_next(it);
     }
     nvs_release_iterator(it);
+    Serial.printf("[wipe] %u entries kept, heap %lu; erasing\n", (unsigned)kept.size(), (unsigned long)ESP.getFreeHeap());
+    Serial.flush();
 
     nvs_flash_erase();       // de-initialises, then erases every page
     nvs_flash_init();
@@ -1491,7 +1505,13 @@ static void performWipe(WipeBoot after) {
     Security::wipeSecrets();
     engine.sd().wipe();
 #if HAVE_NVS_ERASE
+    // The frame buffer is 77 KB the wipe can have: the board restarts in a
+    // moment and the screen is meant to go quiet anyway. Without it the copy
+    // of the kept settings ran the heap dry.
+    releaseFrameForDownload();
     physicalNvsWipe();
+    Serial.println("[wipe] done, restarting");
+    Serial.flush();
     g_wipeBoot = WIPEBOOT_MAGIC | (uint8_t)after;
     delay(20);
     esp_restart();
@@ -2480,8 +2500,13 @@ void loop() {
                 else                  Settings::cycleBackground();
             } else if (tp.valid && nbActive) {
                 const int32_t dx = tp.x - sqStartX, dy = tp.y - sqStartY;
-                if ((dx * dx + dy * dy) > SQ_MOVE_PX_SQ) {
-                    // A stroke, not a press: Squachy gets it from here on.
+                // A much wider allowance than Squachy's pet stroke: a thumb
+                // held still on a resistive panel wanders several pixels a
+                // frame, and at the pet threshold every hold on a real board
+                // was cancelled as a stroke and handed to him instead.
+                constexpr int32_t NB_MOVE_PX_SQ = 24 * 24;
+                if ((dx * dx + dy * dy) > NB_MOVE_PX_SQ) {
+                    // A real stroke, not a press: Squachy gets it from here on.
                     nbActive = false;
                 } else if ((now - nbStart) >= NEARBY_HOLD_MS) {
                     nbActive = false;
@@ -2598,6 +2623,14 @@ void loop() {
 #else
             uiAlertTick(*canvas, now, engine, s_infoPending, alertInfoTypeName, alertInfoText);
 #endif
+            // The finger that opened the card has to lift before the card
+            // listens: see s_alertArmed. The auto-dismiss timer below still
+            // runs, so a hand left resting on the screen can't pin it open.
+            if (!s_alertArmed) {
+                if (!tp.valid) s_alertArmed = true;
+                else           tp.valid = false;
+            }
+
             // Same "ignore the touch that opened this until it releases"
             // gate LOG's info panel uses, applied here too -- MORE INFO
             // appears on the exact tap that opened it, so without this

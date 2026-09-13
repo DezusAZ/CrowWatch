@@ -2679,10 +2679,21 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             for (int8_t sg = -1; sg <= 1; sg += 2) {
                 const int ax = (sg < 0) ? s_armL1x : s_armR1x;
                 const int ay = (sg < 0) ? s_armL1y : s_armR1y;
-                const int adx = ax - cx2, ady = ay - oy;
-                if (adx * adx + ady * ady < hdr * hdr) {
-                    const int sx = (sg < 0) ? s_armL0x : s_armR0x;
-                    const int sy = (sg < 0) ? s_armL0y : s_armR0y;
+                const int sx = (sg < 0) ? s_armL0x : s_armR0x;
+                const int sy = (sg < 0) ? s_armL0y : s_armR0y;
+                // Does the arm, shoulder to hand, pass through the hood? The
+                // closest point on the segment to the hood's centre, and its
+                // distance. Testing only the hand missed a wave, where the
+                // hand clears the hood but the forearm crosses it, and the
+                // mitten hung in the air with no sleeve behind it.
+                const float vx = (float)(ax - sx), vy = (float)(ay - sy);
+                const float wx = (float)(cx2 - sx), wy = (float)(oy - sy);
+                const float vv = vx * vx + vy * vy;
+                float u = vv > 0.0f ? (vx * wx + vy * wy) / vv : 0.0f;
+                if (u < 0.0f) u = 0.0f; else if (u > 1.0f) u = 1.0f;
+                const float qx = (float)sx + u * vx - (float)cx2;
+                const float qy = (float)sy + u * vy - (float)oy;
+                if (qx * qx + qy * qy < (float)(hdr * hdr)) {
                     wideLine(t, sx, sy, ax, ay, S(7) + 2, seam);
                     wideLine(t, sx, sy, ax, ay, S(7), org);
                 }
@@ -3012,11 +3023,14 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             auto peltOn = [&](int x0, int y0, int x1, int y1, int outward) {
                 const int mx = x0 + (x1 - x0) * 55 / 100;
                 const int my = y0 + (y1 - y0) * 55 / 100;
-                wideLine(t, x0 + outward, y0 - Sf(2.0f), mx + outward, my, Sf(9.0f), peltDark);
+                wideLine(t, x0 + outward, y0 - Sf(2.0f), mx + outward, my, Sf(8.0f), peltDark);
                 wideLine(t, x0 + outward, y0 + Sf(1.0f), mx + outward, my - Sf(1.0f), Sf(3.0f), peltMid);
             };
-            peltOn(s_armL0x, s_armL0y, s_armL1x, s_armL1y, -Sf(3.0f));
-            peltOn(s_armR0x, s_armR0y, s_armR1x, s_armR1y,  Sf(3.0f));
+            // One unit outboard, so the hide sits ON the upper arm with a
+            // sliver past its outer edge. Three units left most of it hanging
+            // in the air beside the arm, reading as a second, darker limb.
+            peltOn(s_armL0x, s_armL0y, s_armL1x, s_armL1y, -Sf(1.0f));
+            peltOn(s_armR0x, s_armR0y, s_armR1x, s_armR1y,  Sf(1.0f));
             break;
         }
         case OutfitId::UNICORN: {
@@ -3144,10 +3158,17 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             // White gloves -- a core, consistent trait across every
             // era of the design this homages, and the one thing this
             // outfit was missing that actually sells the reference.
-            t.fillCircle(cx2 - S(14), hy + S(42), S(4), WHITE);
-            t.fillCircle(cx2 + S(14), hy + S(42), S(4), WHITE);
-            t.fillEllipse(cx2 - S(6), hy + S(50), S(6), S(3), RED);
-            t.fillEllipse(cx2 + S(6), hy + S(50), S(6), S(3), RED);
+            // On the hands THEMSELVES (s_armL1x and friends, published by
+            // drawBody()), not at the resting hand position: fixed gloves
+            // stayed at his sides while the arms went up, and every raised
+            // pose showed two white balls floating where his hands had been.
+            t.fillCircle(s_armL1x, s_armL1y, S(4), WHITE);
+            t.fillCircle(s_armR1x, s_armR1y, S(4), WHITE);
+            // Shoes on the FEET, which stay planted when the body sinks into a
+            // crouch or a bow: at a fixed distance below hy they slid down
+            // and hung in the air under his soles.
+            t.fillEllipse(s_footLx + S(7), s_footLy + S(1), S(6), S(3), RED);
+            t.fillEllipse(s_footRx + S(5), s_footRy + S(1), S(6), S(3), RED);
             break;
         }
         case OutfitId::CAPTAIN: {
@@ -3562,7 +3583,11 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // under that costume, and a dark outline sized to one would show as a
         // halo around the sphere.
         if (outfitNow != OutfitId::VOIDEYE)
-            t.fillRoundRect(cx2 - S(16), hy - S(1), S(32), S(26), S(8), keyCol);
+            // At the head's LIVE position: the squash-and-stretch drop and a
+            // bow's or howl's head offset both move the head, and an outline
+            // left at the base position showed as a black cap above a bowed
+            // head.
+            t.fillRoundRect(cx2 - S(16), hy + s_headDrop + actHead - S(1), S(32), S(26), S(8), keyCol);
         t.fillRoundRect(cx2 - S(torsoHalf() + 1), hy + S(22), S(2 * torsoHalf() + 2), S(20), S(6), keyCol);
     }
 
@@ -4048,7 +4073,10 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // off hh, not hy, so it follows his squash-and-stretch instead of staying
     // put while his head bobs out of it.
     if (outfitNow == OutfitId::PARKA) {
-        const int hcy = hy + s_headDrop + S(8);
+        // Same anchor as the head itself (hh below): without actHead the shell
+        // stayed put while a bow dropped the head, and its dark inner ring
+        // showed as a second head above the real one.
+        const int hcy = hy + s_headDrop + actHead + S(8);
         t.fillCircle(cx2, hcy, S(23) + 2, t.color565(18, 10, 4));
         t.fillCircle(cx2, hcy, S(23), t.color565(255, 138, 26));
         const int pow_ = (S(17) * 102) / 100, poh = (S(16) * 102) / 100;
@@ -4202,17 +4230,17 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // The pointing/covering gesture for these reactions lands on
         // the face, so it's drawn last, in front of the head just
         // painted above, instead of underneath it with the other arm.
+        // Through limbTo(), so the hand positions are recorded: drawn
+        // longhand, these left s_armL1x and friends at the resting hand,
+        // and anything worn on the hands (Blue Blur's gloves) stayed down at
+        // his sides while the arms were up over his face.
         if (pose == ReactPose::COVER_FACE) {
-            keyW(cx2 - S(11), hh + S(26), cx2 + S(7), hh + S(6), S(7));
-            wideLine(t, cx2 - S(11), hh + S(26), cx2 + S(7), hh + S(6), S(7), furLight);
-            keyW(cx2 + S(11), hh + S(26), cx2 - S(7), hh + S(6), S(7));
-            wideLine(t, cx2 + S(11), hh + S(26), cx2 - S(7), hh + S(6), S(7), furLight);
+            limbTo(cx2 - S(11), hh + S(26), cx2 + S(7), hh + S(6));
+            limbTo(cx2 + S(11), hh + S(26), cx2 - S(7), hh + S(6));
         } else if (pose == ReactPose::POINT_SHADES) {
-            keyW(cx2 + S(11), hh + S(26), cx2 + S(4), hh + S(8), S(7));
-            wideLine(t, cx2 + S(11), hh + S(26), cx2 + S(4), hh + S(8), S(7), furLight);
+            limbTo(cx2 + S(11), hh + S(26), cx2 + S(4), hh + S(8));
         } else if (pose == ReactPose::DISGUST) {
-            keyW(cx2 + S(11), hh + S(26), cx2, hh + S(17), S(7));
-            wideLine(t, cx2 + S(11), hh + S(26), cx2, hh + S(17), S(7), furLight);
+            limbTo(cx2 + S(11), hh + S(26), cx2, hh + S(17));
         }
     } else if (act == VisitPose::SAD) {
         // No shades for this one: eyes you can see, brows up in the middle, a

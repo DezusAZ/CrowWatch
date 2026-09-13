@@ -26,6 +26,11 @@ void geom(TFT_eSPI& t, int& top, int& rowH) {
 
 void row(TFT_eSPI& t, int w, int y, int hgt, const char* label,
          const char* value, uint16_t valueCol) {
+    // A solid panel under the row, as the settings screen has. Without it
+    // the labels sat straight on the dimmed backdrop, and the synthwave sun
+    // came through the gaps in every word.
+    t.fillRect(3, y, w - 6, hgt - 2, Theme::BG);
+    t.drawRect(3, y, w - 6, hgt - 2, Theme::PURPLE);
     t.setTextSize(2);
     t.setTextWrap(false);
     t.setTextColor(Theme::CYAN, Theme::BG);
@@ -57,6 +62,7 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     t.setTextSize(2);
     t.setTextWrap(false);
     t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
+    t.fillRect(3, 3, t.textWidth("SQUACHMESH") + 10, t.fontHeight() + 10, Theme::BG);
     t.setCursor(8, 8);
     t.print("SQUACHMESH");
 

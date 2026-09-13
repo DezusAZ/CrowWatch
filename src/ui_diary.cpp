@@ -98,8 +98,10 @@ void uiDiaryTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     drawStat(t, w, top + 8 * rowH, rowH, "FIRMWARE", FIRMWARE_VERSION);
 
     // Hint, pulsing gently so it doesn't just look like inert label text.
-    float pulse = 0.4f + 0.3f * sinf((float)(now % 1600) / 1600.0f * 6.2831853f);
-    uint16_t col = Theme::blend(Theme::BG, Theme::VAPOR_BLUE, (uint16_t)(pulse * 255.0f));
+    // Between 65% and 100% of CYAN: the old 10-70% of VAPOR_BLUE rounded to
+    // nearly nothing in the frame buffer, in every theme.
+    float pulse = 0.825f + 0.175f * sinf((float)(now % 1600) / 1600.0f * 6.2831853f);
+    uint16_t col = Theme::blend(Theme::BG, Theme::CYAN, (uint16_t)(pulse * 255.0f));
     t.setTextSize(1);
     t.setTextColor(col, Theme::BG);
     const char* hint = "tap anywhere to go back";

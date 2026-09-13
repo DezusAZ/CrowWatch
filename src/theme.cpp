@@ -144,6 +144,13 @@ uint16_t colorFor(DetectionType t) {
     }
 }
 
+uint16_t labelOn(uint16_t fill) {
+    const int r = (fill >> 11) & 0x1F, g = (fill >> 5) & 0x3F, b = fill & 0x1F;
+    // Perceived brightness, 0..~255, with the 5/6/5 channels scaled to 8 bits.
+    const int luma = (r * 8 * 54 + g * 4 * 183 + b * 8 * 19) >> 8;
+    return luma > 120 ? BLACK : WHITE;
+}
+
 uint16_t blend(uint16_t a, uint16_t b, uint16_t t) {
     // 8.8 fixed-point t, 0..256
     uint8_t ar = (a >> 8) & 0xF8;
@@ -326,7 +333,7 @@ void drawTitleBar(TFT_eSPI& t, const char* title) {
 void drawButton(TFT_eSPI& t, int x, int y, int w, int h,
                 const char* label, bool pressed, uint8_t textSize) {
     uint16_t fill = pressed ? PURPLE : BG;
-    uint16_t fg   = pressed ? WHITE  : CYAN;
+    uint16_t fg   = pressed ? labelOn(PURPLE) : CYAN;
     t.fillRect(x, y, w, h, fill);
     t.drawRect(x, y, w, h, PURPLE);
     t.setTextSize(textSize);

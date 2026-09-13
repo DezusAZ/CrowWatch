@@ -1509,13 +1509,22 @@ static const int MSG_ICON_W = 32, MSG_ICON_H = 22;
 
 static void drawMessageIcon(TFT_eSPI& t, int x, int y, bool unread, bool sending, uint32_t now) {
     const int iw = MSG_ICON_W, ih = MSG_ICON_H;
-    const uint16_t edge = unread ? Theme::RED : Theme::CYAN;
-    t.fillRoundRect(x, y, iw, ih, 5, unread ? Theme::RED : Theme::BG);
+    // Unread is filled with the theme's RED. In GH0ST that RED is near white,
+    // so the bubble was a solid white block with a white mark on it: on a
+    // pale RED the fill drops to a mid grey and the mark goes black.
+    uint16_t fill = unread ? Theme::RED : Theme::BG;
+    uint16_t mark = Theme::WHITE;
+    if (unread && Theme::labelOn(fill) == Theme::BLACK) {
+        fill = Theme::blend(fill, Theme::BLACK, 96);
+        mark = Theme::BLACK;
+    }
+    const uint16_t edge = unread ? fill : Theme::CYAN;
+    t.fillRoundRect(x, y, iw, ih, 5, fill);
     t.drawRoundRect(x, y, iw, ih, 5, edge);
     t.fillTriangle(x + 4, y + ih - 1, x + 12, y + ih - 1, x + 4, y + ih + 5, edge);
     if (unread) {
         t.setTextSize(2);
-        t.setTextColor(Theme::WHITE, Theme::RED);
+        t.setTextColor(mark, fill);
         t.setCursor(x + (iw - 12) / 2 + 1, y + (ih - 16) / 2 + 1);
         t.print("!");
         t.setTextSize(1);
@@ -1555,13 +1564,19 @@ static void drawSquadBadge(TFT_eSPI& t, int rightX, int bottomY, uint8_t count) 
     t.setTextSize(2);
     const int bh = 22, bw = 24 + t.textWidth(b) + 8;
     const int x = rightX - bw, y = bottomY - bh;
+    // PURPLE fill, VAPOR_PINK head and a white count: in GH0ST all three are
+    // white, and the badge was a blank white block. On a pale fill the head
+    // and rim go grey and the count goes black.
+    const bool pale = Theme::labelOn(Theme::PURPLE) == Theme::BLACK;
+    const uint16_t head = pale ? Theme::blend(Theme::PURPLE, Theme::BLACK, 120) : Theme::VAPOR_PINK;
+    const uint16_t num  = pale ? Theme::BLACK : Theme::WHITE;
     t.fillRoundRect(x, y, bw, bh, 6, Theme::PURPLE);
-    t.drawRoundRect(x, y, bw, bh, 6, Theme::VAPOR_PINK);
+    t.drawRoundRect(x, y, bw, bh, 6, head);
     // A little head, for "more of us": round, with two ears.
-    t.fillCircle(x + 12, y + 13, 6, Theme::VAPOR_PINK);
-    t.fillRect(x + 5, y + 4, 4, 4, Theme::VAPOR_PINK);
-    t.fillRect(x + 15, y + 4, 4, 4, Theme::VAPOR_PINK);
-    t.setTextColor(Theme::WHITE, Theme::PURPLE);
+    t.fillCircle(x + 12, y + 13, 6, head);
+    t.fillRect(x + 5, y + 4, 4, 4, head);
+    t.fillRect(x + 15, y + 4, 4, 4, head);
+    t.setTextColor(num, Theme::PURPLE);
     t.setCursor(x + 24, y + (bh - 14) / 2);
     t.print(b);
     t.setTextSize(1);
