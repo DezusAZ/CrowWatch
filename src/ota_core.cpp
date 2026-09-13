@@ -69,15 +69,15 @@ void closeLocked() {
 
 const char* failWords(Fail f) {
     switch (f) {
-        case Fail::CANCELLED:       return "Cancelled. Nothing was changed.";
-        case Fail::LOST_CONNECTION: return "The browser disconnected. Nothing was changed. Try again closer to the board.";
+        case Fail::CANCELLED:       return "Cancelled. Your current version is untouched.";
+        case Fail::LOST_CONNECTION: return "The browser disconnected. Your current version is untouched. Try again closer to the board.";
         case Fail::BAD_CODE:        return "The wrong code was entered three times. Start again for a new code.";
         case Fail::TOO_BIG:         return "That firmware is too big for this board. Nothing was changed.";
         case Fail::NOT_FIRMWARE:    return "That file is not firmware. Nothing was changed.";
-        case Fail::WRITE_ERROR:     return "Could not write to the board's memory. Nothing was changed.";
-        case Fail::BAD_SIGNATURE:   return "Not an official build for this board, so it was refused. Nothing was changed.";
-        case Fail::DAMAGED:         return "The firmware arrived damaged. Nothing was changed. Try again.";
-        case Fail::TIMEOUT:         return "The download stopped. Nothing was changed.";
+        case Fail::WRITE_ERROR:     return "Could not write to the board's memory. Your current version is untouched.";
+        case Fail::BAD_SIGNATURE:   return "Not an official build for this board, so it was refused. Your current version is untouched.";
+        case Fail::DAMAGED:         return "The firmware arrived damaged. Your current version is untouched. Try again.";
+        case Fail::TIMEOUT:         return "The download stopped. Your current version is untouched.";
         case Fail::LOCKED:          return "Unlock the board first.";
         case Fail::RADIO_BUSY:      return "Bluetooth was busy. Leave this screen and try again.";
         case Fail::WIFI_NOT_FOUND:  return "Couldn't find that WiFi network. Move closer to the router and try again.";

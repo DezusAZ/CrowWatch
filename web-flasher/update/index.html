@@ -58,6 +58,7 @@
   .bar{height:14px; border:1px solid var(--cyan); margin:12px 0 6px; position:relative}
   .bar i{position:absolute; inset:2px auto 2px 2px; width:0; background:var(--vapor-pink)}
   .status{min-height:1.5em}
+  .status.bad,.status.good{padding:.6em .9em; border:1px solid currentColor; border-radius:4px; font-weight:bold}
   .status.bad{color:var(--pink)}
   .status.good{color:var(--green)}
   .small{font-size:13px; color:var(--faint)}
@@ -77,7 +78,7 @@
 
   <div class="card warn" id="unsupported" hidden>
     <h2>THIS BROWSER CAN'T DO BLUETOOTH</h2>
-    <p>Use Chrome or Edge on a computer, or Chrome on Android. iPhone and iPad browsers don't allow websites to use Bluetooth.</p>
+    <p>Use Chrome or Edge on a computer, or Chrome on Android. Brave switches website Bluetooth off, and iPhone and iPad browsers don't allow it at all.</p>
     <p>You can still switch back to the version in the other slot from the board itself, or install with the <a href="../">USB flasher</a>.</p>
   </div>
 
@@ -122,7 +123,7 @@
 
   var CMD = { HELLO: 1, BEGIN: 2, SYNC: 3, END: 4, ABORT: 5 };
   var R = { HELLO_OK: 0x81, BAD_CODE: 0x82, READY: 0x83, ACK: 0x84, DONE: 0x85, FAIL: 0x86 };
-  var WINDOW = 24;   // chunks between SYNCs: a lost one costs at most this many
+  var WINDOW = 64;   // chunks between SYNCs: a lost one costs at most this many
 
   // Where the firmware lives. The site root on squachwatch.com; ?base= for a
   // local test server.
@@ -175,7 +176,7 @@
       var w = { types: types, resolve: resolve, reject: reject };
       w.timer = setTimeout(function () {
         waiters.splice(waiters.indexOf(w), 1);
-        reject(new Error('The board didn’t answer (' + what + '). Nothing was changed.'));
+        reject(new Error('The board didn’t answer (' + what + '). Your current version is untouched.'));
       }, ms);
       waiters.push(w);
     });
@@ -187,7 +188,7 @@
   }
 
   function onDisconnected() {
-    failAll('The board disconnected. Nothing was changed.');
+    failAll('The board disconnected. Your current version is untouched.');
     $('connectBtn').hidden = false;
     $('cancelBtn').hidden = true;
     if (!busy) {
@@ -244,8 +245,20 @@
         $('biLatest').textContent = 'couldn’t check';
       }
     } catch (e) {
-      if (e && e.name === 'NotFoundError') status('No board chosen.', '');
-      else status(e.message || String(e), 'bad');
+      // Chrome reports a missing or switched-off Bluetooth adapter as the
+      // same NotFoundError it uses when the picker is closed without a
+      // choice. Only the message tells them apart, and the picker never
+      // opened in the first case, so "no board chosen" read as nothing
+      // having happened at all.
+      console.error('connect failed:', e);
+      var msg = (e && e.message) || String(e);
+      if (e && e.name === 'NotFoundError' && /adapter|not available|bluetooth/i.test(msg))
+        status('This computer’s Bluetooth is off or not working, so the board picker never opened. Turn Bluetooth on, or use UPDATE OVER WIFI on the board.', 'bad');
+      else if (e && e.name === 'NotFoundError')
+        status('No board chosen. If the list was empty, check the board is still showing UPDATE OVER BLUETOOTH.', 'bad');
+      else if (e && e.name === 'SecurityError')
+        status('This browser blocked Bluetooth for this page. Use Chrome or Edge, straight from the address bar.', 'bad');
+      else status(msg, 'bad');
     }
   });
 

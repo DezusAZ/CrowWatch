@@ -48,6 +48,8 @@
 #include "ui_boot.h"
 #include "ui_detfilter.h"
 #include "ui_power.h"
+#include "ui_update.h"
+#include "ui_wifipass.h"
 #include "png_writer.h"
 
 // A few plausible log entries so screens have something real to draw --
@@ -177,7 +179,7 @@ int main(int argc, char** argv) {
     int inboxLine = -1, phraseMode = -1;
     int confirmRow = -1;   // settings screen: put a confirm panel up
     int scrollBy = 0;      // settings screen: scroll down N rows first
-    int bg = -1, themeIdx = -1, frames = 90, sequence = 1, outfitIdx = -1;
+    int bg = -1, themeIdx = -1, frames = 90, sequence = 1, outfitIdx = -1, poseIdx = -1;
     // --info N renders LOG's MORE INFO panel for DetectionType N. The panel
     // is a real layout with real wrapped text and it was previously only
     // reachable on hardware, which is how two of its paragraphs went stale.
@@ -218,6 +220,7 @@ int main(int argc, char** argv) {
         else if (a == "--bg" && i + 1 < argc) bg = atoi(argv[++i]);
         else if (a == "--theme" && i + 1 < argc) themeIdx = atoi(argv[++i]);
         else if (a == "--outfit" && i + 1 < argc) outfitIdx = atoi(argv[++i]);
+        else if (a == "--pose" && i + 1 < argc) poseIdx = atoi(argv[++i]);
         else if (a == "--frames" && i + 1 < argc) frames = atoi(argv[++i]);
         else if (a == "--sequence" && i + 1 < argc) sequence = atoi(argv[++i]);
         else if (a == "--raw" && i + 1 < argc) rawPath = argv[++i];
@@ -403,6 +406,32 @@ int main(int argc, char** argv) {
             uiDiagnosticsTick(frame, t, engine, info);
         }
         else if (screen == "boot")     uiBootTick(frame, t);
+        else if (screen == "update")   uiUpdateTick(frame, t);
+        else if (screen == "wifipass") uiWifiPassTick(frame, t);
+        else if (screen == "poses") {
+            // Every arm movement he has, for the costume test in
+            // sim/test_outfit_poses.py: IDLE, WAVE, then each VisitPose, each at
+            // POSE_PHASES moments 125 ms apart, one per captured frame, on a flat
+            // key colour so the script can separate him from the backdrop. Run
+            // with --frames 0 and --sequence POSE_N * POSE_PHASES.
+            using VP = Squachy::VisitPose;
+            static const VP kPoses[] = {
+                VP::NONE, VP::NONE, VP::HIGH_FIVE, VP::LOW_FIVE, VP::FIST, VP::STARTLED,
+                VP::DANCE, VP::PUMP, VP::SLEEPY, VP::STRETCH, VP::LAUGH, VP::SALUTE,
+                VP::BOW, VP::HUG, VP::SAD, VP::GRR, VP::CROUCH, VP::PULL, VP::WIGGLE,
+                VP::CHEER, VP::SELFIE, VP::HOWL, VP::POINT, VP::STRAIN, VP::COVER,
+                VP::LOOK_AROUND, VP::HANDS_UP,
+            };
+            const uint32_t POSE_N = sizeof kPoses / sizeof kPoses[0];
+            const uint32_t POSE_PHASES = 8;
+            const uint32_t k = ((t - now) / STEP_MS) % (POSE_N * POSE_PHASES);
+            const uint32_t pi = (poseIdx >= 0) ? (uint32_t)poseIdx : k / POSE_PHASES;
+            const uint32_t tt = 100000u + (k % POSE_PHASES) * 125u;
+            SimClock::nowMs = tt;
+            frame.fillRect(0, 0, W, H, 0x024A);   // dark teal: no costume uses it
+            Squachy::drawWaving(frame, W / 2, H - 12, tt, 2.0f, nullptr, false, 0,
+                                /*waving*/ pi == 1, 34, false, false, false, kPoses[pi]);
+        }
         else return false;
         return true;
     };
@@ -418,6 +447,8 @@ int main(int argc, char** argv) {
     else if (screen == "diagnostics") uiDiagnosticsInit(frame);
     else if (screen == "colorcheck") uiColorCheckInit(frame);
     else if (screen == "boot")       uiBootInit(frame);
+    else if (screen == "update")     uiUpdateInit(frame);
+    else if (screen == "wifipass")   uiWifiPassInit(frame, "The Burrow");
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
     else if (screen == "phrase")     {
         uiMeshPhraseInit(frame);

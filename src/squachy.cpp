@@ -40,6 +40,12 @@ static const bool SQUACHY_SHADOW = false;
 #ifndef SQUACHY_AA_LINES
 #define SQUACHY_AA_LINES 0
 #endif
+// Torso half-width in Squachy units. He shipped at 15, the torso as wide as
+// his head; 11 is as slim as it goes before the legs show outside it and the
+// hanging arms lose contact with it. Everything sized to the torso (keyline,
+// the suit and coat, the belt) is expressed in this.
+static int torsoHalf() { return 11; }
+
 static void wideLine(TFT_eSPI& t, float ax, float ay, float bx, float by, float wd, uint32_t color) {
 #if SQUACHY_AA_LINES
     t.drawWideLine(ax, ay, bx, by, wd, color);
@@ -3058,7 +3064,7 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             // near-black for this outfit up in drawBody()'s
             // furMain/furLight block, so the belt is the one splash of
             // color against it.
-            t.fillRect(cx2 - S(15), hy + S(32), S(30), S(4), RED);
+            t.fillRect(cx2 - S(torsoHalf()), hy + S(32), S(2 * torsoHalf()), S(4), RED);
             break;
         }
         case OutfitId::PLUMBER: {
@@ -3113,8 +3119,8 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             // Rim last, so the arc cannot spill over it.
             for (uint8_t k = 0; k < 3; k++) t.drawCircle(cx2, cy, r - k, steel);
             t.drawCircle(cx2, cy, r + 1, t.color565(84, 88, 104));
-            t.fillRoundRect(cx2 - S(17), hy + S(21), S(34), S(5), S(2), t.color565(186, 190, 202));
-            t.fillRect(cx2 - S(17), hy + S(21), S(34), 1, t.color565(244, 244, 252));
+            t.fillRoundRect(cx2 - S(torsoHalf() + 2), hy + S(21), S(2 * torsoHalf() + 4), S(5), S(2), t.color565(186, 190, 202));
+            t.fillRect(cx2 - S(torsoHalf() + 2), hy + S(21), S(2 * torsoHalf() + 4), 1, t.color565(244, 244, 252));
             // The glint: a blunt plus rather than a tapered sparkle, because
             // square arms survive being six pixels wide and tapered ones do not.
             const int mx = cx2 + (int)(cosf(a0) * ar), my = cy + (int)(sinf(a0) * ar);
@@ -3557,7 +3563,7 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // halo around the sphere.
         if (outfitNow != OutfitId::VOIDEYE)
             t.fillRoundRect(cx2 - S(16), hy - S(1), S(32), S(26), S(8), keyCol);
-        t.fillRoundRect(cx2 - S(16), hy + S(22), S(32), S(20), S(6), keyCol);
+        t.fillRoundRect(cx2 - S(torsoHalf() + 1), hy + S(22), S(2 * torsoHalf() + 2), S(20), S(6), keyCol);
     }
 
     // ---- shadow ------------------------------------------------------
@@ -3701,9 +3707,10 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     }
 
     // Body — broad, stocky torso instead of a slim rounded rect.
-    t.fillRoundRect(cx2 - S(15), hy + S(23), S(30), S(18), S(5), furMain);
-    t.fillRect(cx2 - S(15), hy + S(23), S(5), S(18), furLight);
-    t.fillRect(cx2 + S(10), hy + S(23), S(5), S(18), furLight);
+    t.fillRoundRect(cx2 - S(torsoHalf()), hy + S(23), S(2 * torsoHalf()), S(18), S(5), furMain);
+    // No highlight down the sides. There used to be a light strip down each
+    // edge, exactly under where the arms hang, so it was invisible at rest and
+    // appeared as a second, lighter pair of arms the moment a pose lifted one.
 
     // Anything worn ON the torso has to go on here, between the torso and the
     // arms. drawOutfit() runs last, so a garment drawn there is painted over
@@ -3712,8 +3719,8 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // outfits used it at all, which is most of why the hat-only ones read as
     // nothing from across a room.
     if (outfitNow == OutfitId::SPACE) {
-        t.fillRoundRect(cx2 - S(15), hy + S(23), S(30), S(18), S(5), t.color565(224, 224, 232));
-        t.fillRect(cx2 - S(15), hy + S(30), S(30), S(2), t.color565(110, 116, 132));
+        t.fillRoundRect(cx2 - S(torsoHalf()), hy + S(23), S(2 * torsoHalf()), S(18), S(5), t.color565(224, 224, 232));
+        t.fillRect(cx2 - S(torsoHalf()), hy + S(30), S(2 * torsoHalf()), S(2), t.color565(110, 116, 132));
         t.fillRoundRect(cx2 - S(5), hy + S(33), S(10), S(6), 2, t.color565(40, 44, 60));
         t.fillRect(cx2 - S(3), hy + S(35), S(2), S(2), t.color565(0, 255, 136));
         t.fillRect(cx2 + S(1), hy + S(35), S(2), S(2), t.color565(255, 60, 60));
@@ -3724,11 +3731,11 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // coat's own shape, its hem, and a pair of boots over his feet.
         const uint16_t ink  = t.color565(18, 10, 4);
         const uint16_t seam = t.color565(138, 68, 8);
-        t.fillRoundRect(cx2 - S(17), hy + S(21), S(34), S(24), S(7), ink);
-        t.fillRoundRect(cx2 - S(16), hy + S(22), S(32), S(22), S(6), t.color565(255, 138, 26));
+        t.fillRoundRect(cx2 - S(torsoHalf() + 2), hy + S(21), S(2 * torsoHalf() + 4), S(24), S(7), ink);
+        t.fillRoundRect(cx2 - S(torsoHalf() + 1), hy + S(22), S(2 * torsoHalf() + 2), S(22), S(6), t.color565(255, 138, 26));
         // Hem HERE, before the arms, so the sleeves cover its ends and it
         // stays on the coat instead of running across his hands.
-        t.fillRect(cx2 - S(14), hy + S(40), S(28), 1, seam);
+        t.fillRect(cx2 - S(torsoHalf() - 1), hy + S(40), S(2 * torsoHalf() - 2), 1, seam);
         // The zip runs from the top of his chest to the hem. It used to start
         // nine units down, which left the whole upper chest blank and made the
         // coat read as a smock.

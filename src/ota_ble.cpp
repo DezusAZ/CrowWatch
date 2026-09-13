@@ -89,6 +89,28 @@ void requestFail(Fail f) {
     s_pending = Pending::FAIL;
 }
 
+// Every GAP event, after NimBLE has handled it. Only here for the log: the
+// server callbacks are not told WHY a link dropped, and the reason is the
+// whole question when a transfer dies before its first byte.
+int gapListener(ble_gap_event* ev, void*) {
+    switch (ev->type) {
+        case BLE_GAP_EVENT_DISCONNECT:
+            Serial.printf("[ota] link dropped: reason 0x%02x (%d)\n", (unsigned)ev->disconnect.reason, ev->disconnect.reason);
+            break;
+        case BLE_GAP_EVENT_MTU:
+            Serial.printf("[ota] mtu now %u\n", (unsigned)ev->mtu.value);
+            break;
+        case BLE_GAP_EVENT_CONN_UPDATE: {
+            ble_gap_conn_desc d;
+            if (ble_gap_conn_find(ev->conn_update.conn_handle, &d) == 0)
+                Serial.printf("[ota] connection updated: status %d, interval %.1f ms\n", ev->conn_update.status, d.conn_itvl * 1.25f);
+            break;
+        }
+        default: break;
+    }
+    return 0;
+}
+
 void startAdvertising() {
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->stop();
@@ -113,6 +135,9 @@ class ServerCb : public NimBLEServerCallbacks {
         s_codeOk     = false;
         s_triesLeft  = CODE_TRIES;
         if (s_state == State::WAITING) s_state = State::CONNECTED;
+        Serial.printf("[ota] connected: interval %.1f ms, latency %u, timeout %u ms\n",
+                      d->conn_itvl * 1.25f, (unsigned)d->conn_latency,
+                      (unsigned)d->supervision_timeout * 10u);
         // No connection-parameter request here. Asking for a faster interval
         // while the browser is still discovering services hung Windows'
         // Bluetooth stack on the bench; it is asked for once sending starts.
@@ -133,6 +158,7 @@ class CtrlCb : public NimBLECharacteristicCallbacks {
         const uint8_t* p = v.data();
         const size_t   n = v.length();
         if (!n) return;
+        Serial.printf("[ota] CTRL write: cmd %u, %u bytes\n", (unsigned)p[0], (unsigned)n);
         switch (p[0]) {
             case CMD_HELLO: {
                 if (n < 5 || s_state != State::CONNECTED) return;
@@ -181,6 +207,7 @@ class DataCb : public NimBLECharacteristicCallbacks {
         if (n < 5) return;
         const uint8_t* p   = v.data();
         const uint32_t off = get32(p);
+        if (s_dataWrites == 0) Serial.printf("[ota] first data write: %u bytes at %lu\n", (unsigned)n, (unsigned long)off);
         s_dataWrites++;
         const uint32_t hw = uxTaskGetStackHighWaterMark(nullptr);
         if (hw < s_hostStackLow) s_hostStackLow = hw;
@@ -205,15 +232,24 @@ void doBegin() {
     s_lastDataMs = millis();
     s_state      = State::RECEIVING;
 
-    // Discovery is long over: ask for a shorter interval, which is most of the
-    // transfer speed. 15-30 ms, 4 s supervision. The PC or phone may say no.
-    s_server->updateConnParams(s_connHandle, 12, 24, 0, 400);
+    // Two requests for a faster link, both made only now that discovery is
+    // long over (asking during discovery hung Windows' stack). Either may be
+    // refused, and the transfer works at whatever the phone or PC allows.
+    //
+    // Bigger radio packets: 251 bytes per packet instead of the 27-byte
+    // default, so a 512-byte chunk is three packets instead of twenty.
+    // Shorter interval: 7.5-15 ms between packets instead of the 30-60 ms a
+    // phone picks on its own. (An earlier version blamed this request for
+    // dropped links. It was innocent -- the drop was the timeout below.)
+    ble_gap_set_data_len(s_connHandle, 251, 2120);
+    s_server->updateConnParams(s_connHandle, 6, 12, 0, 400);
 
     // The largest chunk one write-without-response can carry on this link:
     // ATT MTU less the 3-byte ATT header and our 4-byte offset.
     uint16_t mtu   = s_server->getPeerMTU(s_connHandle);
     uint16_t chunk = mtu > 27 ? (uint16_t)(mtu - 7) : 20;
     if (chunk > 508) chunk = 508;
+    Serial.printf("[ota] ready: peer mtu %u, chunk %u\n", (unsigned)mtu, (unsigned)chunk);
     const uint8_t r[3] = { REPLY_READY, (uint8_t)(chunk & 0xFF), (uint8_t)(chunk >> 8) };
     notifyCtrl(r, sizeof r);
 }
@@ -249,6 +285,7 @@ bool begin() {
     if (!s_server) {
         NimBLEDevice::setMTU(517);
         s_server = NimBLEDevice::createServer();
+        NimBLEDevice::setCustomGapHandler(gapListener);
         s_server->setCallbacks(&s_serverCb, false);
         s_server->advertiseOnDisconnect(false);
         NimBLEService* svc = s_server->createService(SVC_UUID);
@@ -270,6 +307,9 @@ bool begin() {
     s_info->setValue((const uint8_t*)s_infoBuf, strlen(s_infoBuf));
 
     s_code      = 100000 + (esp_random() % 900000);
+    // On the serial console too. USB access already means full control of the
+    // board, and a bench script cannot read the screen.
+    Serial.printf("[ota] pairing code %lu\n", (unsigned long)s_code);
     s_pending   = Pending::NONE;
     s_codeOk    = false;
     s_size      = 0;
@@ -313,14 +353,23 @@ void tick(uint32_t now) {
         if (wl > 96) wl = 96;
         memcpy(buf + 2, w, wl);
         notifyCtrl(buf, 2 + wl);
-        Serial.printf("[ota] stopped: %s\n", w);
+        Serial.printf("[ota] stopped: %s  (rx %lu writes %lu ignored %lu syncs %lu)\n", w,
+                      (unsigned long)s_rx, (unsigned long)s_dataWrites,
+                      (unsigned long)s_dataIgnored, (unsigned long)s_syncs);
     } else if (p == Pending::BEGIN) {
         doBegin();
     } else if (p == Pending::END) {
         doEnd();
     }
 
-    if (s_state == State::RECEIVING && now - s_lastDataMs > RECEIVE_TIMEOUT_MS) requestFail(Fail::LOST_CONNECTION);
+    // Measured against the clock NOW, not the loop's `now`. doBegin() above
+    // stamps s_lastDataMs with millis() a few milliseconds after the loop
+    // captured `now`, so `now - s_lastDataMs` wrapped to four billion and the
+    // transfer was declared lost in the same tick it was declared ready --
+    // before the browser had sent a byte. Every Bluetooth update ever tried
+    // on a real board died right here.
+    if (s_state == State::RECEIVING && (int32_t)(millis() - s_lastDataMs) > (int32_t)RECEIVE_TIMEOUT_MS)
+        requestFail(Fail::LOST_CONNECTION);
 
     if ((s_state == State::RECEIVING || s_state == State::CONNECTED) && now - s_lastReport >= 2000) {
         s_lastReport = now;

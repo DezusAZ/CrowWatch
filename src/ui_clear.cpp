@@ -1625,6 +1625,15 @@ static void drawWatchPill(TFT_eSPI& t, int screenW, bool watching, bool hunting)
     s_watchPillOn = true;
 }
 
+// The NEARBY headline's last drawn rectangle, grown to a finger-sized target.
+static bool    s_nearbyOn = false;
+static int16_t s_nbX = 0, s_nbY = 0, s_nbW = 0, s_nbH = 0;
+
+bool uiClearNearbyHit(int x, int y) {
+    return s_nearbyOn &&
+           x >= s_nbX && x < s_nbX + s_nbW && y >= s_nbY && y < s_nbY + s_nbH;
+}
+
 bool uiClearWatchPillHit(int x, int y) {
     return s_watchPillOn &&
            x >= s_wpX && x < s_wpX + s_wpW && y >= s_wpY && y < s_wpY + s_wpH;
@@ -2731,6 +2740,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     for (uint8_t i = 0; i < (uint8_t)DetectionType::COUNT; i++) {
         if (eng.countByType((DetectionType)i) > 0) { anyActive = true; break; }
     }
+    s_nearbyOn = false;           // set again below only if it is drawn
     // Its ARRIVAL is the event, so the glitch fires on the edge rather than
     // on the state -- once, when the screen goes from nothing to something,
     // not again when a second detection joins the first. Level 3 is where
@@ -2803,6 +2813,11 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
                                         msg, Theme::BLACK, HEADLINE_SIZE);
             }
             Theme::drawBangersText(t, tx, ty, msg, col, HEADLINE_SIZE);
+            // Padded well past the ink: the word is only 33px tall and it is
+            // pressed with a thumb, over a moving Squachy.
+            s_nbX = (int16_t)(tx - 16); s_nbY = (int16_t)(ty - 10);
+            s_nbW = (int16_t)(tw + 32); s_nbH = (int16_t)(HEADLINE_H + 20);
+            s_nearbyOn = true;
         } else {
             // Kept as a guard, not because the current headline needs it:
             // NEARBY measures 90px in LG against the 232 a 240px portrait
@@ -2821,6 +2836,9 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
             t.setTextColor(col, Theme::BG);
             t.setCursor(sx, sy);
             t.print(msg);
+            s_nbX = (int16_t)(sx - 16); s_nbY = (int16_t)(sy - 10);
+            s_nbW = (int16_t)(sw + 32); s_nbH = (int16_t)(t.fontHeight() + 20);
+            s_nearbyOn = true;
         }
     }
 

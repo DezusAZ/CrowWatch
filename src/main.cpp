@@ -2358,6 +2358,15 @@ void loop() {
             static uint32_t clrHoldStart  = 0;
             constexpr uint32_t CLR_UNLOCK_HOLD_MS = 4000;
 
+            // Long-press NEARBY: open the closest live device. The headline
+            // sits on top of Squachy, so the same touch is also tracked as a
+            // possible pet -- a quick tap still pets him, a stroke still
+            // strokes him, and only a still press held past the threshold
+            // becomes this instead.
+            static bool     nbActive = false;
+            static uint32_t nbStart  = 0;
+            constexpr uint32_t NEARBY_HOLD_MS = 600;
+
             // Decide up front whether a brand-new touch lands on Squachy
             // -- this only updates gesture-tracking state, it doesn't by
             // itself claim the touch, so a miss still falls through to
@@ -2376,6 +2385,8 @@ void loop() {
                 clrHoldActive = !s_scanPickerOpen && barBtn == ButtonId::CLR;
                 clrHoldFired  = false;
                 clrHoldStart  = now;
+                nbActive = !s_scanPickerOpen && uiClearNearbyHit(tp.x, tp.y);
+                nbStart  = now;
             }
 
             // Any tap at all ends the parade, and is consumed doing it --
@@ -2467,6 +2478,30 @@ void loop() {
                 lastTouch = now;
                 if (tp.x < edgeZoneW) Settings::cyclePrevBackground();
                 else                  Settings::cycleBackground();
+            } else if (tp.valid && nbActive) {
+                const int32_t dx = tp.x - sqStartX, dy = tp.y - sqStartY;
+                if ((dx * dx + dy * dy) > SQ_MOVE_PX_SQ) {
+                    // A stroke, not a press: Squachy gets it from here on.
+                    nbActive = false;
+                } else if ((now - nbStart) >= NEARBY_HOLD_MS) {
+                    nbActive = false;
+                    sqActive = false;
+                    lastTouch = now;
+                    // Closest means strongest signal, among devices that are
+                    // live right now. RSSI is a guess at distance, not a
+                    // measurement, which is why the card still shows the dBm.
+                    const Detection* best = nullptr;
+                    for (uint8_t i = 0; i < engine.logCount(); i++) {
+                        const Detection* d = engine.logAt(i);
+                        if (d && d->active && (!best || d->rssi > best->rssi)) best = d;
+                    }
+                    if (best) {
+                        uiAlertSetRedacted(false);
+                        enterAlert(*best);
+                    } else {
+                        Theme::showToast("NOTHING NEARBY", "It just left", Theme::CYAN);
+                    }
+                }
             } else if (!boring && tp.valid && sqActive) {
                 int32_t dx = tp.x - sqStartX;
                 int32_t dy = tp.y - sqStartY;
