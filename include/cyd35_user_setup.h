@@ -56,7 +56,12 @@
 // independently-verified working config for this exact panel (QDtech
 // E32R35T / Sunton 3248S035R) runs the write clock at 55MHz, so trying
 // that here for the "everything feels slow" complaint.
-#define SPI_FREQUENCY         55000000
+// 55 MHz was never real: the ESP32 can only divide 80 MHz by whole numbers,
+// so this ran at 40. Overridable from platformio.ini the way the 2.8" board's
+// is, for an 80 MHz variant.
+#ifndef SPI_FREQUENCY
+#define SPI_FREQUENCY         40000000
+#endif
 #define SPI_READ_FREQUENCY    20000000
 #define SPI_TOUCH_FREQUENCY    2500000
 
