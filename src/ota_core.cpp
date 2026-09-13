@@ -234,7 +234,14 @@ Fail begin(uint32_t size, const uint8_t* sig, uint8_t sigLen) {
     Serial.printf("[ota] receiving %lu bytes into %s\n", (unsigned long)size, target->label);
 
     lock();
-    const esp_err_t e = esp_ota_begin(target, size, &s_handle);
+    // Erase as the writes arrive, a sector at a time -- NOT the whole image up
+    // front. v1.7.2 erased all ~1.6 MB in one call, which held the flash long
+    // enough that core 0's idle task missed the 5 s task watchdog, and the
+    // board rebooted mid-update on the very first real release it tried to
+    // fetch (the bench image before it was just small enough to squeak past).
+    // Sequential erase costs a few tens of milliseconds per 4 KB sector, spread
+    // across the download, and never blocks anything for long.
+    const esp_err_t e = esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &s_handle);
     if (e == ESP_OK) {
         s_target  = target;
         s_open    = true;

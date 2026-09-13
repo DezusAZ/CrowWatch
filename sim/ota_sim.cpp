@@ -107,7 +107,10 @@ static const Net NETS[] = {
     { "CoffeeShop",    -81, true  },
 };
 
-bool begin() { s_state = State::SCANNING; s_t0 = millis(); return true; }
+bool begin() {
+    if (s_saved) { s_state = State::PICK; connect("SquachNet", "", false); return true; }
+    s_state = State::SCANNING; s_t0 = millis(); return true;
+}
 bool end()   { s_state = State::OFF; return false; }
 void rescan() { s_state = State::SCANNING; s_t0 = millis(); }
 

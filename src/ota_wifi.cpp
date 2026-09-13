@@ -332,6 +332,15 @@ bool begin() {
     s_cancel = s_install = s_downloadStarted = false;
     s_rx = s_size = 0;
     WiFi.mode(WIFI_STA);
+    // A saved network is used straight away. The list only appears when there
+    // is nothing saved, or through TRY AGAIN when the saved one cannot be
+    // joined -- which is also how somebody who has moved picks a new one.
+    if (s_saved[0]) {
+        Serial.printf("[ota] wifi update mode: using saved network %s\n", s_saved);
+        s_state = State::PICK;
+        connectSaved();
+        return true;
+    }
     startScan();
     Serial.println("[ota] wifi update mode: scanning");
     return true;

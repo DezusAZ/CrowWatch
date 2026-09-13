@@ -3336,22 +3336,35 @@ void loop() {
                 // Without the frame buffer every draw lands on the panel as it
                 // happens, so a full redraw each frame would flicker. Redraw
                 // only when something on the screen would actually change.
-                bool draw = true;
-                if (!frameBufferOk) {
-                    static uint32_t lastKey = 0xFFFFFFFFUL;
+                // A full repaint only when the screen changes to something
+                // else; while a download runs, just the bar and its numbers,
+                // painted over what is already there, four times a second.
+                if (frameBufferOk) {
+                    uiUpdateTick(*canvas, now);
+                } else {
+                    static uint32_t lastKey = 0xFFFFFFFFUL, lastLive = 0;
                     const uint32_t key = ((uint32_t)OtaWifi::state() << 24) | ((uint32_t)OtaBle::state() << 20) |
-                                         ((uint32_t)OtaWifi::percent() << 8) | ((uint32_t)OtaWifi::netCount() << 1) |
-                                         (OtaCore::restartPending() ? 1u : 0u);
-                    draw = (key != lastKey) || touchJustDown;
-                    lastKey = key;
+                                         ((uint32_t)OtaWifi::netCount() << 1) |
+                                         (OtaWifi::canTryAgain() ? 2u : 0u) | (OtaCore::restartPending() ? 1u : 0u);
+                    if (key != lastKey) {
+                        uiUpdateTick(*canvas, now, true);
+                        lastKey  = key;
+                        lastLive = now;
+                    } else if (now - lastLive >= 250) {
+                        uiUpdateTick(*canvas, now, false);
+                        lastLive = now;
+                    }
                 }
-                if (draw) uiUpdateTick(*canvas, now);
             }
             // touchJustDown, not the debounce timer: lastTouch is pinned above.
             if (touchJustDown) {
                 int netIndex = -1;
                 switch (uiUpdateHitTest(*canvas, tp.x, tp.y, &netIndex)) {
                     case UpdateHit::WIFI_START:
+                        // A saved network is joined straight away, so the
+                        // frame buffer has to go now rather than on a tap in
+                        // the network list.
+                        if (OtaWifi::hasSaved()) releaseFrameForDownload();
                         engine.startUpdateRadio();
                         if (!OtaWifi::begin()) {
                             engine.stopUpdateRadio();
@@ -3425,10 +3438,17 @@ void loop() {
             // Same flicker rule as UPDATE when there is no frame buffer (after a
             // failed attempt's TRY AGAIN): redraw on touch, and slowly otherwise.
             {
+                // Once on each touch edge, and once more a second after the
+                // last one so the briefly-shown last character goes back to *.
                 static uint32_t lastPassDraw = 0;
-                if (frameBufferOk || touchJustDown || touchJustUp || now - lastPassDraw > 700) {
+                static bool     hidePending  = false;
+                if (frameBufferOk || touchJustDown || touchJustUp) {
                     uiWifiPassTick(*canvas, now);
                     lastPassDraw = now;
+                    hidePending  = !frameBufferOk;
+                } else if (hidePending && now - lastPassDraw > 1000) {
+                    uiWifiPassTick(*canvas, now);
+                    hidePending = false;
                 }
             }
             if (touchJustDown)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::DOWN);

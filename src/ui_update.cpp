@@ -176,16 +176,30 @@ void drawSwitchPanel(TFT_eSPI& t) {
 
 // ---- shared progress screens --------------------------------------------------
 
-void drawProgress(TFT_eSPI& t, const char* head, uint32_t got, uint32_t total, uint8_t pct, const char* note) {
-    int y = 24;
-    label(t, y, Theme::AMBER, head);
-    y += lineH(t) + 8;
+// The bar and the numbers under it, painted over whatever is there. The
+// numbers are padded to a fixed width and drawn with a background colour, so
+// a shorter string never leaves the tail of a longer one behind and nothing
+// has to be cleared first.
+int progressLive(TFT_eSPI& t, uint32_t got, uint32_t total, uint8_t pct) {
+    int y = 24 + lineH(t) + 8;
     drawBar(t, y, pct);
     y += 24;
     char b[40];
-    snprintf(b, sizeof b, "%lu of %lu KB   %u%%", (unsigned long)(got / 1024),
-             (unsigned long)(total / 1024), (unsigned)pct);
-    centred(t, y, Theme::WHITE, b);
+    const int n = snprintf(b, sizeof b, "%lu of %lu KB   %u%%", (unsigned long)(got / 1024),
+                           (unsigned long)(total / 1024), (unsigned)pct);
+    const int FIELD = 30;
+    char padded[FIELD + 1];
+    const int left = n < FIELD ? (FIELD - n) / 2 : 0;
+    snprintf(padded, sizeof padded, "%*s%s%*s", left, "", b, FIELD - n - left > 0 ? FIELD - n - left : 0, "");
+    t.setTextColor(Theme::WHITE, Theme::BG);
+    t.setCursor((t.width() - FIELD * t.textWidth("M")) / 2, y);
+    t.print(padded);
+    return y;
+}
+
+void drawProgress(TFT_eSPI& t, const char* head, uint32_t got, uint32_t total, uint8_t pct, const char* note) {
+    label(t, 24, Theme::AMBER, head);
+    int y = progressLive(t, got, total, pct);
     y += lineH(t) + 8;
     para(t, y, Theme::WHITE, note);
     backButton(t, "CANCEL");
@@ -382,8 +396,17 @@ void uiUpdateInit(TFT_eSPI& t) {
 
 void uiUpdateAskSwitch(bool ask) { s_askSwitch = ask; }
 
-void uiUpdateTick(TFT_eSPI& t, uint32_t now) {
+void uiUpdateTick(TFT_eSPI& t, uint32_t now, bool full) {
     (void)now;
+    if (!full) {
+        t.setTextSize(1);
+        t.setTextWrap(false);
+        if (OtaWifi::state() == OtaWifi::State::DOWNLOADING)
+            progressLive(t, OtaWifi::bytesReceived(), OtaWifi::bytesExpected(), OtaWifi::percent());
+        else if (OtaBle::state() == OtaBle::State::RECEIVING)
+            progressLive(t, OtaBle::bytesReceived(), OtaBle::bytesExpected(), OtaBle::percent());
+        return;
+    }
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
     Theme::drawTitleBar(t, ">> UPDATE FIRMWARE <<");
     t.setTextSize(1);
