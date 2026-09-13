@@ -4,3 +4,4 @@ out/
 .nvs/
 __pycache__/
 squachsim.png
+build/

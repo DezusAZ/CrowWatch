@@ -7,8 +7,20 @@
 # This lives outside the firmware repo on purpose: it compiles that
 # repo's sources but adds nothing to the firmware build.
 #
-#   make            # build ./squachsim and ./squachsim-live
+#   make -j8        # build ./squachsim and ./squachsim-live
 #   make shots      # render one PNG per screen into out/
+#
+# Objects go under build/ with -MMD dependency files beside them, so an
+# edit recompiles only the translation units that actually include what
+# changed, and `make -j` spreads the rest across every core. The old
+# single-shot g++ command recompiled everything on every edit, twice
+# (once per binary): 20-30 seconds for a one-line change on a 16-core
+# machine, because one compiler process cannot use a second core.
+#
+# Every object also depends on this Makefile, so a change to CXXFLAGS
+# rebuilds everything rather than leaving a binary made of mixed flags
+# -- editing a -D here and getting a stale build is exactly the kind of
+# thing that sends you chasing a bug that isn't there.
 #
 # Deliberately excluded from the source list: main.cpp (ESP32 setup/loop
 # and hardware init), detection.cpp and sd_log.cpp (WiFi/BLE/SD -- see
@@ -26,6 +38,15 @@ SIM_DIR  := .
 SQUACHWATCH ?= ..
 SRC      := $(SQUACHWATCH)/src
 INC      := $(SQUACHWATCH)/include
+
+# Say so up front if the firmware tree is missing, rather than letting the
+# first compile fail on a header it cannot find. `make clean` is exempt:
+# it never needed the tree and still should not.
+ifeq ($(filter clean,$(MAKECMDGOALS)),)
+ifeq ($(wildcard $(INC)),)
+$(error SquachWatch-CYD not found at $(SQUACHWATCH) -- set SQUACHWATCH=/path/to/checkout)
+endif
+endif
 
 CXX      ?= g++
 # The sim dir comes first on the include path on purpose: that's what
@@ -149,29 +170,56 @@ WASM_FLAGS := -std=c++17 -Os -I$(SIM_DIR) -I$(INC) -DSQUACH_MESH=1 \
 BIN      := squachsim
 LIVE_BIN := squachsim-live
 
-# Everything is compiled in one shot (no object files), so the only way
-# a header edit can trigger a rebuild is to list the headers as
-# prerequisites. Both the shims here and the firmware's own headers
-# count -- editing include/theme.h and getting a stale binary is exactly
-# the kind of thing that sends you chasing a bug that isn't there.
-HDRS     := $(wildcard $(SIM_DIR)/*.h) $(wildcard $(INC)/*.h)
+# Objects live in build/, split by flag set: ui/ for the shared UI
+# sources (same flags in both binaries, compiled once), sim/ for the
+# one-shot renderer's own files, live/ for the ones that need the
+# board's user setup -include'd. detection_sim.cpp is in two of those
+# with different flags, which is why the split is by directory rather
+# than by name.
+OBJ_DIR  := build
+UI_OBJS   := $(patsubst %.cpp,$(OBJ_DIR)/ui/%.o,$(notdir $(UI_SRCS)))
+SIM_OBJS  := $(patsubst %.cpp,$(OBJ_DIR)/sim/%.o,$(notdir $(SIM_SRCS)))
+LIVE_OBJS := $(patsubst %.cpp,$(OBJ_DIR)/live/%.o,$(notdir $(LIVE_SRCS)))
+DEPS      := $(UI_OBJS:.o=.d) $(SIM_OBJS:.o=.d) $(LIVE_OBJS:.o=.d)
+
+# Where a .cpp can come from. make looks in this directory first (the
+# cwd always wins over vpath), then the firmware tree -- so a file here
+# that shared a name with one in src/ would silently shadow it. None do
+# today; the guard keeps it that way.
+vpath %.cpp $(SRC) $(SIM_DIR)
+CLASH := $(filter $(notdir $(wildcard $(SIM_DIR)/*.cpp)),$(notdir $(wildcard $(SRC)/*.cpp)))
+ifneq ($(CLASH),)
+$(error same basename in $(SRC) and $(SIM_DIR), vpath would pick the wrong one: $(CLASH))
+endif
 
 all: $(BIN) $(LIVE_BIN)
 live: $(LIVE_BIN)
 wasm: $(WASM_OUT)
 
-$(WASM_OUT): $(WASM_SRCS) $(HDRS)
+$(WASM_OUT): $(WASM_SRCS) $(wildcard $(SIM_DIR)/*.h) $(wildcard $(INC)/*.h)
 	@command -v em++ >/dev/null || { echo "em++ not found -- run: source ~/emsdk/emsdk_env.sh"; exit 1; }
 	@mkdir -p $(WASM_DIR)
 	em++ $(WASM_FLAGS) -o $@ $(WASM_SRCS)
 
-$(BIN): $(UI_SRCS) $(SIM_SRCS) $(HDRS)
-	@test -d $(INC) || { echo "SquachWatch-CYD not found at $(SQUACHWATCH) -- set SQUACHWATCH=/path/to/checkout"; exit 1; }
-	$(CXX) $(CXXFLAGS) -o $@ $(UI_SRCS) $(SIM_SRCS) -lm
+$(OBJ_DIR)/ui/%.o: %.cpp Makefile
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -MMD -MP -c -o $@ $<
 
-$(LIVE_BIN): $(UI_SRCS) $(LIVE_SRCS) $(HDRS)
-	@test -d $(INC) || { echo "SquachWatch-CYD not found at $(SQUACHWATCH) -- set SQUACHWATCH=/path/to/checkout"; exit 1; }
-	$(CXX) $(CXXFLAGS) $(LIVE_FLAGS) -o $@ $(UI_SRCS) $(LIVE_SRCS) -lm
+$(OBJ_DIR)/sim/%.o: %.cpp Makefile
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -MMD -MP -c -o $@ $<
+
+$(OBJ_DIR)/live/%.o: %.cpp Makefile
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(LIVE_FLAGS) -MMD -MP -c -o $@ $<
+
+$(BIN): $(UI_OBJS) $(SIM_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lm
+
+$(LIVE_BIN): $(UI_OBJS) $(LIVE_OBJS)
+	$(CXX) $(CXXFLAGS) $(LIVE_FLAGS) -o $@ $^ -lm
+
+-include $(DEPS)
 
 shots: $(BIN)
 	@mkdir -p out
@@ -182,6 +230,10 @@ shots: $(BIN)
 
 clean:
 	rm -f $(BIN) $(LIVE_BIN)
+	rm -rf $(OBJ_DIR)
+	# Leftovers from the old single-shot build, which Apple clang gave
+	# debug bundles; the object build never makes them.
+	rm -rf $(BIN).dSYM $(LIVE_BIN).dSYM
 	rm -rf out .nvs $(WASM_DIR)/squachsim.js $(WASM_DIR)/squachsim.wasm
 
 .PHONY: all live wasm shots clean

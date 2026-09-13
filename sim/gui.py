@@ -290,7 +290,8 @@ def rebuild():
     """
     DEVICE.stop()
     try:
-        out = subprocess.run(["make"], cwd=HERE, capture_output=True,
+        out = subprocess.run(["make", "-j%d" % (os.cpu_count() or 4)],
+                             cwd=HERE, capture_output=True,
                              text=True, timeout=900)
     except Exception as e:
         return False, f"make failed to run: {e}"

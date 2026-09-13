@@ -11,7 +11,7 @@ Two binaries, for two different questions:
 | `squachsim-live` | *does the UI actually work?* | runs the firmware's own `setup()`/`loop()` and takes simulated taps |
 
 ```
-make
+make -j8
 ./squachsim clear out.png
 ./squachsim alert out.png --portrait
 ```
@@ -27,6 +27,10 @@ it renders whatever that branch currently has.
 `g++` and `make`. No SDL, no zlib, no other libraries -- PNGs are written
 directly (uncompressed, so files are larger than a real encoder would
 produce, which is irrelevant for debug screenshots).
+
+Objects go under `build/` and only what an edit touches is recompiled,
+so the second build is fast; `-j` with your core count makes the first
+one fast too.
 
 ### Windows
 
