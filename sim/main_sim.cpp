@@ -463,12 +463,14 @@ int main(int argc, char** argv) {
     else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "NATE", v, 30, 0); }
     else if (screen == "squadupdate") uiSquadUpdateInit(frame);
     else if (screen == "invite") {
-        // --pose N picks the page: 0 offering, 1 asked, 2 code, 3 sending, 4 joined, 5 failed
+        // --pose N picks the page: 0 offering, 1 asked, 2 code, 3 sending, 4 joined,
+        // 5 failed, 6 waiting, 7 done. Even poses after 5 are the inviter's side.
         uiInviteInit(frame);
         static const MeshTalk::InviteState PAGES[] = { MeshTalk::InviteState::OFFERING, MeshTalk::InviteState::ASKED,
-            MeshTalk::InviteState::CODE, MeshTalk::InviteState::SENDING, MeshTalk::InviteState::JOINED, MeshTalk::InviteState::FAILED };
-        const int p = (poseIdx >= 0 && poseIdx < 6) ? poseIdx : 2;
-        uiInviteDemo(PAGES[p], 4821, "NATE", p == 0 || p == 3 || p == 5);
+            MeshTalk::InviteState::CODE, MeshTalk::InviteState::SENDING, MeshTalk::InviteState::JOINED, MeshTalk::InviteState::FAILED,
+            MeshTalk::InviteState::WAITING, MeshTalk::InviteState::DONE };
+        const int p = (poseIdx >= 0 && poseIdx < 8) ? poseIdx : 2;
+        uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "NATE" : "NATE2", p == 0 || p == 3 || p == 5 || p == 7);
     }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "The Burrow");
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
