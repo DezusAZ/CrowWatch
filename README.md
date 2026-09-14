@@ -15,7 +15,7 @@ the glitchy SquachWatch wordmark.
 <p align="center">
   <a href="https://squachwatch.com/emulator/" title="Drive it in your browser">
     <img src="docs/demo.gif" width="640"
-         alt="SquachWatch running four of its backgrounds: the snow parka on the ski hill, the void eye over the starfield, then synthwave and the Gibson">
+         alt="SquachWatch booting, Squachy in the VOID EYE costume on the synthwave sunset, a Flock camera detection card, his reaction to it, and a visiting SquachWatch walking on to say hello">
   </a>
 </p>
 
