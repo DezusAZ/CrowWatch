@@ -164,7 +164,12 @@ int8_t DetectionEngine::huntRssiAt(uint8_t idx) const {
     uint8_t slot = (uint8_t)((_huntRssiHead + WATCH_RSSI_CAP - _huntRssiCount + idx) % WATCH_RSSI_CAP);
     return _huntRssiHist[slot];
 }
-void DetectionEngine::checkHuntBle(const uint8_t*, int8_t) {}
+// The emulator has no radio, but a test can hand this samples by hand -- the
+// hunt screen's CAUGHT state is checked that way (main_sim.cpp, "hunt" --pose 1).
+void DetectionEngine::checkHuntBle(const uint8_t* mac, int8_t rssi) {
+    if (_huntKind != WatchKind::BLE || memcmp(mac, _huntMac, 6) != 0) return;
+    recordHuntRssi(rssi);
+}
 void DetectionEngine::checkHuntWifi(const uint8_t*, int8_t) {}
 void DetectionEngine::recordHuntRssi(int8_t rssi) {
     _huntRssiHist[_huntRssiHead] = rssi;

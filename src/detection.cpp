@@ -83,7 +83,17 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
                 if (Mesh::onManufacturerData((const uint8_t*)md.data(), md.size(),
                                              adv->getAddress().getNative(), millis())) ours = true;
             }
-            if (ours) return;
+            // A SquachWatch is not a detection, but it can be a hunt target:
+            // the SQUAD screen's HUNT aims the gauge at one. Its advert feeds
+            // the watch and hunt slots and then stops here, as before.
+            if (ours) {
+                if (g_engine) {
+                    const int8_t r = (int8_t)adv->getRSSI();
+                    g_engine->checkWatchBle(adv->getAddress().getNative(), r);
+                    g_engine->checkHuntBle(adv->getAddress().getNative(), r);
+                }
+                return;
+            }
         }
 #endif
         if (!g_engine) return;

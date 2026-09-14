@@ -56,7 +56,7 @@ const char* const KEY_D[12] = { "1","2","3","4","5","6","7","8","9","*","0","#" 
 // and no Z -- 7 was PRS and 9 was WXY -- and copying that faithfully would
 // make QUINN and ZEKE literally untypeable. The chrome carries the period
 // feel instead.
-const char* const KEY_L[12] = { "", "ABC","DEF","GHI","JKL","MNO",
+const char* const KEY_L[12] = { "SHUFFLE", "ABC","DEF","GHI","JKL","MNO",
                                 "PQRS","TUV","WXYZ","DEL","SPACE","OK" };
 // What each key cycles through when typing a message. Every character here
 // must be in MeshMsg::TEXT_CHARSET -- the keyboards are the only way text gets
@@ -139,6 +139,10 @@ void saveAndClose() {
     s_done = true;
 }
 void deleteLast() { commitPending(); if (s_len) s_buf[--s_len] = '\0'; }
+// The name board's SHUFFLE: whatever was typed goes, and the curated name
+// steps to the next one. OK from here keeps it -- an empty board means
+// "the curated one", which is what the readout shows.
+void shuffleName() { commitPending(); s_len = 0; s_buf[0] = '\0'; Squachy::cycleNickname(); }
 void appendChar(char c) {
     commitPending();
     if (s_len < s_max) { s_buf[s_len++] = c; s_buf[s_len] = '\0'; }
@@ -212,6 +216,7 @@ static const char* keyLabel(char c) {
     switch (c) {
         case Qwerty::BKSP: return "DEL";
         case Qwerty::CLR:  return "CLR";
+        case Qwerty::SHUF: return "SHUFFLE";
         case Qwerty::OK:   return "OK";
         case ' ':          return "SPACE";
         default: one[0] = c; one[1] = '\0'; return one;
@@ -272,6 +277,7 @@ static void qwertyRelease() {
     const char c = s_keys[k].ch;
     if      (c == Qwerty::BKSP) deleteLast();
     else if (c == Qwerty::CLR)  { commitPending(); s_len = 0; s_buf[0] = '\0'; }
+    else if (c == Qwerty::SHUF) shuffleName();
     else if (c == Qwerty::OK)   saveAndClose();
     else                        appendChar(c);
 }
@@ -476,8 +482,9 @@ void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
             if (s_len < s_max) { s_buf[s_len++] = ' '; s_buf[s_len] = '\0'; }
             return;
         }
+        if (!msg() && i == 0) { shuffleName(); return; }   // 1 is SHUFFLE, for a name
         const char* letters = msg() ? KEY_M[i] : KEY_L[i];
-        if (!letters[0]) return;                        // 1 carries nothing, for a name
+        if (!letters[0]) return;
 
         if (s_liveKey == i && (now - s_tapAt) < MULTITAP_MS && s_len) {
             // Same key inside the window: cycle in place rather than append.
@@ -541,11 +548,17 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     t.setTextColor(Theme::GREEN);
     // Right-aligned once it outgrows the window, so the END of the text --
     // the part being typed -- is always the part you can see.
-    const int tw = t.textWidth(s_buf);
+    // An empty name board shows the curated name he has now, dimmed: that
+    // is what OK keeps, and what SHUFFLE changes.
+    const bool curated = !msg() && s_len == 0;
+    const char* shown = curated ? Squachy::nickname() : s_buf;
+    const int tw = t.textWidth(shown);
     int tx = dX + 7;
     if (tw > dW - 20) tx = dX + dW - 13 - tw;
     t.setCursor(tx, dY + (dH - 14) / 2);
-    t.print(s_buf);
+    if (curated) t.setTextColor(STEEL_LT);
+    t.print(shown);
+    t.setTextColor(Theme::GREEN);
     // A caret that stops blinking while a letter is still editable is one
     // glyph doing two jobs: it also says "this one can still change".
     if (s_liveKey >= 0 || ((now / 400) % 2) == 0) {

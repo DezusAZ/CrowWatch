@@ -11,6 +11,7 @@
 #include "squachy.h"
 #include "detection.h"
 #include "emote_script.h"
+#include <esp_system.h>
 #include "crowd_bench.h"
 
 // A peer supplied from outside -- the emulator's --peer flag today, the radio
@@ -403,18 +404,67 @@ static uint32_t s_seenShock = 0, s_guestStartleUntil = 0;
 
 static bool messageShowing(uint32_t now);         // with the message UI, below
 
-static Piece nextPiece() {
+// What the two of them get up to on their own. It used to be a dance and
+// rock-paper-scissors, forever, with a snowball fight when it snowed; the
+// other thirty-odd emotes only ever played when somebody pressed a button.
+// Now the idle clock draws from the lot, minus the ones that need a reason
+// (SPOTTED wants a recent catch, SAD and GRR and HEART are answers to
+// something, WAVE is the hello they already did). Snow keeps its
+// snowballs, every other time. The last six are kept out of the hat so a
+// visit does not repeat itself inside ten minutes.
+static MeshMsg::Emote idlePick() {
+    using E = MeshMsg::Emote;
+    static const E POOL[] = {
+        E::HIGH_FIVE, E::DANCE, E::RPS, E::BOO,
+        E::FIST_BUMP, E::HANDSHAKE, E::SALUTE, E::BOW, E::HUG,
+        E::COIN, E::DICE, E::ARM_WRESTLE, E::TUG, E::LEAPFROG,
+        E::PIE, E::BALLOON, E::PLANE, E::PILLOW,
+        E::GIFT, E::SNACK, E::CHEERS, E::CONFETTI, E::FIREWORKS,
+        E::LAUGH, E::SLEEPY, E::TINFOIL, E::CAMERA, E::HOWL, E::SELFIE,
+    };
+    static const uint8_t N = sizeof POOL / sizeof POOL[0];
+    static E       recent[6] = { E::COUNT, E::COUNT, E::COUNT, E::COUNT, E::COUNT, E::COUNT };
+    static uint8_t ri = 0;
     const uint8_t n = s_pieceNo++;
-    switch (Settings::background()) {
-        case Settings::Background::SNOWFALL:  return (n % 2 == 0) ? Piece::SNOW : Piece::RPS;
-        case Settings::Background::SYNTHWAVE: return (n % 3 == 2) ? Piece::RPS : Piece::DANCE;
-        default:                              return (n % 2 == 0) ? Piece::DANCE : Piece::RPS;
+    E pick;
+    if (Settings::background() == Settings::Background::SNOWFALL && (n % 2 == 0)) {
+        pick = E::SNOWBALL;
+    } else {
+        for (uint8_t tries = 0; tries < 12; tries++) {
+            pick = POOL[random(0, N)];
+            bool seen = false;
+            for (uint8_t i = 0; i < 6; i++) if (recent[i] == pick) seen = true;
+            if (!seen) break;
+        }
+        recent[ri] = pick;
+        ri = (uint8_t)((ri + 1) % 6);
     }
+    return pick;
+}
+
+// Whose clock counts. Two boards both starting pieces at each other every
+// minute or so would keep interrupting one another, so when both hold the
+// phrase the lower address starts them and the other one just joins in.
+// A board that cannot send -- messages off, no phrase -- plays to itself,
+// which is what every board did before.
+static bool idleLeader(uint32_t now) {
+    if (!MeshTalk::ready()) return false;
+    const uint8_t* pm = Mesh::peerMac();
+    if (!pm || !MeshTalk::inSquad(pm, now)) return true;      // nobody to hand it to
+    return memcmp(MeshTalk::ownMac(), pm, 6) < 0;
+}
+static bool idleFollower(uint32_t now) {
+    const uint8_t* pm = Mesh::peerMac();
+    return MeshTalk::ready() && pm && MeshTalk::inSquad(pm, now) && !idleLeader(now);
 }
 
 static uint32_t pieceGap() {
-    const uint32_t g = PIECE_EVERY_MS + (uint32_t)random(0, PIECE_JITTER_MS);
-    return Settings::background() == Settings::Background::SYNTHWAVE ? g / 2 : g;
+    uint32_t g = PIECE_EVERY_MS + (uint32_t)random(0, PIECE_JITTER_MS);
+    if (Settings::background() == Settings::Background::SYNTHWAVE) g /= 2;
+    // The follower's own clock runs slow: it is there for the case where the
+    // leader has wandered off into a menu, not to race him.
+    if (idleFollower(millis())) g *= 2;
+    return g;
 }
 
 // guestFirst: an emote from the visitor's board -- he starts it, not the host.
@@ -480,7 +530,17 @@ static void pieceBegin(uint32_t now, Piece p, bool guestFirst) {
     }
 }
 
-static void pieceStart(uint32_t now) { pieceBegin(now, nextPiece(), false); }
+// The idle clock fires: pick one, roll it, and put it on the air the way the
+// emote picker does, so the other board acts out the same piece with the
+// same result. Queued rather than begun here, because emoteStart() is what
+// knows how to play every kind; the loop picks it up on its next pass.
+static void pieceStart(uint32_t now) {
+    const MeshMsg::Emote e = idlePick();
+    const uint8_t setup = EmoteScript::roll(e, esp_random(), (uint8_t)Squachy::lastCaught());
+    if (idleLeader(now)) MeshTalk::sendEmote((uint8_t)e, setup, now);   // best effort: busy air just means this one is ours alone
+    uiClearEmote((uint8_t)e, setup, false);
+    s_nextPieceAt = now + pieceGap();     // pieceEnd() sets the real one; this only stops a re-queue
+}
 
 static void pieceEnd(uint32_t now) {
     s_piece          = Piece::NONE;
@@ -1801,17 +1861,30 @@ static void drawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     if (s_tapName && (int32_t)(s_tapUntil - now) <= 0) s_tapName = false;
     s_crowdN = 0;
 
+    auto wantsName = [&](uint8_t i) {
+        return allNames || (s_tapName && memcmp(s_tapMac, crowd[i].mac, 6) == 0);
+    };
+    auto peerName = [&](uint8_t i) -> const char* {
+        const SquachMesh::Peer& p = crowd[i].peer;
+        return (p.custom && p.name[0]) ? p.name : Squachy::nicknameAt(p.nick);
+    };
+
     // One of them, body only. Records where he landed so a tap can find him,
     // and reports whether he is holding a bubble.
     auto drawOne = [&](uint8_t i, int cx, int baseY, bool isGuest) {
         const SquachMesh::Peer& p = crowd[i].peer;
         Squachy::setOutfitPreview((int8_t)p.outfit);
         Squachy::setShadesPreview((int8_t)p.shade);
+        // His name, on a sticker on his chest, so it is his and moves with
+        // him. Four or fewer and everybody wears one; past that only the
+        // one who was tapped, for a few seconds.
+        Squachy::setNameTag(wantsName(i) ? peerName(i) : nullptr);
         const char* line = (isGuest && !msgFresh) ? s_visitGuestLine : nullptr;
         Squachy::drawWaving(t, cx, baseY, now + (uint32_t)i * 137u, s, line,
                             line != nullptr, 0, i % 3 == 0, 18, isGuest && now < s_guestLaughUntil,
                             isGuest && !s_guestTurn, line != nullptr,
                             isGuest ? guestPose(now) : Squachy::VisitPose::NONE);
+        Squachy::setNameTag(nullptr);
         Squachy::setShadesPreview(-1);
         Squachy::setOutfitPreview(-1);
         if (s_crowdN < 8) {
@@ -1844,24 +1917,6 @@ static void drawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
         return line != nullptr;
     };
 
-    // His name, small, where his bubble would be so the two can never both be up.
-    auto drawName = [&](uint8_t i, int cx, int baseY) {
-        const SquachMesh::Peer& p = crowd[i].peer;
-        const char* nm = (p.custom && p.name[0]) ? p.name : Squachy::nicknameAt(p.nick);
-        t.setTextSize(1);
-        t.setTextWrap(false);
-        const int nw = t.textWidth(nm);
-        int nx = cx - nw / 2;
-        if (nx < 2) nx = 2;
-        if (nx + nw > w - 2) nx = w - 2 - nw;
-        t.setTextColor(Theme::CYAN, Theme::BG);
-        t.setCursor(nx, baseY - (int)(58.0f * s) - 10);
-        t.print(nm);
-    };
-
-    auto wantsName = [&](uint8_t i) {
-        return allNames || (s_tapName && memcmp(s_tapMac, crowd[i].mac, 6) == 0);
-    };
 
     // The order of what follows is the whole point of it.
     //
@@ -1869,8 +1924,8 @@ static void drawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     // so it WILL cross a neighbour -- there is no layout where it doesn't.
     // Drawn last it crosses him the way a speech bubble is meant to, in front,
     // instead of being half-painted over by whoever happened to come after.
-    // So: the silent ones go down first, then their nameplates, then the only
-    // two who can be holding a bubble -- the visitor, and ours.
+    // So: the silent ones go down first, then the only two who can be holding
+    // a bubble -- the visitor, and ours. Names ride on the bodies now.
 
     // 1. everybody who is neither talking nor us.
     for (uint8_t i = 0; i < n; i++) {
@@ -1878,20 +1933,14 @@ static void drawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
         const int k = peerCell(i);
         drawOne(i, cellX(k, i, true), cellY(k, i, true), false);
     }
-    // 2. their names, over the lot of them.
-    for (uint8_t i = 0; i < n; i++) {
-        if ((int)i == guestI || !wantsName(i)) continue;
-        const int k = peerCell(i);
-        drawName(i, cellX(k, i, true), cellY(k, i, true));
-    }
-    // 3. the visitor, bubble and all.
+    // 2. the visitor, bubble and all.
     if (guestI >= 0) {
         const uint8_t i = (uint8_t)guestI;
         const int k = peerCell(i);
         const int cx = cellX(k, i, true), baseY = cellY(k, i, true);
-        if (!drawOne(i, cx, baseY, true) && wantsName(i)) drawName(i, cx, baseY);
+        drawOne(i, cx, baseY, true);
     }
-    // 4. and ours last of all, in the seat that does not move. He is drawn
+    // 3. and ours last of all, in the seat that does not move. He is drawn
     //    through tick(), which owns his moods, his quips and his bubble, so he
     //    keeps all of that while the others drift around him.
     {
@@ -2617,6 +2666,11 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
                                         s_vp == VisitPhase::MEETING ||
                                         s_vp == VisitPhase::LEAVING ||
                                         s_piece == Piece::WAVE);    // and when waved at
+            // His name, on a sticker on his chest. It used to take turns with
+            // his bubble in the row above his head; on the chest the two never
+            // meet, so he is named for the whole visit, talking or not.
+            Squachy::setNameTag((guest->custom && guest->name[0]) ? guest->name
+                                                                  : Squachy::nicknameAt(guest->nick));
             Squachy::drawWaving(t, gx, squachyBottom - scriptGuestLift(now, gs,
                                     squachyBottom - (int)(58.0f * gs) - 20), now, gs,
                                 msgFresh ? nullptr : s_visitGuestLine,
@@ -2639,6 +2693,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
                                 // And his bubble says so.
                                 true,
                                 guestPose(now));
+            Squachy::setNameTag(nullptr);
             Squachy::setShadesPreview(-1);
             Squachy::setOutfitPreview(-1);
 
@@ -2658,42 +2713,6 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
             drawPieceFx(t, now, w / 2 - gap + hostLeanPx(), gx,
                         squachyBottom - (int)(58.0f * gs), gs);
 
-            // Nameplate. It goes in the row his speech bubble uses, and only
-            // on the beats when he is not using it.
-            //
-            // It used to sit under his feet, on the reasoning that above is
-            // where the bubble goes and a name up there would be hidden for
-            // exactly the moments he is worth identifying. Correct reasoning,
-            // impossible position: squachyBottom is counterTextTop - 2, so
-            // the fit test below it asked whether 8 <= -2 and the answer has
-            // always been no. The name has never been drawn, on any board, in
-            // any orientation -- which meant custom names travelled between
-            // devices, were decoded correctly, and were then shown to nobody.
-            //
-            // Taking turns with the bubble solves both halves. There is
-            // guaranteed room, because the bubble fits there; and he is
-            // silent for most of a visit, so the name is up most of the time
-            // and gone only while he is saying something -- at which point
-            // which of the two is speaking is not in question anyway.
-            if (!s_visitGuestLine && !msgFresh) {
-                const char* nm = (guest->custom && guest->name[0])
-                                   ? guest->name
-                                   : Squachy::nicknameAt(guest->nick);
-                t.setTextSize(1);
-                t.setTextWrap(false);
-                const int nw = t.textWidth(nm);
-                int nx = gx - nw / 2;
-                if (nx < 2) nx = 2;
-                if (nx + nw > w - 2) nx = w - 2 - nw;
-                // The same head-top drawWaving() computes from the same two
-                // numbers, then the bubble's own gap, then its height -- so
-                // the name sits on the baseline the bubble would have used.
-                const int headTopY = squachyBottom - (int)(58.0f * gs);
-                const int ny = headTopY - 20 - scriptHatPx(gs) + 3;
-                t.setTextColor(Theme::CYAN, Theme::BG);
-                t.setCursor(nx, ny);
-                t.print(nm);
-            }
             // Where he is this frame, for the message bubble and its button.
             s_msgGuestOn = true;
             s_msgGx      = gx;

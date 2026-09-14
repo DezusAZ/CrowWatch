@@ -85,10 +85,11 @@ uint8_t layout(int w, int bandTop, int bandBottom, Key out[KEY_N], bool message)
     // for what it costs to miss them.
     const int y4 = y3 + rh + ROW_GAP;
     if (!message) {
-        // Clear, space, OK.
-        const int cw = w2 * 3 / 2, ow = w2 * 2;
+        // Shuffle, space, OK. Shuffle is where CLR was: it clears too, and
+        // then lands on a curated name instead of on nothing.
+        const int cw = w2 * 2, ow = w2 * 2;
         const int sw = span2 - cw - ow - 2 * GAP;
-        put(out, n, x2,                       y4, cw, rh, CLR);
+        put(out, n, x2,                       y4, cw, rh, SHUF);
         put(out, n, x2 + cw + GAP,            y4, sw, rh, ' ');
         put(out, n, x2 + cw + GAP + sw + GAP, y4, ow, rh, OK);
     } else {

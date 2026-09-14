@@ -163,11 +163,14 @@ that screen.
 
 Two SquachWatches in range of each other notice, and each one draws the
 other's Squachy as a visitor. He walks in, they high five, they stand around
-talking — now and then breaking into a dance-off, a round of
-rock-paper-scissors or a nap — and he goes home when the other board does.
-His outfit, his shades, his nickname and
-whatever name his owner typed on the payphone keypad all travelled over the
-air in a twenty-byte BLE advert.
+talking — now and then breaking into one of the thirty-odd emotes on their
+own, a pie fight, a coin toss, a selfie, a dance-off, the same one on both
+screens with the same result — and he goes home when the other board does.
+His outfit, his shades and his name all travelled over the air in a
+twenty-byte BLE advert. The name is one row, **NAME** under SQUACHMESH: a
+curated one until somebody types one on the payphone, where **SHUFFLE**
+steps through the curated list for anyone who would rather not type.
+Whichever it is, the visitor wears it on a sticker on his chest.
 
 It is deliberately not a network. No pairing, no connection, no
 acknowledgement, no retry — a broadcast that says who is here, and anybody in
@@ -221,20 +224,41 @@ message is not.
 </p>
 
 The typed phrase is the reliable way in and always will be. The convenient
-way is **ADD TO SQUAD**, beside INVITE on the SQUAD screen (the **+N** next to
+way is **ADD**, beside INVITE and HUNT on the SQUAD screen (the **+N** next to
 a visitor). Pick a board in range and tap it; their board asks them whether
 they want in. Both screens then show the same four digits, which the two of
 you compare out loud, and the phrase goes across sealed under a key that
 exists for that one exchange and no other. The digits are derived from both
 boards' keys, so a third board in the middle pretending to be each of you to
 the other leaves the two screens disagreeing — say NO and nothing was sent.
-If the radio dance fails, the inviter's screen offers to show the phrase for
-typing.
+The new member's board answers with a sealed hello the moment it has the
+phrase, the inviter's shows **ADDED**, and both drop back to the main screen
+on their own. If nothing comes back, the inviter's screen says so and offers
+to show the phrase for typing.
 
-Boards that have shown they hold your phrase are labelled **IN YOUR SQUAD**
-on that screen, and the button only offers itself to strangers. Anyone with
-the phrase can invite anyone; there is no list of members, the phrase is the
-membership, and leaving somebody out means a new phrase on every board.
+Boards that have shown they hold your phrase read **MEMBER** on that screen,
+and ADD only offers itself to strangers. Anyone with the phrase can invite
+anyone; the phrase is the membership, and leaving somebody out means a new
+phrase on every board.
+
+### Your squad
+
+**Settings → SQUACHMESH → SQUAD** is the roster: everybody who has ever been
+heard holding your phrase, here or not, up to sixteen, kept across restarts.
+Each member shows in the outfit from their latest advert, with how many
+separate times you have met, those in range first. INVITE works when they
+are here, AWAY says when they are not, and FORGET drops them after asking
+once; they come back the next time they are heard with the phrase. A new
+phrase clears the roster, because a new phrase is a new squad.
+
+### Fox hunt
+
+**HUNT** on either SQUAD screen aims HUNT MODE's signal gauge at that board.
+It is the same meter the detector uses for a tag: no compass, so you turn
+your body and walk toward where the needle does not fall. Two readings in a
+row at arm's length and the gauge says **CAUGHT!**, Squachy bounces, and the
+light on the back flashes green. The fox needs TRANSMIT on; the hunters need
+DETECT on, which they have if they can see the SQUAD screen at all.
 
 **SHOW PHRASE** on the PHRASE screen is on by default. Off, the five words
 become dashes, the board never prints them, and the only way into the squad
@@ -249,10 +273,11 @@ signed release from squachwatch.com, restarts, and reports back by name to
 the board that asked. The sender can share its own saved network with the
 nudge, sealed with the phrase; the receiving boards use it once and forget it.
 
-A board only listens if **REMOTE UPDATE** is on in its SECURITY screen, which
-it is not until you say so, and a locked board ignores the whole thing. So
-the order on release day is: update one board by hand, then UPDATE SQUAD from
-it.
+A board listens because it holds your phrase, which is the same trust it
+already gives you for messages and the invite; **REMOTE UPDATE** on its
+SECURITY screen turns that off for anyone who wants it off. A locked board
+ignores the whole thing regardless. So the order on release day is: update
+one board by hand, then UPDATE SQUAD from it.
 
 ## Every outfit
 

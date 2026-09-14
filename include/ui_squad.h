@@ -1,4 +1,6 @@
 // SquachWatch-CYD — the SQUAD screen: every SquachWatch in range, and the inbox.
+// Or, opened from the SquachMesh menu, the roster: everybody who has ever
+// held the phrase, here or not, with FORGET in place of ADD TO SQUAD.
 //
 // Opened from the small "+N" beside a visitor, which only appears when more
 // than one board is near. The outfit chooser's shape, turned outward: one
@@ -16,12 +18,17 @@
 
 class DetectionEngine;
 
-enum class SquadHit : uint8_t { NONE, BACK, INVITED, REPLY, ADD };
+enum class SquadHit : uint8_t { NONE, BACK, INVITED, REPLY, ADD, HUNT };
+// Whether the roster is showing rather than the boards in range: BACK goes
+// to a different screen in each case.
+bool uiSquadRosterMode();
 // The board the carousel is showing, for ADD TO SQUAD.
 const uint8_t* uiSquadSelectedMac();
 const char*    uiSquadSelectedName();
 
-void     uiSquadInit(TFT_eSPI& t);
+void     uiSquadInit(TFT_eSPI& t, bool roster = false);
+// The engine is read for the backdrop and for whether the board showing is
+// already the hunt target.
 void     uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
 SquadHit uiSquadTouch(int x, int y, uint32_t now);
 #endif

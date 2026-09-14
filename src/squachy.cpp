@@ -1794,6 +1794,11 @@ void setShadesPreview(int8_t idx) {
     s_shadeOverride = idx;
 }
 
+static const char* s_nameTag = nullptr;
+void setNameTag(const char* name) {
+    s_nameTag = (name && name[0]) ? name : nullptr;
+}
+
 void unlockPet() {
     ensurePrefsLoaded();
     if (s_petUnlocked) return;                  // already had him; stay quiet
@@ -4500,6 +4505,27 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
             t.fillRect(px - S(3) - kb, py - S(3) - kb, S(6) + 2 * kb, S(6) + 2 * kb, keyCol);
             t.fillRect(px - S(3), py - S(3), S(6), S(6), Theme::colorFor(s_recentTypes[i]));
         }
+    }
+
+    // The name sticker, last of all so it sits on top of whatever the costume
+    // put on his chest. It is pinned to the torso, so it bobs, crouches and
+    // bows with him. The small font does not scale, which means the sticker
+    // is usually wider than the torso it is stuck to -- which is also how a
+    // real HELLO MY NAME IS badge sits on a small child.
+    if (s_nameTag) {
+        t.setTextSize(1);
+        t.setTextWrap(false);
+        const int tw = t.textWidth(s_nameTag);
+        const int bw = tw + 6, bh = 12;
+        const int bx = cx2 - bw / 2;
+        const int by = hy + S(32) - bh / 2;   // mid-chest, clear of the chin
+        const uint16_t paper = t.color565(244, 242, 232);
+        t.fillRoundRect(bx - 1, by - 1, bw + 2, bh + 2, 3, keyCol);
+        t.fillRoundRect(bx, by, bw, bh, 2, paper);
+        t.fillRect(bx, by, bw, 2, t.color565(220, 40, 40));   // the red band along the top
+        t.setTextColor(BLACK, paper);
+        t.setCursor(bx + 3, by + 3);
+        t.print(s_nameTag);
     }
 }
 

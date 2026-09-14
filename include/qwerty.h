@@ -17,6 +17,7 @@ namespace Qwerty {
 // and space is ' '; everything else on the board is one of these.
 constexpr char BKSP = '\b';
 constexpr char CLR  = 0x18;   // ASCII CAN
+constexpr char SHUF = 0x19;   // name board only: clear, and pick the next curated name
 constexpr char OK   = '\n';
 
 struct Key { int16_t x, y, w, h; char ch; };

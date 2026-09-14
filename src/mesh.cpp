@@ -94,6 +94,12 @@ uint8_t squadList(uint32_t now, SquadMember* out, uint8_t cap) {
     return n;
 }
 
+bool peerLook(const uint8_t mac[6], SquachMesh::Peer& out) {
+    for (uint8_t i = 0; i < SQUAD_N; i++)
+        if (s_squadLive[i] && memcmp(s_squadMac[i], mac, 6) == 0) { out = s_squadPeer[i]; return true; }
+    return false;
+}
+
 void preferPeer(const uint8_t mac[6]) {
     memcpy(s_preferMac, mac, 6);
     s_preferSet = true;

@@ -126,11 +126,13 @@ namespace Squachy {
     DetectionType firstDetectionType(); // UNKNOWN if nothing's been caught yet
 
     // ---- Cosmetics --------------------------------------------------
-    // Both persisted and both wired to Settings rows ("NICKNAME",
-    // "SHADES COLOR") that just cycle through a short curated list —
-    // free-text entry isn't worth the keyboard UI it'd need. Shade
-    // options unlock progressively with pet count; cycling only ever
-    // lands on ones already unlocked.
+    // Both persisted. SHADES COLOR is a Settings row that cycles a short
+    // curated list. The nickname is the curated half of his NAME: what he
+    // is called until somebody types one on the payphone, and what the
+    // payphone's SHUFFLE key cycles. It used to be a Settings row of its
+    // own, from before there was a keyboard. Shade options unlock
+    // progressively with pet count; cycling only ever lands on ones
+    // already unlocked.
     const char* nickname();
     void        cycleNickname();
     const char* shadesColorName();
@@ -226,6 +228,12 @@ namespace Squachy {
     // own colours. Without it a guest wears the host's shades, which reads
     // as a reflection rather than as somebody else. -1 clears it.
     void setShadesPreview(int8_t idx);
+
+    // A name sticker on the next body drawn, centred on the torso, moving
+    // with him. Set it, draw, clear it with nullptr -- the same contract as
+    // the two previews above. Nobody but a cameo wears one; our own
+    // Squachy knows who he is.
+    void setNameTag(const char* name);
 
 #if SQUACH_MESH
     // Which beat of a visit a line is wanted for. The pools live in

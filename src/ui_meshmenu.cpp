@@ -9,11 +9,13 @@
 #include "detection.h"
 #include "meshtalk.h"
 #include <Arduino.h>
+#include <string.h>
+#include <stdio.h>
 
 namespace {
 
 const int TOP_MARGIN = Theme::LIST_TOP + Theme::LIST_HEADING_H;   // under the heading
-const uint8_t ROW_N = 6;     // BACK is pinned to the bottom edge now, not a row
+const uint8_t ROW_N = 7;     // BACK is pinned to the bottom edge now, not a row
 
 // Row height from live font metrics, shared by drawing and hit-testing so
 // the two cannot drift -- the same reason every other row list in this
@@ -85,11 +87,17 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // How many of them may be on screen at once, and whether they roam.
     row(t, w, top + 3 * rowH, rowH, "CROWD", Settings::meshCrowdLabel(),
         Settings::meshCrowd() > 1 ? Theme::GREEN : Theme::W95_SHADOW);
+    // Everybody who has ever held the phrase, here or not.
+    char sq[12];
+    const uint8_t members = MeshTalk::rosterCount();
+    if (members) snprintf(sq, sizeof sq, "%u >", (unsigned)members);
+    else         snprintf(sq, sizeof sq, "NONE >");
+    row(t, w, top + 4 * rowH, rowH, "SQUAD", sq, members ? Theme::GREEN : Theme::W95_SHADOW);
     // Never the phrase itself. This screen is looked at over shoulders.
-    row(t, w, top + 4 * rowH, rowH, "PHRASE",
+    row(t, w, top + 5 * rowH, rowH, "PHRASE",
         MeshTalk::havePhrase() ? "SET >" : "NONE >",
         MeshTalk::havePhrase() ? Theme::VAPOR_YELLOW : Theme::W95_SHADOW);
-    row(t, w, top + 5 * rowH, rowH, "NAME",     nm, Theme::VAPOR_YELLOW);
+    row(t, w, top + 6 * rowH, rowH, "NAME",     nm, Theme::VAPOR_YELLOW);
 
     // One line saying what the two switches actually mean together, because
     // "DETECT off, TRANSMIT on" is not self-evidently "they can see you but
@@ -101,8 +109,14 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
                               : "Off. Nothing sent, nothing shown.";
     t.setTextSize(1);
     t.setTextColor(Theme::W95_LIGHT, Theme::BG);
-    t.setCursor(8, top + ROW_N * rowH + 6);
-    t.print(note);
+    // Seven rows leave no room under them in landscape, so there the one
+    // line that matters most sits beside the heading instead: a warning
+    // about messages if there is one, else what the two switches mean.
+    const bool below = top + ROW_N * rowH + 6 + 2 * t.fontHeight() + 3 <= h - Theme::PINNED_BACK_H - 2;
+    if (below) {
+        t.setCursor(8, top + ROW_N * rowH + 6);
+        t.print(note);
+    }
 
     // And one for messages, which need both halves: DETECT to hear one,
     // TRANSMIT to answer.
@@ -113,9 +127,16 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
       : !Settings::meshDetect()      ? "Messages need DETECT on to be heard."
       : !Settings::meshTransmit()    ? "Messages: you can read, not reply."
                                      : "Messages: reading and replying.";
-    if (mnote) {
+    if (below && mnote) {
         t.setCursor(8, top + ROW_N * rowH + 6 + t.fontHeight() + 3);
         t.print(mnote);
+    }
+    if (!below) {
+        const bool warn = mnote && strcmp(mnote, "Messages: reading and replying.") != 0;
+        const char* one = warn ? mnote : note;
+        t.setTextColor(warn ? Theme::AMBER : Theme::W95_LIGHT, Theme::BG);
+        t.setCursor(w - 8 - t.textWidth(one), Theme::LIST_TOP + (Theme::LIST_HEADING_H - t.fontHeight()) / 2);
+        t.print(one);
     }
     Theme::drawPinnedBack(t, "[ BACK ]");
 }

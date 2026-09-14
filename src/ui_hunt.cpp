@@ -41,6 +41,17 @@ static uint32_t   s_enterMs        = 0;
 static bool       s_stalledFired   = false;
 static const uint32_t STALLED_MS = 60000;
 
+// The catch. HOT fires his line at the top of the gauge, but a needle in
+// the green is easy to miss with two boards in your hands, so the screen
+// says it outright: two samples running at arm's length or closer, and
+// CAUGHT! takes the trend line, held for a few seconds so a single dip
+// does not take it away again. -48 dBm is what two of these boards read
+// at about a metre; touching, they read -30 to -40.
+static const int8_t   CAUGHT_DBM  = -48;
+static const uint32_t CAUGHT_HOLD = 5000;
+static uint32_t s_caughtUntil = 0;
+static bool     s_caughtFired = false;
+
 void uiHuntInit(TFT_eSPI& t) {
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
     s_lastTrend       = TrendState::NONE;
@@ -49,6 +60,8 @@ void uiHuntInit(TFT_eSPI& t) {
     s_gotFirstSignal  = false;
     s_enterMs         = millis();
     s_stalledFired    = false;
+    s_caughtUntil     = 0;
+    s_caughtFired     = false;
     Squachy::huntReaction(Squachy::HuntMoment::STARTED);
 }
 
@@ -57,6 +70,8 @@ bool uiHuntHitBack(int x, int y, int screenW, int screenH) {
     backButtonRect(screenW, screenH, bx, by, bw, bh);
     return x >= bx && x <= bx + bw && y >= by && y <= by + bh;
 }
+
+bool uiHuntCaught() { return (int32_t)(s_caughtUntil - millis()) > 0; }
 
 bool uiHuntHitStop(int x, int y, int screenW, int screenH) {
     int bx, by, bw, bh;
@@ -175,6 +190,17 @@ void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     } else {
         s_hotFired = false;
     }
+    // The catch: this sample and the one before both at arm's length.
+    if (rssiN >= 2 && latestRssi >= CAUGHT_DBM && eng.huntRssiAt(rssiN - 2) >= CAUGHT_DBM) {
+        s_caughtUntil = now + CAUGHT_HOLD;
+        if (!s_caughtFired) {
+            s_caughtFired = true;
+            Squachy::huntReaction(Squachy::HuntMoment::HOT);
+        }
+    } else if (rssiN >= 1 && latestRssi < CAUGHT_DBM - 10 && !uiHuntCaught()) {
+        s_caughtFired = false;         // walked off again: the next catch counts
+    }
+    const bool caught = uiHuntCaught();
 
     // Numeric readout + warmer/colder trend, compared against a sample
     // from ~6 ticks (roughly 12s) back so a single noisy reading can't
@@ -186,7 +212,7 @@ void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     int rw = t.textWidth(rbuf);
     t.setTextColor(Theme::WHITE, Theme::BG);
     t.setCursor((w - rw) / 2, cy + 8);
-    t.print(rbuf);
+    if (!caught) t.print(rbuf);
     // fontHeight() no-arg reads back the size-2 metrics just set above
     // -- fontHeight(int) takes a FONT INDEX, not a size multiplier, and
     // would silently query the wrong thing here.
@@ -208,6 +234,19 @@ void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             else if (cur == TrendState::COLDER) Squachy::huntReaction(Squachy::HuntMoment::COLDER);
             s_lastTrend = cur;
         }
+    }
+    // Caught: the word takes the readout's row, in a green box the eye cannot
+    // miss from across a table, and the number moves down to the trend line.
+    if (caught) {
+        t.setTextSize(2);
+        const int cw2 = t.textWidth("CAUGHT!") + 16, ch2 = t.fontHeight() + 4;
+        const int cx2 = (w - cw2) / 2, cy2 = cy + 6;
+        t.fillRect(cx2, cy2, cw2, ch2, Theme::GREEN);
+        t.setTextColor(Theme::BLACK, Theme::GREEN);
+        t.setCursor(cx2 + 8, cy2 + 2);
+        t.print("CAUGHT!");
+        trend = rbuf;
+        trendColor = Theme::GREEN;
     }
     t.setTextSize(1);
     int tw = t.textWidth(trend);

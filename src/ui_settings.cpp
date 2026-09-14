@@ -51,7 +51,7 @@ static const SettingsRow ALL_ROWS[] = {
     // very top of this list, which put it under the first thumb that opened
     // the screen and got pressed by accident. Down here with SQUACHMESH it is
     // beside the other row that opens a page rather than changing a value.
-    SettingsRow::NICKNAME, SettingsRow::APPEARANCE,
+    SettingsRow::APPEARANCE,
 #if SQUACH_MESH
     // One row, not two: NAME moved inside the SquachMesh menu, which is a
     // row back on a list carrying twenty-five with three colliding in
@@ -96,7 +96,11 @@ static const SettingsRow SYSTEM_ROWS[] = {
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
-static_assert(APPEARANCE_ROWS_N <= ALL_ROWS_N, "the display list is sized off ALL_ROWS");
+// The display buffers below are sized off the longest of the three lists.
+// It used to be the main one, until that list lost its NICKNAME row and
+// the APPEARANCE page outgrew it.
+static const uint8_t LIST_MAX_N = APPEARANCE_ROWS_N > ALL_ROWS_N ? APPEARANCE_ROWS_N : ALL_ROWS_N;
+static_assert(SYSTEM_ROWS_N <= LIST_MAX_N, "the display list is sized off LIST_MAX_N");
 // Kept as a thin shim over s_page so nothing that reads it has to change.
 #define s_appearance (s_page == SettingsPage::APPEARANCE)
 
@@ -110,7 +114,7 @@ static_assert(APPEARANCE_ROWS_N <= ALL_ROWS_N, "the display list is sized off AL
 // "not found yet" hands over the existence of a secret.
 static bool isSquachyOnlyRow(SettingsRow r) {
     return r == SettingsRow::REPLAY_INTRO || r == SettingsRow::SHOW_OFF ||
-           r == SettingsRow::NICKNAME || r == SettingsRow::SQUACHY_NAME ||
+           r == SettingsRow::SQUACHY_NAME ||
            // NOT Appearance: it is the only way to theme, background,
            // brightness, invert, colour order and rotation lock, none of which
            // are about Squachy. Listed here for one hour and boring mode lost
@@ -155,7 +159,6 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::DETECTION_FILTER:
         case SettingsRow::IGNORED_DEVICES:
             return RowGroupId::BEHAVIOR;
-        case SettingsRow::NICKNAME:
         case SettingsRow::SQUACHY_NAME:
         case SettingsRow::APPEARANCE:
         case SettingsRow::SQUACHMESH:
@@ -201,7 +204,7 @@ struct DisplayItem {
 };
 
 static uint8_t buildDisplayList(DisplayItem* out) {
-    SettingsRow rows[ALL_ROWS_N + 2];   // + the two tracking rows
+    SettingsRow rows[LIST_MAX_N + 2];   // + the two tracking rows
     uint8_t n = 0;
     bool boring = Settings::boringMode();
     const SettingsRow* src = ALL_ROWS;
@@ -698,9 +701,6 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
         case SettingsRow::SHOW_OFF:
             label = "SHOW OFF";
             break;
-        case SettingsRow::NICKNAME:
-            label = "NICKNAME"; value = Squachy::nickname();
-            break;
         case SettingsRow::SHADES_COLOR:
             label = "SHADES COLOR"; value = Squachy::shadesColorName();
             break;
@@ -712,12 +712,13 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
 #if SQUACH_MESH
         case SettingsRow::SQUACHY_NAME: {
-            // Shows what he is actually called, which is the typed name when
-            // there is one -- Squachy::nickname() already resolves that, so
-            // this row cannot disagree with the nameplate.
+            // What he is actually called: the typed name if there is one,
+            // else the curated one. Squachy::nickname() resolves that, so
+            // this row cannot disagree with the nameplate. There used to be
+            // a second row, NICKNAME, cycling the curated list on its own;
+            // once a name was typed it changed something nothing showed.
             label = "NAME";
-            const char* cn = Squachy::customName();
-            value = cn ? cn : "TAP TO TYPE";
+            value = Squachy::nickname();
             break;
         }
         case SettingsRow::SQUACHMESH:
@@ -813,7 +814,7 @@ switch (Settings::background()) {
     Theme::drawTitleBar(t, pageTitle);
 
     // +6, not +4: four group headers plus the two tracking rows.
-    DisplayItem items[ALL_ROWS_N + 6];
+    DisplayItem items[LIST_MAX_N + 6];
     uint8_t n = buildDisplayList(items);
 
     int y = top;
@@ -864,7 +865,7 @@ bool uiSettingsTapHeader(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
     int top, bodyBottom, rowH, headerH, tallH;
     computeGeom(t, screenH, top, bodyBottom, rowH, headerH, tallH);
 
-    DisplayItem items[ALL_ROWS_N + 6];
+    DisplayItem items[LIST_MAX_N + 6];
     uint8_t n = buildDisplayList(items);
 
     int cy = top;
@@ -891,7 +892,7 @@ SettingsRow uiSettingsHitTest(TFT_eSPI& t, int x, int y, int screenW, int screen
     int top, bodyBottom, rowH, headerH, tallH;
     computeGeom(t, screenH, top, bodyBottom, rowH, headerH, tallH);
 
-    DisplayItem items[ALL_ROWS_N + 6];
+    DisplayItem items[LIST_MAX_N + 6];
     uint8_t n = buildDisplayList(items);
 
     int cy = top;

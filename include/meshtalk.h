@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "meshmsg.h"
+#include "squachmesh.h"
 
 namespace MeshTalk {
 
@@ -122,6 +123,24 @@ bool takeUpdated(UpdatedIn& out);
 // our phrase: a HELLO, a message, an emote, or any other sealed frame this
 // board could open. The SQUAD screen uses it to tell members from strangers.
 bool inSquad(const uint8_t mac[6], uint32_t now);
+// This board's own address, as it signs frames. All zeros until begin().
+const uint8_t* ownMac();
+
+// ---- the roster -----------------------------------------------------------
+// Everybody ever heard holding our phrase, kept across restarts: who they
+// are, what they looked like last time, and how many separate times they
+// have turned up. The SQUAD screen under the SquachMesh menu shows it.
+// Sixteen at most; when full, whoever has been met the fewest times makes
+// room. Wiped with the phrase, because a new phrase is a new squad.
+constexpr uint8_t ROSTER_N = 16;
+struct Member {
+    uint8_t          mac[6];
+    SquachMesh::Peer look;
+    uint16_t         met;
+};
+uint8_t       rosterCount();
+const Member& rosterAt(uint8_t i);
+void          rosterForget(const uint8_t mac[6]);
 
 // ---- the invite -------------------------------------------------------------
 // See meshmsg.h and meshcrypto.h. Both roles live here; the screens only ask
@@ -136,7 +155,7 @@ enum class InviteState : uint8_t {
     SENDING,      // inviter: MATCHES pressed, the phrase is on the air
     WAITING,      // invitee: MATCHES pressed, waiting for the phrase
     JOINED,       // invitee: phrase taken and the key derived
-    DONE,         // inviter: the phrase has been on the air its full time
+    DONE,         // inviter: their board answered with the phrase, or the air time ran out -- see inviteConfirmed()
     FAILED,       // see inviteWhy()
 };
 InviteState inviteState();
@@ -145,6 +164,9 @@ const char* inviteWhy();          // a short reason, from FAILED
 const char* invitePeerName();     // the other side
 uint16_t    inviteCode();         // 0..9999, from CODE on
 uint32_t    inviteSince();        // millis() of the last state change
+// DONE only: whether their board was heard holding the phrase. False means
+// the phrase went out and nothing came back -- it may still have landed.
+bool        inviteConfirmed();
 Send        inviteStart(const uint8_t target[6], const char* name, uint32_t now);   // inviter
 Send        inviteAccept(uint32_t now);           // invitee, from ASKED
 void        inviteDecline();                      // invitee, from ASKED

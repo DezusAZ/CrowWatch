@@ -5,6 +5,7 @@
 #include "meshcrypto.h"
 #include "settings.h"
 #include "ota_core.h"
+#include "detection.h"      // Mesh::peerLook, for the roster
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_system.h>
@@ -68,11 +69,72 @@ struct SquadSeen { uint8_t mac[6]; uint32_t at; bool live; };
 SquadSeen s_squad[SQUAD_N] = {};
 uint32_t  s_lastHello = 0;
 
+// The roster (see meshtalk.h), and its shape on disk: 25 bytes a member,
+// packed by hand so a different compiler's padding cannot scramble it.
+Member  s_roster[ROSTER_N] = {};
+uint8_t s_rosterN = 0;
+constexpr size_t MEMBER_BYTES = 6 + 4 + 13 + 2;
+
+void rosterSave() {
+    uint8_t b[ROSTER_N * MEMBER_BYTES];
+    size_t  n = 0;
+    for (uint8_t i = 0; i < s_rosterN; i++) {
+        const Member& m = s_roster[i];
+        memcpy(b + n, m.mac, 6); n += 6;
+        b[n++] = m.look.nick; b[n++] = m.look.outfit; b[n++] = m.look.shade; b[n++] = m.look.custom ? 1 : 0;
+        memcpy(b + n, m.look.name, 13); n += 13;
+        b[n++] = (uint8_t)(m.met & 0xFF); b[n++] = (uint8_t)(m.met >> 8);
+    }
+    if (n) s_prefs.putBytes("roster", b, n);
+    else   s_prefs.remove("roster");
+}
+
+void rosterLoad() {
+    uint8_t b[ROSTER_N * MEMBER_BYTES];
+    const size_t got = s_prefs.getBytes("roster", b, sizeof b);
+    s_rosterN = 0;
+    for (size_t n = 0; n + MEMBER_BYTES <= got && s_rosterN < ROSTER_N; n += MEMBER_BYTES) {
+        Member& m = s_roster[s_rosterN++];
+        memcpy(m.mac, b + n, 6);
+        m.look.nick = b[n + 6]; m.look.outfit = b[n + 7]; m.look.shade = b[n + 8]; m.look.custom = b[n + 9] != 0;
+        memcpy(m.look.name, b + n + 10, 13); m.look.name[12] = 0;
+        m.met = (uint16_t)(b[n + 23] | (b[n + 24] << 8));
+    }
+}
+
+// A board just proved it holds the phrase. New to us, or back after being
+// away: that is one more meeting. Either way its look is refreshed from
+// its latest advert, when we have heard one.
+void rosterNote(const uint8_t mac[6], bool newMeeting) {
+    int slot = -1;
+    for (uint8_t i = 0; i < s_rosterN; i++)
+        if (memcmp(s_roster[i].mac, mac, 6) == 0) { slot = i; break; }
+    bool changed = false;
+    if (slot < 0) {
+        if (s_rosterN < ROSTER_N) slot = s_rosterN++;
+        else {
+            slot = 0;
+            for (uint8_t i = 1; i < s_rosterN; i++) if (s_roster[i].met < s_roster[slot].met) slot = i;
+        }
+        Member& m = s_roster[slot];
+        m = Member{};
+        memcpy(m.mac, mac, 6);
+        newMeeting = true;
+        changed = true;
+    }
+    Member& m = s_roster[slot];
+    SquachMesh::Peer look;
+    if (Mesh::peerLook(mac, look) && memcmp(&look, &m.look, sizeof look) != 0) { m.look = look; changed = true; }
+    if (newMeeting && m.met < 0xFFFF) { m.met++; changed = true; }
+    if (changed) rosterSave();
+}
+
 void squadNote(const uint8_t mac[6], uint32_t now) {
     uint8_t slot = 0;
     bool found = false;
     for (uint8_t i = 0; i < SQUAD_N; i++)
         if (s_squad[i].live && memcmp(s_squad[i].mac, mac, 6) == 0) { slot = i; found = true; break; }
+    const bool fresh = found && now - s_squad[slot].at < SQUAD_FRESH_MS;
     if (!found) {
         for (uint8_t i = 0; i < SQUAD_N; i++) {
             if (!s_squad[i].live) { slot = i; break; }
@@ -82,6 +144,7 @@ void squadNote(const uint8_t mac[6], uint32_t now) {
         s_squad[slot].live = true;
     }
     s_squad[slot].at = now;
+    rosterNote(mac, !fresh);
 }
 
 // ---- the invite ---------------------------------------------------------
@@ -92,6 +155,7 @@ InviteState s_invState = InviteState::IDLE;
 uint32_t    s_invSince = 0;
 bool        s_invInviter = false;
 uint8_t     s_invPeerMac[6] = { 0 };
+bool        s_invConfirmed  = false;   // DONE: their hello came back
 char        s_invPeerName[13] = "";
 uint8_t     s_invPriv[MeshCrypto::DH_LEN] = { 0 };
 uint8_t     s_invPub[MeshCrypto::DH_LEN]  = { 0 };
@@ -146,6 +210,14 @@ void arrived(const Slot& s, uint32_t now) {
 void inviteKeyRestore();
 void inviteFail(const char* why, uint32_t now);
 void inviteTo(InviteState st, uint32_t now) { s_invState = st; s_invSince = now; }
+
+// Just joined: our key frames can come off the air, and the first hello
+// under the new phrase goes out on the next tick rather than in two
+// minutes. It is what tells the inviter's board the phrase landed.
+void joinedHello() {
+    s_outN = 0; s_outGen++;
+    s_lastHello = 0;
+}
 
 void deliverInvite(const Slot& s, uint32_t now, uint32_t ctr, uint8_t kind) {
     if (!s_selfTestOk || !s_macSet) return;
@@ -204,7 +276,7 @@ void deliverInvite(const Slot& s, uint32_t now, uint32_t ctr, uint8_t kind) {
         Serial.println("[invite] the phrase is in");
         // Taken now if MATCHES was already pressed, else held for it.
         if (s_invState == InviteState::WAITING) {
-            if (setPhrase(s_invPhrase)) inviteTo(InviteState::JOINED, now);
+            if (setPhrase(s_invPhrase)) { inviteTo(InviteState::JOINED, now); joinedHello(); }
             else inviteFail("Could not take the phrase", now);
             memset(s_invPhrase, 0, sizeof s_invPhrase);
             s_invPhraseIn = false;
@@ -381,6 +453,7 @@ void onAir(uint8_t n, uint32_t now, uint32_t ms = SEND_MS, bool emote = false) {
 
 void begin() {
     s_prefs.begin("meshtalk", false);
+    rosterLoad();
 
     // Before any key is loaded -- the self-test keys the cipher with its own
     // test key and leaves it unkeyed afterwards.
@@ -430,6 +503,9 @@ bool setPhrase(const char* text) {
                   (unsigned long)s_deriveMs, (unsigned long)MeshMsg::ITERS);
     if (!MeshCrypto::impl().setKey(key)) return false;
 
+    // A different phrase is a different squad: the roster of the old one
+    // goes with it. The same phrase typed again keeps it.
+    if (strcmp(s_phrase, text) != 0) { s_rosterN = 0; s_prefs.remove("roster"); }
     s_prefs.putString("phrase", text);
     s_prefs.putBytes("key", key, sizeof key);
     memcpy(s_phrase, text, n + 1);
@@ -446,6 +522,8 @@ void clearPhrase() {
     s_prefs.remove("phrase");
     s_prefs.remove("key");
     s_prefs.remove("replay");
+    s_prefs.remove("roster");
+    s_rosterN = 0;
     s_replay = MeshMsg::Replay();
     memset(s_phrase, 0, sizeof s_phrase);
     s_havePhrase = false;
@@ -547,6 +625,24 @@ bool takeNudgeWifi(const NudgeIn& n, char ssid[MeshMsg::WIFI_SSID_MAX + 1], char
 
 void markNudged() { s_prefs.putBool("nudged", true); }
 
+const uint8_t* ownMac() { return s_ownMac; }
+
+uint8_t       rosterCount()        { return s_rosterN; }
+const Member& rosterAt(uint8_t i)  { return s_roster[i < s_rosterN ? i : 0]; }
+void rosterForget(const uint8_t mac[6]) {
+    for (uint8_t i = 0; i < s_rosterN; i++) {
+        if (memcmp(s_roster[i].mac, mac, 6) != 0) continue;
+        for (uint8_t k = i + 1; k < s_rosterN; k++) s_roster[k - 1] = s_roster[k];
+        s_rosterN--;
+        // And off the heard-lately table too, or the next hello puts them
+        // straight back with a fresh count of one.
+        for (uint8_t k = 0; k < SQUAD_N; k++)
+            if (s_squad[k].live && memcmp(s_squad[k].mac, mac, 6) == 0) s_squad[k].live = false;
+        rosterSave();
+        return;
+    }
+}
+
 bool inSquad(const uint8_t mac[6], uint32_t now) {
     for (uint8_t i = 0; i < SQUAD_N; i++)
         if (s_squad[i].live && memcmp(s_squad[i].mac, mac, 6) == 0)
@@ -614,6 +710,7 @@ const char* inviteWhy()      { return s_invWhy; }
 const char* invitePeerName() { return s_invPeerName; }
 uint16_t    inviteCode()     { return s_invCode; }
 uint32_t    inviteSince()    { return s_invSince; }
+bool        inviteConfirmed(){ return s_invConfirmed; }
 
 Send inviteStart(const uint8_t target[6], const char* name, uint32_t now) {
     // Needs a phrase to hand over and the radio to hand it with.
@@ -664,12 +761,15 @@ Send inviteConfirm(uint32_t now) {
         memset(blob, 0, sizeof blob);
         if (r != Send::OK) { inviteFail("Could not send the phrase", now); return r; }
         inviteTo(InviteState::SENDING, now);
+        s_invConfirmed = false;
+        for (uint8_t i = 0; i < SQUAD_N; i++)
+            if (s_squad[i].live && memcmp(s_squad[i].mac, s_invPeerMac, 6) == 0) s_squad[i].live = false;
         Serial.println("[invite] digits matched; the phrase is on the air");
         return Send::OK;
     }
     // Invitee: the phrase may already be in.
     if (s_invPhraseIn) {
-        if (setPhrase(s_invPhrase)) inviteTo(InviteState::JOINED, now);
+        if (setPhrase(s_invPhrase)) { inviteTo(InviteState::JOINED, now); joinedHello(); }
         else inviteFail("Could not take the phrase", now);
         memset(s_invPhrase, 0, sizeof s_invPhrase);
         s_invPhraseIn = false;
@@ -738,6 +838,8 @@ void forget() {
     s_updatedHave = false;
     s_wifiAsm    = MeshMsg::WifiAssembly();
     for (uint8_t i = 0; i < SQUAD_N; i++) s_squad[i].live = false;
+    s_rosterN = 0;
+    s_prefs.remove("roster");
     inviteCancel();
     s_outN       = 0;
     s_outGen++;
@@ -784,7 +886,7 @@ void tick(uint32_t now) {
     // The hello: a few seconds every couple of minutes, only when nothing
     // else wants the air, and only from a board that is transmitting anyway.
     if (now > 15000 && ready() && s_macSet && Settings::meshTransmit() && !sending(now) &&
-        now - s_lastHello > HELLO_EVERY_MS) {
+        (s_lastHello == 0 || now - s_lastHello > HELLO_EVERY_MS)) {
         s_lastHello = now;
         uint32_t c = 0;
         if (takeCounters(1, c)) {
@@ -796,6 +898,15 @@ void tick(uint32_t now) {
     // and the inviter is done once the phrase has had its time on the air.
     if (s_invState == InviteState::OFFERING && now - s_invSince > INVITE_WAIT_MS) inviteFail("No answer from their board", now);
     if (s_invState == InviteState::WAITING  && now - s_invSince > INVITE_WAIT_MS) inviteFail("The phrase never arrived", now);
+    // Their hello under the new phrase is the proof it landed: done, and
+    // the phrase can come off the air. Otherwise done when its time is up,
+    // unconfirmed.
+    if (s_invState == InviteState::SENDING && inSquad(s_invPeerMac, now)) {
+        s_invConfirmed = true;
+        s_outN = 0; s_outGen++;
+        inviteTo(InviteState::DONE, now);
+        Serial.println("[invite] their board answered: added");
+    }
     if (s_invState == InviteState::SENDING  && now - s_invSince > INVITE_KEY_MS + 1000) inviteTo(InviteState::DONE, now);
     // A finished or failed invite left on screen must not block the next
     // offer for ever: back to IDLE on its own after a while.

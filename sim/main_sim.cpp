@@ -53,6 +53,7 @@
 #include "ui_light.h"
 #include "ui_nudge.h"
 #include "ui_squadupdate.h"
+#include "ui_squad.h"
 #include "ui_invite.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
@@ -363,7 +364,7 @@ int main(int argc, char** argv) {
 
     auto tick = [&](uint32_t t) {
         SimClock::nowMs = t;
-        if      (screen == "clear")    uiClearTick(frame, t, engine, true, false);
+        if      (screen == "clear")    { uiClearEmoteTick(t); uiClearTick(frame, t, engine, true, false); }
         else if (screen == "log") {
             const bool info = (infoType >= 0);
             const DetectionType it = info ? (DetectionType)infoType : DetectionType::UNKNOWN;
@@ -384,6 +385,7 @@ int main(int argc, char** argv) {
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
+        else if (screen == "roster")   uiSquadTick(frame, t, engine);
         else if (screen == "meshwarn") uiMeshWarnTick(frame, t, engine);
         else if (screen == "phrase")   uiMeshPhraseTick(frame, t, engine);
         else if (screen == "compose")  uiMeshComposeTick(frame, t, engine);
@@ -474,6 +476,52 @@ int main(int argc, char** argv) {
     }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "The Burrow");
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
+    else if (screen == "roster") {
+        // Three members, through the real paths: an advert each so Mesh knows
+        // their look, then a sealed HELLO each so MeshTalk puts them on the
+        // roster. --pose 1 marks the first of them as still in range.
+        if (!Settings::meshDetect()) Settings::cycleMeshDetect();
+        if (!Settings::messagesOn()) Settings::toggleMessages();
+        MeshTalk::setPhrase("GIBSON MOTHMAN PHREAK NESSIE ZEROCOOL");
+        struct Seed { uint8_t mac[6]; uint8_t nick, outfit, shade; const char* name; uint8_t met; };
+        static const Seed SEEDS[] = {
+            { { 0x24, 0x0A, 0xC4, 0x01, 0x00, 0x01 }, 4, 12, 2, "BIGFOOT", 7 },
+            { { 0x24, 0x0A, 0xC4, 0x02, 0x00, 0x02 }, 6,  3, 1, nullptr,   2 },
+            { { 0x24, 0x0A, 0xC4, 0x03, 0x00, 0x03 }, 9,  5, 0, "YETI",    1 },
+        };
+        // Seeded in the past, so that by render time only the one advertised
+        // again below is still in range.
+        const uint32_t renderNow = SimClock::nowMs;
+        SimClock::nowMs = renderNow - 3u * 3600000u;
+        uint32_t ctr = 100;
+        for (const Seed& sd : SEEDS) {
+            SquachMesh::Peer p{};
+            p.nick = sd.nick; p.outfit = sd.outfit; p.shade = sd.shade;
+            if (sd.name) { p.custom = true; snprintf(p.name, sizeof p.name, "%s", sd.name); }
+            uint8_t ad[SquachMesh::LEN_MAX + 2] = { (uint8_t)(SquachMesh::COMPANY_ID & 0xFF), (uint8_t)(SquachMesh::COMPANY_ID >> 8) };
+            const size_t an = SquachMesh::encode(p, ad + 2);
+            Mesh::onManufacturerData(ad, an + 2, sd.mac, millis());
+            // met N times: N hellos, each after the six-minute freshness ran out.
+            for (uint8_t k = 0; k < sd.met; k++) {
+                uint8_t f[MeshMsg::FRAME_MAX];
+                const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), sd.mac, ctr++, f, sizeof f);
+                MeshTalk::onFrame(sd.mac, f, n, sd.name ? sd.name : "");
+                SimClock::nowMs += 7 * 60000;
+                MeshTalk::tick(millis());
+            }
+        }
+        SimClock::nowMs = renderNow;
+        MeshTalk::tick(millis());
+        // Only the first is still around: the others were heard long ago.
+        if (poseIdx == 1) {
+            SquachMesh::Peer p{}; p.nick = 4; p.outfit = 12; p.shade = 2; p.custom = true;
+            snprintf(p.name, sizeof p.name, "%s", "BIGFOOT");
+            uint8_t ad[SquachMesh::LEN_MAX + 2] = { (uint8_t)(SquachMesh::COMPANY_ID & 0xFF), (uint8_t)(SquachMesh::COMPANY_ID >> 8) };
+            const size_t an = SquachMesh::encode(p, ad + 2);
+            Mesh::onManufacturerData(ad, an + 2, SEEDS[0].mac, millis());
+        }
+        uiSquadInit(frame, true);
+    }
     else if (screen == "phrase")     {
         uiMeshPhraseInit(frame);
         if (phraseMode >= 0) uiMeshPhraseDemo((uint8_t)phraseMode);
@@ -521,7 +569,15 @@ int main(int argc, char** argv) {
             }
         }
     }
-    else if (screen == "hunt")       { engine.huntBle((const uint8_t*)"\x11\x22\x33\x44\x55\x66", "AirTag"); }
+    else if (screen == "hunt")       {
+        // --pose 1: the target is in your hand, two strong samples in, CAUGHT!
+        const uint8_t hm[6] = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 };
+        engine.huntBle(hm, poseIdx == 1 ? "BIGFOOT" : "AirTag");
+        if (poseIdx == 1) {
+            engine.checkHuntBle(hm, -36); SimClock::nowMs += 2100;
+            engine.checkHuntBle(hm, -34);
+        }
+    }
     else if (screen == "alert")      {
         const Detection* d = nullptr;
         if (alertType >= 0) {

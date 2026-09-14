@@ -148,10 +148,20 @@ void uiInviteTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             centred(t, y + 12, Theme::W95_LIGHT, "Messages and visits are on.");
             break;
         case InviteState::DONE:
-            snprintf(line, sizeof line, "%s has the phrase.", who);
-            centred(t, y, Theme::WHITE, line);
-            centred(t, y + 12, Theme::W95_LIGHT, "If their board did not say so,");
-            centred(t, y + 24, Theme::W95_LIGHT, "SHOW PHRASE next time and read it out.");
+            if (MeshTalk::inviteConfirmed()) {
+                snprintf(line, sizeof line, "%s is in your squad.", who);
+                t.setTextSize(2);
+                centred(t, midY - 8, Theme::GREEN, "ADDED");
+                t.setTextSize(1);
+                centred(t, y, Theme::WHITE, line);
+                centred(t, y + 12, Theme::W95_LIGHT, "Messages and visits are on.");
+            } else {
+                snprintf(line, sizeof line, "The phrase went out to %s,", who);
+                centred(t, y, Theme::WHITE, line);
+                centred(t, y + 12, Theme::WHITE, "but their board has not answered.");
+                centred(t, y + 24, Theme::W95_LIGHT, "Check their screen. If it did not");
+                centred(t, y + 36, Theme::W95_LIGHT, "take, SHOW PHRASE and read it out.");
+            }
             break;
         case InviteState::FAILED:
             if (s_showPhrase) {

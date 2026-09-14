@@ -1422,10 +1422,10 @@ static void enterMeshCompose() {
     uiMeshComposeInit(*canvas);
 }
 
-static void enterSquad() {
+static void enterSquad(bool roster = false) {
     state = AppState::SQUAD;
     transitionStart = millis();
-    uiSquadInit(*canvas);
+    uiSquadInit(*canvas, roster);
 }
 
 static void enterMeshWarn() {
@@ -3455,7 +3455,6 @@ void loop() {
                             Squachy::startShowOff();
                             enterClear();
                             break;
-                        case SettingsRow::NICKNAME:     Squachy::cycleNickname(); break;
                         case SettingsRow::SHADES_COLOR: Squachy::cycleShadesColor(); break;
                         case SettingsRow::SQUACHY_SIZE: Settings::cycleSquachySize(); break;
                         case SettingsRow::OUTFIT:       enterOutfit(); break;
@@ -3540,6 +3539,7 @@ void loop() {
                         }
                         break;
                     case MeshMenuRow::CROWD:    Settings::cycleMeshCrowd();    break;
+                    case MeshMenuRow::SQUAD:    enterSquad(true);              break;
                     case MeshMenuRow::PHRASE:   enterMeshPhrase();             break;
                     case MeshMenuRow::NAME:     enterPhone();                  break;
                     case MeshMenuRow::BACK:     enterSettings();               break;
@@ -3733,6 +3733,20 @@ void loop() {
         case AppState::INVITE: {
             uiInviteTick(*canvas, now, engine);
             lastTouch = now;
+            // A confirmed finish -- YOU'RE IN on one board, ADDED on the
+            // other -- shows for a few seconds and then gets out of the
+            // way, the same on both sides. Anything unconfirmed or failed
+            // waits to be read.
+            {
+                const MeshTalk::InviteState st = MeshTalk::inviteState();
+                const bool happy = st == MeshTalk::InviteState::JOINED ||
+                                   (st == MeshTalk::InviteState::DONE && MeshTalk::inviteConfirmed());
+                if (happy && now - MeshTalk::inviteSince() > 4000) {
+                    MeshTalk::inviteCancel();
+                    enterClear();
+                    break;
+                }
+            }
             if (touchJustDown) {
                 switch (uiInviteHit(*canvas, tp.x, tp.y)) {
                     case InviteHit::ACCEPT: {
@@ -3765,10 +3779,19 @@ void loop() {
             if (touchJustDown && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
                 lastTouch = now;
                 switch (uiSquadTouch(tp.x, tp.y, now)) {
-                    case SquadHit::BACK:    enterClear(); break;
+                    case SquadHit::BACK:    if (uiSquadRosterMode()) enterMeshMenu(); else enterClear(); break;
                     // Back to the main screen to watch the swap happen.
                     case SquadHit::INVITED: enterClear(); break;
                     case SquadHit::REPLY:   enterMeshCompose(); break;
+                    // A fox hunt: their board is the target, the HUNT gauge the
+                    // receiver. Already hunting them: just go to the gauge.
+                    case SquadHit::HUNT: {
+                        const uint8_t* mac = uiSquadSelectedMac();
+                        if (!mac) break;
+                        if (!engine.isHunted(mac, true)) engine.huntBle(mac, uiSquadSelectedName());
+                        enterHunt();
+                        break;
+                    }
                     case SquadHit::ADD: {
                         const uint8_t* mac = uiSquadSelectedMac();
                         if (!mac) break;
@@ -4422,6 +4445,9 @@ void loop() {
         StatusLight::Context lc;
         lc.alert      = (state == AppState::ALERT);
         lc.alertColor = Theme::colorFor(lastAlertType);
+        // A fox caught on the HUNT gauge flashes the light green, the same
+        // three flashes a detection gets in its own colour.
+        if (state == AppState::HUNT && uiHuntCaught()) { lc.alert = true; lc.alertColor = Theme::GREEN; }
 #if SQUACH_MESH
         lc.unread     = MeshTalk::inbox().unread;
         lc.visiting   = Squachy::visiting();

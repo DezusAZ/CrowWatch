@@ -84,6 +84,9 @@ namespace Mesh {
         uint32_t         seen;
     };
     uint8_t                 squadList(uint32_t now, SquadMember* out, uint8_t cap);
+    // What that board looked like the last time its advert was heard, in
+    // range or not. False if it has never been heard this boot.
+    bool                    peerLook(const uint8_t mac[6], SquachMesh::Peer& out);
     // Make this board the visitor. The one-visitor rule still holds; this only
     // says who wins it. The guest already here leaves on the next advert the
     // chosen one sends, and if the chosen one goes quiet, first-come applies.

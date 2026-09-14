@@ -225,7 +225,11 @@ void load() {
     s_lightIdle    = s_prefs.getUChar("ltIdle", 1);
     s_lightColor   = s_prefs.getUChar("ltColor", 0);
     s_lightBright  = s_prefs.getUChar("ltBright", 2);
-    s_remoteUpdate = s_prefs.getBool("rmtUpd", false);
+    // On by default since v1.7.7: a squad member can only ever make this board
+    // install a signed release newer than the one it runs, with a countdown
+    // and SKIP, and the trust is the phrase they already hold. Off is for
+    // anyone who wants it.
+    s_remoteUpdate = s_prefs.getBool("rmtUpd", true);
     s_phraseShown  = s_prefs.getBool("phrShow", true);
     if (s_lightIdle > 2)                 s_lightIdle = 1;
     if (s_lightColor >= LIGHT_COLOR_N)   s_lightColor = 0;
