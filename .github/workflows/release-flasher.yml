@@ -46,8 +46,41 @@ permissions:
   pages: write       # deploy the flasher site
   id-token: write    # required by actions/deploy-pages
 
+# One run per tag at a time. The v1.7.7 push started this workflow twice in
+# the same second -- same commit, same tag, same event -- and the two raced:
+# the second built the whole thing and then failed creating a Release the
+# first had just created. Queued instead of cancelled, so the run that got
+# there first is the one that finishes.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # And the run that comes second finds the Release already there and stops
+  # cleanly, before the four-minute build, rather than after it with a red X.
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.chk.outputs.skip }}
+    steps:
+      - name: Stop if this tag is already released
+        id: chk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "${{ github.ref_name }}" in
+            v*)
+              if gh release view "${{ github.ref_name }}" -R "${{ github.repository }}" >/dev/null 2>&1; then
+                echo "::notice::${{ github.ref_name }} is already released; nothing to do."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi ;;
+          esac
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
   build-and-release:
+    needs: preflight
+    if: needs.preflight.outputs.skip != 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
