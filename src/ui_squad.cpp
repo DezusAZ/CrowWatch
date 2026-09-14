@@ -139,7 +139,16 @@ void uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         s_add    = { (int16_t)(cx + 4),  (int16_t)(baseY + 34), 84, 22 };
         Theme::drawButton(t, s_invite.x, s_invite.y, s_invite.w, s_invite.h,
                           vis ? "VISITING" : "[ INVITE ]", vis);
-        Theme::drawButton(t, s_add.x, s_add.y, s_add.w, s_add.h, "ADD TO SQUAD", false);
+        // A board heard holding our phrase is a member: it gets a label where
+        // the button would be, and the button only offers itself to strangers.
+        if (MeshTalk::inSquad(m.mac, now)) {
+            s_add = { 0, 0, 0, 0 };
+            t.setTextSize(1);
+            t.setTextColor(Theme::GREEN, Theme::BG);
+            centred(t, "IN YOUR SQUAD", cx + 46, baseY + 41);
+        } else {
+            Theme::drawButton(t, s_add.x, s_add.y, s_add.w, s_add.h, "ADD TO SQUAD", false);
+        }
     }
 
     // ---- the inbox ------------------------------------------------------
@@ -203,7 +212,7 @@ SquadHit uiSquadTouch(int x, int y, uint32_t now) {
         Mesh::preferPeer(s_members[s_sel].mac);
         return SquadHit::INVITED;
     }
-    if (s_n && in(s_add, x, y)) return SquadHit::ADD;
+    if (s_n && s_add.w && in(s_add, x, y)) return SquadHit::ADD;
     for (uint8_t i = 0; i < s_rowN; i++)
         if (in(s_rows[i], x, y)) return SquadHit::REPLY;
     return SquadHit::NONE;

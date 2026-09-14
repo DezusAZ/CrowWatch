@@ -236,6 +236,12 @@ static_assert(OUT_PARTS_MAX >= TEXT_PARTS_MAX, "a text message still fits the ou
 //               nonce's sender and the replay table like any message.
 constexpr uint8_t KIND_INVITE_PUB = 7;
 constexpr uint8_t KIND_INVITE_KEY = 8;
+// HELLO: one sealed byte a board with the phrase puts on the air now and
+// then, so the boards around it can tell a squad member from a stranger
+// without anyone sending a message. Never recorded in the replay table --
+// it is a fact about the sender, not something to act on -- so it costs
+// nothing but a counter every couple of minutes.
+constexpr uint8_t KIND_HELLO      = 9;
 constexpr uint8_t INVITE_PART_BYTES = 12;
 constexpr uint8_t INVITE_PARTS      = 4;
 constexpr size_t  INVITE_BLOB       = INVITE_PART_BYTES * INVITE_PARTS;   // 48
@@ -277,6 +283,7 @@ size_t sealWifiPart(const Crypto& c, const uint8_t mac[6], uint32_t counter,
                     uint8_t* out, size_t cap);
 size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
                    const uint8_t ver[3], uint8_t* out, size_t cap);
+size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint8_t* out, size_t cap);
 // The setup byte, per emote. RPS: the sender's throw times three, plus the
 // receiver's -- each 0 rock, 1 paper, 2 scissors. The rest are described with
 // the scripts (EmoteScript::roll); an emote with nothing to agree on sends 0.
@@ -313,6 +320,7 @@ Open openTextPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size
 // this build: nothing here to act out, and nothing wrong either.
 Open openEmote(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t& emote, uint8_t& setup);
+Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter);
 Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t ver[3], uint8_t& wifiParts);
 Open openWifiPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,

@@ -118,6 +118,11 @@ struct UpdatedIn {
 };
 bool takeUpdated(UpdatedIn& out);
 
+// Whether that board has shown, within the last few minutes, that it holds
+// our phrase: a HELLO, a message, an emote, or any other sealed frame this
+// board could open. The SQUAD screen uses it to tell members from strangers.
+bool inSquad(const uint8_t mac[6], uint32_t now);
+
 // ---- the invite -------------------------------------------------------------
 // See meshmsg.h and meshcrypto.h. Both roles live here; the screens only ask
 // what state it is in and press the three buttons. The invitee needs

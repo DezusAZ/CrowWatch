@@ -59,6 +59,31 @@ UpdatedIn s_updated = {};
 bool      s_updatedHave = false;
 MeshMsg::WifiAssembly s_wifiAsm;
 
+// Who has been heard holding our phrase, and when. Eight is the crowd cap.
+constexpr uint8_t  SQUAD_N        = 8;
+constexpr uint32_t SQUAD_FRESH_MS = 6 * 60000;   // three missed hellos and you are a stranger again
+constexpr uint32_t HELLO_EVERY_MS = 2 * 60000;
+constexpr uint32_t HELLO_MS       = 4000;        // about three adverts
+struct SquadSeen { uint8_t mac[6]; uint32_t at; bool live; };
+SquadSeen s_squad[SQUAD_N] = {};
+uint32_t  s_lastHello = 0;
+
+void squadNote(const uint8_t mac[6], uint32_t now) {
+    uint8_t slot = 0;
+    bool found = false;
+    for (uint8_t i = 0; i < SQUAD_N; i++)
+        if (s_squad[i].live && memcmp(s_squad[i].mac, mac, 6) == 0) { slot = i; found = true; break; }
+    if (!found) {
+        for (uint8_t i = 0; i < SQUAD_N; i++) {
+            if (!s_squad[i].live) { slot = i; break; }
+            if ((int32_t)(s_squad[i].at - s_squad[slot].at) < 0) slot = i;   // the stalest
+        }
+        memcpy(s_squad[slot].mac, mac, 6);
+        s_squad[slot].live = true;
+    }
+    s_squad[slot].at = now;
+}
+
 // ---- the invite ---------------------------------------------------------
 constexpr uint32_t INVITE_OFFER_MS = 60000;   // the public key's time on the air
 constexpr uint32_t INVITE_KEY_MS   = 30000;   // the phrase's
@@ -198,6 +223,11 @@ void deliver(const Slot& s, uint32_t now) {
     if (kind == MeshMsg::KIND_INVITE_PUB || kind == MeshMsg::KIND_INVITE_KEY) { deliverInvite(s, now, ctr, kind); return; }
     if (!ready()) return;
 
+    if (kind == MeshMsg::KIND_HELLO) {
+        if (MeshMsg::openHello(MeshCrypto::impl(), s.mac, s.data, s.len, ctr) == MeshMsg::Open::OK) squadNote(s.mac, now);
+        return;
+    }
+
     if (kind == MeshMsg::KIND_CANNED) {
         uint8_t line = 0;
         const MeshMsg::Open r = MeshMsg::openCanned(MeshCrypto::impl(), s.mac,
@@ -208,6 +238,7 @@ void deliver(const Slot& s, uint32_t now) {
         if (r != MeshMsg::Open::OK && r != MeshMsg::Open::UNKNOWN_LINE) return;
         s_replay.record(s.mac, ctr);
         saveReplay();
+        squadNote(s.mac, now);
         s_inbox.text        = false;
         s_inbox.unknownLine = (r == MeshMsg::Open::UNKNOWN_LINE);
         s_inbox.canned      = line;
@@ -228,6 +259,7 @@ void deliver(const Slot& s, uint32_t now) {
         if (!s_asm.add(s.mac, ctr, part, total, chars, body, base)) return;
         s_replay.record(s.mac, base + total - 1);
         saveReplay();
+        squadNote(s.mac, now);
         s_inbox.text        = true;
         s_inbox.unknownLine = false;
         memcpy(s_inbox.body, body, sizeof s_inbox.body);
@@ -244,6 +276,7 @@ void deliver(const Slot& s, uint32_t now) {
         // higher counters of their own.
         s_replay.record(s.mac, ctr);
         saveReplay();
+        squadNote(s.mac, now);
         memcpy(s_nudge.ver, ver, 3);
         s_nudge.wifiParts = parts;
         s_nudge.wifiBase  = ctr + 1;
@@ -277,6 +310,7 @@ void deliver(const Slot& s, uint32_t now) {
                 != MeshMsg::Open::OK) return;
         s_replay.record(s.mac, ctr);
         saveReplay();
+        squadNote(s.mac, now);
         memcpy(s_updated.ver, ver, 3);
         memcpy(s_updated.mac, s.mac, 6);
         const char* from = s.name[0] ? s.name : "SOMEONE";
@@ -295,6 +329,7 @@ void deliver(const Slot& s, uint32_t now) {
         if (r != MeshMsg::Open::OK && r != MeshMsg::Open::UNKNOWN_LINE) return;
         s_replay.record(s.mac, ctr);
         saveReplay();
+        squadNote(s.mac, now);
         if (r != MeshMsg::Open::OK) return;      // a newer build's: nothing to act out
         s_emote.emote = em;
         s_emote.setup = setup;
@@ -512,6 +547,13 @@ bool takeNudgeWifi(const NudgeIn& n, char ssid[MeshMsg::WIFI_SSID_MAX + 1], char
 
 void markNudged() { s_prefs.putBool("nudged", true); }
 
+bool inSquad(const uint8_t mac[6], uint32_t now) {
+    for (uint8_t i = 0; i < SQUAD_N; i++)
+        if (s_squad[i].live && memcmp(s_squad[i].mac, mac, 6) == 0)
+            return now - s_squad[i].at < SQUAD_FRESH_MS;
+    return false;
+}
+
 bool takeUpdated(UpdatedIn& out) {
     if (!s_updatedHave) return false;
     s_updatedHave = false;
@@ -695,6 +737,7 @@ void forget() {
     s_nudgeHave  = false;
     s_updatedHave = false;
     s_wifiAsm    = MeshMsg::WifiAssembly();
+    for (uint8_t i = 0; i < SQUAD_N; i++) s_squad[i].live = false;
     inviteCancel();
     s_outN       = 0;
     s_outGen++;
@@ -737,6 +780,17 @@ void tick(uint32_t now) {
     if (s_ackPending && now > 10000 && s_macSet && ready() && !sending(now)) {
         s_ackPending = false;
         sendUpdated(now);
+    }
+    // The hello: a few seconds every couple of minutes, only when nothing
+    // else wants the air, and only from a board that is transmitting anyway.
+    if (now > 15000 && ready() && s_macSet && Settings::meshTransmit() && !sending(now) &&
+        now - s_lastHello > HELLO_EVERY_MS) {
+        s_lastHello = now;
+        uint32_t c = 0;
+        if (takeCounters(1, c)) {
+            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, s_out[0], sizeof s_out[0]);
+            if (n) { s_outLen[0] = (uint8_t)n; onAir(1, now, HELLO_MS); }
+        }
     }
     // The invite's clocks: a side that waits too long for the other gives up,
     // and the inviter is done once the phrase has had its time on the air.

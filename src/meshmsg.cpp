@@ -450,6 +450,15 @@ size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
     return sealBytes(c, mac, counter, KIND_UPDATED, ver, 3, out, cap);
 }
 
+size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint8_t* out, size_t cap) {
+    return sealByte(c, mac, counter, KIND_HELLO, 1, out, cap);
+}
+
+Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter) {
+    uint8_t v = 0;
+    return openByte(c, mac, in, len, KIND_HELLO, counter, v);
+}
+
 Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t ver[3], uint8_t& wifiParts) {
     uint8_t pt[4] = { 0, 0, 0, 0 };

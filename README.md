@@ -1,7 +1,6 @@
 # SquachWatch-CYD
 
 > Surveillance-device detector for the ESP32-2432S028R ("Cheap Yellow Display").
-> Built for the **TALKING SASQUACH** brand family.
 
 SquachWatch-CYD sniffs the 2.4 GHz airwaves for known wireless signatures
 of Flock Safety cameras, Axon body cameras, recording glasses, card
@@ -131,6 +130,24 @@ There is no GPS and no network sync — the clock is set over serial with a
 single `TIME <epoch>` line at 2,000,000 baud, and until it is, timestamps
 count from boot.
 
+## The status light
+
+The RGB LED on the back of the 2.8" CYD (on the front of the RL Phantom)
+tells you what the screen is doing without the screen. A slow breathe in the
+theme's colour when nothing is happening; three flashes and a hold in the
+detection's own colour when something is, for as long as the alert card is
+up; a double-blink for an unread message; a blip when a squad member walks
+on; cyan while an update downloads and green or red for how it went. It goes
+dark on the lock screen and through a wipe, so a duress restart looks like any
+other restart from the back too.
+
+**Settings → APPEARANCE → STATUS LIGHT**: the master switch, alerts and
+messages on or off, idle breathe or solid or off, an idle colour that follows
+the theme, the background, or one of nine fixed colours, brightness in five
+steps, and a TEST row that plays the lot in six seconds. Boards whose LED pins
+have not been checked (the AWOK and the 3.5") compile it out and say so on
+that screen.
+
 ## SquachMesh
 
 > **Work in progress.** It is in this release because it works — two boards
@@ -196,6 +213,47 @@ made by an independent implementation at each boot. What stays visible is
 that you sent something, and when: the contents are encrypted, the fact of a
 message is not.
 
+### Joining without typing
+
+<p align="center">
+  <img src="docs/squad-invite.gif" width="640"
+       alt="Two boards side by side: one taps ADD TO SQUAD, the other's board asks and accepts, both show the same four digits, the phrase goes over, and the second board is in without typing anything.">
+</p>
+
+The typed phrase is the reliable way in and always will be. The convenient
+way is **ADD TO SQUAD**, beside INVITE on the SQUAD screen (the **+N** next to
+a visitor). Pick a board in range and tap it; their board asks them whether
+they want in. Both screens then show the same four digits, which the two of
+you compare out loud, and the phrase goes across sealed under a key that
+exists for that one exchange and no other. The digits are derived from both
+boards' keys, so a third board in the middle pretending to be each of you to
+the other leaves the two screens disagreeing — say NO and nothing was sent.
+If the radio dance fails, the inviter's screen offers to show the phrase for
+typing.
+
+Boards that have shown they hold your phrase are labelled **IN YOUR SQUAD**
+on that screen, and the button only offers itself to strangers. Anyone with
+the phrase can invite anyone; there is no list of members, the phrase is the
+membership, and leaving somebody out means a new phrase on every board.
+
+**SHOW PHRASE** on the PHRASE screen is on by default. Off, the five words
+become dashes, the board never prints them, and the only way into the squad
+from that board's side is ADD TO SQUAD, in person.
+
+### Updating the squad
+
+**Settings → SYSTEM → UPDATE FIRMWARE → UPDATE SQUAD** tells every board in
+range with your phrase to install the version this one is running. Each of
+them shows a thirty-second countdown with SKIP, joins WiFi, installs the
+signed release from squachwatch.com, restarts, and reports back by name to
+the board that asked. The sender can share its own saved network with the
+nudge, sealed with the phrase; the receiving boards use it once and forget it.
+
+A board only listens if **REMOTE UPDATE** is on in its SECURITY screen, which
+it is not until you say so, and a locked board ignores the whole thing. So
+the order on release day is: update one board by hand, then UPDATE SQUAD from
+it.
+
 ## Every outfit
 
 Squachy has fourteen costumes. Most are earned by detection count; four are
@@ -235,6 +293,8 @@ SquachWatch-CYD/
 │   ├── remote_id.h               (ASTM F3411 decoder)
 │   ├── clock.h                   (wall clock, set over serial)
 │   ├── ignore_list.h             (per-device alert suppression)
+│   ├── status_light.h            (the RGB LED and its rules)
+│   ├── meshmsg.h                 (sealed frames: messages, emotes, nudges, invites)
 │   ├── squachmesh.h              (the SquachMesh wire format -- read first)
 │   ├── settings.h
 │   ├── squachy.h                 (the mascot)
@@ -252,13 +312,17 @@ SquachWatch-CYD/
 │   ├── ignore_list.cpp
 │   ├── pet.cpp
 │   ├── squachmesh.cpp            (SquachMesh encode/decode, no radio)
+│   ├── meshtalk.cpp              (messages, the squad update, the invite)
+│   ├── meshcrypto.cpp            (AES-CCM, PBKDF2, and X25519 for invites)
+│   ├── status_light.cpp
 │   ├── sd_log.cpp
 │   └── ui_*.cpp
 ├── test/                         (host tests -- `make -C test`, no framework)
 └── sim/                          (PC emulator — compiles src/ natively)
     ├── Makefile                  (`make` for the CLI, `make wasm` for the web build)
     ├── *.h                       (Arduino/TFT_eSPI/NVS shims)
-    ├── make_demo.py              (renders the animation at the top of this file)
+    ├── make_readme_demo.py       (renders the animation at the top of this file)
+    ├── make_demo.py              (the older background tour)
     ├── make_mesh_demo.py         (renders the SquachMesh clip above)
     ├── make_gallery.py           (renders the outfit sheet above)
     ├── make_social.py            (renders the repo's social preview card)
@@ -274,22 +338,12 @@ SquachWatch-CYD/
 - Flock Safety OUI research: [@NitekryDPaul](https://x.com/NitekryDPaul),
   DeFlockJoplin, [`colonelpanichacks/flock-you`](https://github.com/colonelpanichacks/flock-you)
   (MIT).
-- Generic-camera OUI table: [`skizzophrenic/Cardputer-CSI-Human-Detector`](https://github.com/skizzophrenic/Cardputer-CSI-Human-Detector)
-  (MIT, this author's earlier work).
 - Axon / skimmer / SSID prefix data: compiled with assistance from
   Gemini (Google), expanded against public sources.
 - AirTag manufacturer-data format: public Apple FindMy spec.
 - AWOK 2.4" board port (ESP32-Marauder V6.1 hardware): **bkbroiler**,
   who did the actual pin-mapping and shared-bus touch-calibration work
   that made this board possible.
-- The SquachWare vaporwave aesthetic and `TALKING SASQUACH` brand
-  belong to **skizzophrenic / Talking Sasquach** — see
-  [talkingsasquach.com](https://talkingsasquach.com) and the
-  [SquachWare-CFW](https://github.com/skizzophrenic/SquachWare-CFW)
-  project.
-- Vibes: also skizzophrenic, who vibecoded most of this at unreasonable
-  hours with an AI doing the typing. Yes, the same guy credited above
-  for "research." Make of that what you will.
 
 ## Status
 
