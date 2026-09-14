@@ -460,7 +460,7 @@ int main(int argc, char** argv) {
     else if (screen == "colorcheck") uiColorCheckInit(frame);
     else if (screen == "boot")       uiBootInit(frame);
     else if (screen == "update")     uiUpdateInit(frame);
-    else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "NATE", v, 30, 0); }
+    else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "BIGFOOT", v, 30, 0); }
     else if (screen == "squadupdate") uiSquadUpdateInit(frame);
     else if (screen == "invite") {
         // --pose N picks the page: 0 offering, 1 asked, 2 code, 3 sending, 4 joined,
@@ -470,7 +470,7 @@ int main(int argc, char** argv) {
             MeshTalk::InviteState::CODE, MeshTalk::InviteState::SENDING, MeshTalk::InviteState::JOINED, MeshTalk::InviteState::FAILED,
             MeshTalk::InviteState::WAITING, MeshTalk::InviteState::DONE };
         const int p = (poseIdx >= 0 && poseIdx < 8) ? poseIdx : 2;
-        uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "NATE" : "NATE2", p == 0 || p == 3 || p == 5 || p == 7);
+        uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "BIGFOOT" : "YETI", p == 0 || p == 3 || p == 5 || p == 7);
     }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "The Burrow");
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);

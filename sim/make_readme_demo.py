@@ -1,6 +1,6 @@
 """Renders the README's demo clip: boot, the main screen on synthwave with
-Squachy in VOID EYE, a quip, a FLOCK detection and his reaction to it, and a
-visiting SquachWatch walking on to say hello.
+Squachy as himself, a quip, a FLOCK detection and his reaction to it, and a
+visiting SquachWatch in VOID EYE walking on to say hello.
 
     python3 make_readme_demo.py --render-only   # under WSL, after `make`
     python  make_readme_demo.py --encode-only   # wherever Pillow is installed
@@ -70,8 +70,8 @@ def seed(nvs):
     os.makedirs(nvs, exist_ok=True)
     open(os.path.join(nvs, "settings.nvs"), "w").write(
         "b colorchk 1\nb meshok 1\nb meshrx 1\nb meshtx 1\nb infoprimer 1\nu bg %d\n" % BG)
-    open(os.path.join(nvs, "squachy.nvs"), "w").write(
-        "b onboarded 1\nb voidEye 1\nu outfitIdx %d\n" % OUTFIT_VOIDEYE)
+    open(os.path.join(nvs, "squachy.nvs"), "w").write("b onboarded 1\n")
+
 
 
 def render():
@@ -108,7 +108,7 @@ def render():
     live = Live(nvs)
     # The splash, from the first frame.
     cap(26)
-    # The main screen: synthwave, VOID EYE, the counters. Then his thirty-
+    # The main screen: synthwave, Squachy as himself, the counters. Then his thirty-
     # second line, fast-forwarded to.
     cap(30)
     live.step(430)
@@ -121,8 +121,8 @@ def render():
     tap(160, 40)
     cap(50)
     hold(700)
-    # Another SquachWatch in range: its owner's Squachy walks on and says hello.
-    live.send("P outfit 4", "P shade 2", "P name BIGFOOT", "P setup")
+    # Another SquachWatch in range: its owner's Squachy, in VOID EYE, walks on and says hello.
+    live.send("P outfit %d" % OUTFIT_VOIDEYE, "P shade 2", "P name BIGFOOT", "P setup")
     cap(70)
     hold(1800)
     live.close()
