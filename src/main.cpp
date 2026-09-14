@@ -59,6 +59,17 @@ static CrashReport g_lastCrash = {};
 static const uint32_t WIPEBOOT_MAGIC = 0x57A1E000u;
 enum class WipeBoot : uint8_t { NONE, UNLOCKED, LOCKED };
 RTC_NOINIT_ATTR static uint32_t g_wipeBoot;
+// The boot update check ran and the frame buffer then failed to allocate:
+// restart once without the check rather than run on with no frame buffer.
+// Same RTC-memory shape as the wipe flag, and believed only after a software
+// reset.
+static const uint32_t CHKSKIP_MAGIC = 0x5C1BB00Cu;
+RTC_NOINIT_ATTR static uint32_t g_bootCheckSkip;
+static bool takeBootCheckSkip() {
+    const uint32_t v = g_bootCheckSkip;
+    g_bootCheckSkip = 0;
+    return esp_reset_reason() == ESP_RST_SW && v == CHKSKIP_MAGIC;
+}
 static WipeBoot takeWipeBoot() {
     const uint32_t v = g_wipeBoot;
     g_wipeBoot = 0;
@@ -1828,6 +1839,39 @@ void setup() {
     StatusLight::begin();
     StatusLight::boot(millis());
 
+    // The boot check: a few seconds on the saved WiFi asking the site whether
+    // there is a newer release, and only ever HERE, before Bluetooth exists.
+    // Joining WiFi on a running board means giving Bluetooth up until the
+    // next restart, so on a running board the same question is a whole mode
+    // (UPDATE OVER WIFI). And before the frame buffer, too: the TLS
+    // handshake wants about 40 KB in one piece, and with the buffer in place
+    // the largest block is 35 KB -- measured, the first try returned -1.
+    // Tells, never installs. Skipped with no saved network, with the board
+    // locked, or with UPDATE CHECK off.
+    bool bootCheckRan = false;
+    if (takeBootCheckSkip()) {
+        Serial.println("[ota] boot check skipped: the frame buffer failed after the last one");
+    } else if (Settings::updateCheck() && !Security::locked() && OtaCore::available() && OtaWifi::hasSaved()) {
+        bootCheckRan = true;
+        // The backlight down first, for the same reason it goes down at the
+        // radio start below: WiFi's RF calibration plus a full backlight is
+        // more than a weak USB port holds, and the first run of this check
+        // browned the Phantom out into a second boot.
+        ledcWrite(BL_CH_ORIG, 24);
+        ledcWrite(BL_CH_CAP,  24);
+        ledcWrite(BL_CH_AWOK, 24);
+        tft.fillScreen(Theme::BG);
+        tft.setTextSize(1);
+        tft.setTextWrap(false);
+        tft.setTextColor(Theme::CYAN, Theme::BG);
+        const char* m = "CHECKING FOR UPDATES...";
+        tft.setCursor((tft.width() - tft.textWidth(m)) / 2, tft.height() / 2 - 4);
+        tft.print(m);
+        OtaWifi::bootCheck(9000);
+        tft.fillScreen(Theme::BG);
+    }
+
+
 #if defined(CYD35)
     // No FULL-screen double buffer on this board — confirmed on real
     // hardware that the 320x480 panel's ~150KB sprite need exceeds the
@@ -1856,6 +1900,17 @@ void setup() {
     frame.setColorDepth(8);
     if (!frame.createSprite(tft.width(), tft.height())) {
         Serial.println("ERROR: frame buffer allocation failed (low memory)");
+#if HAVE_NVS_ERASE
+        if (bootCheckRan) {
+            // The check's leftovers took the block. Once more, without it.
+            g_bootCheckSkip = CHKSKIP_MAGIC;
+            Serial.flush();
+            delay(20);
+            esp_restart();
+        }
+#else
+        (void)bootCheckRan;
+#endif
     }
     frame.setTextSize(1);
 #endif
@@ -2371,6 +2426,12 @@ void loop() {
             break;
         }
         case AppState::CLEAR: {
+            // A newer release, heard of at boot or from a squad member: said
+            // once, after the boot line has had its turn and not over a visit.
+            if (now - transitionStart > 7000 && !Squachy::visiting()) {
+                const char* n = OtaCore::takeAvailableNotice();
+                if (n) Squachy::announce(n);
+            }
             // Checked before drawing so the celebration takes over on the
             // same frame it becomes due, rather than after one frame of
             // CLEAR flashing up behind it.
@@ -3396,6 +3457,7 @@ void loop() {
                         case SettingsRow::THEME:      Settings::cyclePalette(); break;
                         case SettingsRow::BACKGROUND: Settings::cycleBackground(); break;
                         case SettingsRow::BACKGROUND_LOCK: Settings::toggleBackgroundLocked(); break;
+                        case SettingsRow::UPDATE_CHECK:    Settings::toggleUpdateCheck();     break;
                         case SettingsRow::INVERT:
                             Settings::toggleInvert();
                             // XOR against the panel's own baseline, not an

@@ -296,7 +296,20 @@ void deliver(const Slot& s, uint32_t now) {
     if (!ready()) return;
 
     if (kind == MeshMsg::KIND_HELLO) {
-        if (MeshMsg::openHello(MeshCrypto::impl(), s.mac, s.data, s.len, ctr) == MeshMsg::Open::OK) squadNote(s.mac, now);
+        uint8_t ver[3];
+        if (MeshMsg::openHello(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, ver) == MeshMsg::Open::OK) {
+            squadNote(s.mac, now);
+            // A member on something newer is the field's update check: no
+            // WiFi, no site, just somebody nearby who already has it.
+            uint8_t mine[3];
+            if (ver[0] | ver[1] | ver[2]) {
+                if (MeshMsg::parseVersion(OtaCore::runningVersion(), mine) && MeshMsg::versionNewer(ver, mine)) {
+                    char vs[16];
+                    snprintf(vs, sizeof vs, "%u.%u.%u", ver[0], ver[1], ver[2]);
+                    OtaCore::noteAvailable(vs, s.name[0] ? s.name : "");
+                }
+            }
+        }
         return;
     }
 
@@ -890,7 +903,9 @@ void tick(uint32_t now) {
         s_lastHello = now;
         uint32_t c = 0;
         if (takeCounters(1, c)) {
-            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, s_out[0], sizeof s_out[0]);
+            uint8_t ver[3] = { 0, 0, 0 };
+            MeshMsg::parseVersion(OtaCore::runningVersion(), ver);
+            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, ver, s_out[0], sizeof s_out[0]);
             if (n) { s_outLen[0] = (uint8_t)n; onAir(1, now, HELLO_MS); }
         }
     }

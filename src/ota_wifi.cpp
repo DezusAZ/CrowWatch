@@ -127,9 +127,11 @@ void releaseBluetooth() {
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
+static WiFiClientSecure* s_tls   = nullptr;
+static WiFiClient*       s_plain = nullptr;
 WiFiClient* client() {
-    static WiFiClientSecure* tls   = nullptr;
-    static WiFiClient*       plain = nullptr;
+    WiFiClientSecure*& tls   = s_tls;
+    WiFiClient*&       plain = s_plain;
     if (strncmp(OTA_WIFI_BASE, "https://", 8) == 0) {
         if (!tls) {
             tls = new WiFiClientSecure();
@@ -413,6 +415,89 @@ void connect(const char* ssid, const char* pass, bool save) {
         memset(s_pass, 0, sizeof s_pass);
         fail(Fail::LOW_MEMORY);
     }
+}
+
+bool bootCheck(uint32_t budgetMs) {
+    readSaved();
+    if (!s_saved[0]) return false;
+    char pass[65] = "";
+    {
+        Preferences p;
+        if (p.begin(NVS_NS, true)) {
+            strncpy(pass, p.getString("pass", "").c_str(), sizeof pass - 1);
+            p.end();
+        }
+    }
+    const uint32_t t0 = millis();
+    Serial.printf("[ota] boot check: joining %s (heap %lu, largest %lu)\n", s_saved,
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(s_saved, pass[0] ? pass : nullptr);
+    wl_status_t st = WiFi.status();
+    // Two thirds of the budget for the join, the rest for the fetch.
+    while (st != WL_CONNECTED && millis() - t0 < budgetMs * 2 / 3) {
+        if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) break;
+        delay(50);
+        st = WiFi.status();
+    }
+    memset(pass, 0, sizeof pass);
+    bool found = false;
+    if (st == WL_CONNECTED) {
+        Serial.printf("[ota] boot check: joined in %lu ms\n", (unsigned long)(millis() - t0));
+        uint8_t body[1024];
+        size_t  len = 0;
+        const uint32_t left = budgetMs - (millis() - t0);
+        // Plain HTTP, on purpose. A TLS handshake wants 40 KB in one piece
+        // and five to ten seconds, and one that timed out left a dead
+        // connection in the middle of the heap that cost the frame buffer
+        // its block -- measured, twice. The site answers the manifest over
+        // plain HTTP, and nothing rides on this answer but a notice: the
+        // install itself goes over HTTPS and checks the signature.
+        String base = OTA_WIFI_BASE;
+        if (base.startsWith("https://")) base = "http://" + base.substring(8);
+        WiFiClient plain;
+        HTTPClient http;
+        if (http.begin(plain, base + "manifest-" + OtaCore::buildName() + ".json")) {
+            http.setConnectTimeout((int32_t)left);
+            http.setTimeout((uint16_t)(left > 60000 ? 60000 : left));
+            const int code = http.GET();
+            if (code == 200) {
+                WiFiClient* s = http.getStreamPtr();
+                const int total = http.getSize();     // the server keeps the connection open, so the
+                const uint32_t t1 = millis();         // content length is what says "that is all of it"
+                while (len < sizeof body - 1 && (total < 0 || (int)len < total) && millis() - t1 < left) {
+                    const int a = s->available();
+                    if (a > 0) { const int r = s->read(body + len, (size_t)a < sizeof body - 1 - len ? (size_t)a : sizeof body - 1 - len); if (r > 0) len += (size_t)r; }
+                    else if (!http.connected()) break;
+                    else delay(5);
+                }
+                Serial.printf("[ota] boot check: manifest %u bytes in %lu ms\n", (unsigned)len, (unsigned long)(millis() - t1));
+                body[len] = '\0';
+                char latest[16];
+                if (parseVersion((const char*)body, latest, sizeof latest)) {
+                    Serial.printf("[ota] boot check: site has %s, running %s\n", latest, FIRMWARE_VERSION);
+                    OtaCore::noteAvailable(latest, "");
+                    found = true;
+                }
+            } else {
+                Serial.printf("[ota] boot check: manifest HTTP %d\n", code);
+            }
+            http.end();
+        }
+    } else {
+        Serial.printf("[ota] boot check: no join (%d) in %lu ms\n", (int)st, (unsigned long)(millis() - t0));
+    }
+    // Everything back the way it was: the driver torn down, so Bluetooth
+    // starts into the heap it always had.
+    WiFi.disconnect(true, true);
+    Serial.printf("[ota] boot check: disconnected (heap %lu, largest %lu)\n",
+                  (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    WiFi.mode(WIFI_OFF);
+    Serial.printf("[ota] boot check done in %lu ms (heap %lu, largest %lu)\n", (unsigned long)(millis() - t0),
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    return found;
 }
 
 void connectSaved() {

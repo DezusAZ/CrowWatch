@@ -188,6 +188,11 @@ namespace Settings {
     bool        remoteUpdate();
     void        toggleRemoteUpdate();
 
+    // UPDATE CHECK: whether the board joins its saved WiFi for a few seconds
+    // at boot to ask the site for a newer release. Tells, never installs.
+    bool        updateCheck();
+    void        toggleUpdateCheck();
+
     // SHOW PHRASE: whether this board ever prints its five words. OFF makes
     // the squad invite-only from this board's side: nobody can read the
     // phrase off it, so the only way in is ADD TO SQUAD, in person. ON by

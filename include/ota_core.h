@@ -74,6 +74,15 @@ const char* takeBootNote(const char** sub, bool* good);
 
 const char* runningSlot();      // "app0" / "app1"
 const char* runningVersion();
+// A newer release this board has heard of: from the boot check over WiFi, or
+// from a squad member's hello over the mesh. `who` is the member's name, or
+// empty for the site. Ignored unless newer than what is running. RAM only:
+// the boot check runs every boot anyway.
+void        noteAvailable(const char* version, const char* who);
+const char* availableVersion();   // "" when nothing newer is known
+const char* availableFrom();      // the member's name, or ""
+// The one-line notice for Squachy, once per version. nullptr once said.
+const char* takeAvailableNotice();
 const char* buildName();        // the PlatformIO environment, e.g. "cyd-fast"
 uint32_t    maxImageSize();
 

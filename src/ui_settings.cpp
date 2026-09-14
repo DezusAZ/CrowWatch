@@ -92,7 +92,7 @@ static const SettingsRow APPEARANCE_ROWS[] = {
 // The SYSTEM page: the rarely-needed machinery, off the main list.
 static const SettingsRow SYSTEM_ROWS[] = {
     SettingsRow::CALIBRATE, SettingsRow::CHECK_COLORS,
-    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::RESET_STATS,
+    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::RESET_STATS,
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
@@ -229,7 +229,7 @@ static uint8_t buildDisplayList(DisplayItem* out) {
         if (r == SettingsRow::TOP_HAT && !Squachy::hasTopHat()) continue;
         // Not a secret, just impossible: a board without a second app slot or
         // a Bluetooth server has nothing to update into.
-        if (r == SettingsRow::UPDATE_FIRMWARE && !OtaCore::available()) continue;
+        if ((r == SettingsRow::UPDATE_FIRMWARE || r == SettingsRow::UPDATE_CHECK) && !OtaCore::available()) continue;
         rows[n++] = r;
     }
 
@@ -617,7 +617,7 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             label = "THEME"; value = Theme::kPalettes[Settings::paletteIndex()].name;
             break;
         case SettingsRow::SYSTEM:
-            label = "SYSTEM"; value = ">";
+            label = "SYSTEM"; value = OtaCore::availableVersion()[0] ? "UPDATE >" : ">";
             break;
         // The tracking rows. Their whole reason to exist is naming the thing,
         // so the value is the target's own label rather than a state word.
@@ -693,7 +693,14 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             label = "DIAGNOSTICS";
             break;
         case SettingsRow::UPDATE_FIRMWARE:
-            label = "UPDATE FIRMWARE"; value = ">";
+            // The row names the newer version when one is known, so the boot
+            // check and a member's hello have somewhere to point.
+            label = "UPDATE FIRMWARE";
+            if (OtaCore::availableVersion()[0]) { snprintf(valBuf, valBufN, "v%s >", OtaCore::availableVersion()); value = valBuf; }
+            else value = ">";
+            break;
+        case SettingsRow::UPDATE_CHECK:
+            label = "UPDATE CHECK"; value = Settings::updateCheck() ? "AT BOOT" : "OFF";
             break;
         case SettingsRow::REPLAY_INTRO:
             label = "REPLAY INTRO";

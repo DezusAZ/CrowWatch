@@ -1799,6 +1799,9 @@ void setNameTag(const char* name) {
     s_nameTag = (name && name[0]) ? name : nullptr;
 }
 
+static void say(const char* line, uint32_t ms);
+void announce(const char* text) { if (text && text[0]) say(text, 6000); }
+
 void unlockPet() {
     ensurePrefsLoaded();
     if (s_petUnlocked) return;                  // already had him; stay quiet

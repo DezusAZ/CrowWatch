@@ -72,6 +72,13 @@ void        forget();
 // if the network joins.
 void connect(const char* ssid, const char* pass, bool save);
 void connectSaved();
+// The boot check. Joins the saved network, reads the site's manifest for
+// this build, hands anything newer to OtaCore::noteAvailable, and shuts
+// WiFi down again. Blocking, time-boxed by `budgetMs`, and ONLY safe before
+// Bluetooth starts: joining WiFi with NimBLE up means giving it up until
+// the next restart, which is why the running-board path is a whole mode.
+// False when there is no saved network, or nothing came back in time.
+bool bootCheck(uint32_t budgetMs);
 
 const char* network();          // the one being joined or used
 const char* latestVersion();    // meaningful from READY on

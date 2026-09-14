@@ -96,8 +96,44 @@ const char* runningSlot() {
     return p ? p->label : "?";
 }
 const char* runningVersion() { return FIRMWARE_VERSION; }
-const char* buildName()      { return SQW_ENV; }
+static char     s_avail[16]  = "";
+static char     s_availFrom[13] = "";
+static char     s_availLine[48] = "";
+static bool     s_availSaid = true;
 
+// "1.7.8" or "v1.7.8" into three numbers; false for anything else.
+static bool verParts(const char* s, unsigned v[3]) {
+    if (!s) return false;
+    if (*s == 'v' || *s == 'V') s++;
+    return sscanf(s, "%u.%u.%u", &v[0], &v[1], &v[2]) == 3;
+}
+static bool verNewer(const char* a, const char* b) {   // a newer than b
+    unsigned x[3], y[3];
+    if (!verParts(a, x) || !verParts(b, y)) return false;
+    for (int i = 0; i < 3; i++) { if (x[i] != y[i]) return x[i] > y[i]; }
+    return false;
+}
+
+void noteAvailable(const char* version, const char* who) {
+    if (!verNewer(version, runningVersion())) return;
+    if (s_avail[0] && !verNewer(version, s_avail)) return;   // already know one as new
+    if (*version == 'v' || *version == 'V') version++;
+    snprintf(s_avail, sizeof s_avail, "%s", version);
+    snprintf(s_availFrom, sizeof s_availFrom, "%s", who ? who : "");
+    if (s_availFrom[0]) snprintf(s_availLine, sizeof s_availLine, "%s is on %s. SYSTEM > UPDATE.", s_availFrom, s_avail);
+    else                snprintf(s_availLine, sizeof s_availLine, "v%s is out. SYSTEM > UPDATE.", s_avail);
+    s_availSaid = false;
+    Serial.printf("[ota] newer release known: %s%s%s\n", s_avail, s_availFrom[0] ? " via " : "", s_availFrom);
+}
+const char* availableVersion() { return s_avail; }
+const char* availableFrom()    { return s_availFrom; }
+const char* takeAvailableNotice() {
+    if (s_availSaid || !s_avail[0]) return nullptr;
+    s_availSaid = true;
+    return s_availLine;
+}
+
+const char* buildName()      { return SQW_ENV; }
 uint32_t maxImageSize() {
     const esp_partition_t* p = esp_ota_get_next_update_partition(nullptr);
     return p ? p->size : 0;

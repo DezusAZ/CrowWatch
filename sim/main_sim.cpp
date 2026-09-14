@@ -504,7 +504,8 @@ int main(int argc, char** argv) {
             // met N times: N hellos, each after the six-minute freshness ran out.
             for (uint8_t k = 0; k < sd.met; k++) {
                 uint8_t f[MeshMsg::FRAME_MAX];
-                const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), sd.mac, ctr++, f, sizeof f);
+                const uint8_t hv[3] = { 1, 7, 9 };
+                const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), sd.mac, ctr++, hv, f, sizeof f);
                 MeshTalk::onFrame(sd.mac, f, n, sd.name ? sd.name : "");
                 SimClock::nowMs += 7 * 60000;
                 MeshTalk::tick(millis());

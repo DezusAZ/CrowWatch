@@ -39,6 +39,18 @@ void        tick(uint32_t now)                 { if (s_restart && now >= s_resta
 const char* takeBootNote(const char**, bool*)  { return nullptr; }
 const char* runningSlot()                      { return "app0"; }
 const char* runningVersion()                   { return "v1.7.1"; }   // reads naturally in the release clip
+static char s_avail[16] = "", s_availFrom[13] = "", s_availLine[48] = "";
+static bool s_availSaid = true;
+void noteAvailable(const char* v, const char* who) {
+    snprintf(s_avail, sizeof s_avail, "%s", (v && (*v == 'v')) ? v + 1 : (v ? v : ""));
+    snprintf(s_availFrom, sizeof s_availFrom, "%s", who ? who : "");
+    if (s_availFrom[0]) snprintf(s_availLine, sizeof s_availLine, "%s is on %s. SYSTEM > UPDATE.", s_availFrom, s_avail);
+    else                snprintf(s_availLine, sizeof s_availLine, "v%s is out. SYSTEM > UPDATE.", s_avail);
+    s_availSaid = false;
+}
+const char* availableVersion()   { return s_avail; }
+const char* availableFrom()      { return s_availFrom; }
+const char* takeAvailableNotice(){ if (s_availSaid || !s_avail[0]) return nullptr; s_availSaid = true; return s_availLine; }
 const char* buildName()                        { return "sim"; }
 uint32_t    maxImageSize()                     { return 1966080; }
 void        refreshOther()                     {}
@@ -131,6 +143,7 @@ State      state()    { return s_state; }
 uint8_t    netCount() { return sizeof NETS / sizeof NETS[0]; }
 const Net* net(uint8_t i) { return i < netCount() ? &NETS[i] : nullptr; }
 bool        hasSaved()  { return s_saved; }
+bool        bootCheck(uint32_t) { return false; }
 const char* savedSsid() { return s_saved ? "SquachNet" : ""; }
 bool        savedPass(char* out, size_t cap) { if (!s_saved || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
 void        forget()    { s_saved = false; }
@@ -142,7 +155,6 @@ void connect(const char* ssid, const char*, bool) {
     s_t0 = millis();
 }
 void connectSaved() { connect("SquachNet", "", false); }
-
 const char* network()       { return s_net; }
 const char* latestVersion() { return "v1.7.2"; }
 bool        upToDate()      { return false; }

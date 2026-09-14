@@ -450,13 +450,21 @@ size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
     return sealBytes(c, mac, counter, KIND_UPDATED, ver, 3, out, cap);
 }
 
-size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint8_t* out, size_t cap) {
-    return sealByte(c, mac, counter, KIND_HELLO, 1, out, cap);
+size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const uint8_t ver[3], uint8_t* out, size_t cap) {
+    const uint8_t pt[4] = { 1, ver[0], ver[1], ver[2] };
+    return sealBytes(c, mac, counter, KIND_HELLO, pt, sizeof pt, out, cap);
 }
 
-Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter) {
-    uint8_t v = 0;
-    return openByte(c, mac, in, len, KIND_HELLO, counter, v);
+Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3]) {
+    ver[0] = ver[1] = ver[2] = 0;
+    if (len == CANNED_FRAME_LEN) {                      // v1.7.7's: one byte, no version
+        uint8_t v = 0;
+        return openByte(c, mac, in, len, KIND_HELLO, counter, v);
+    }
+    uint8_t pt[4] = { 0, 0, 0, 0 };
+    const Open r = openBytes(c, mac, in, len, KIND_HELLO, sizeof pt, counter, pt);
+    if (r == Open::OK) { ver[0] = pt[1]; ver[1] = pt[2]; ver[2] = pt[3]; }
+    return r;
 }
 
 Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,

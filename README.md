@@ -264,6 +264,17 @@ DETECT on, which they have if they can see the SQUAD screen at all.
 become dashes, the board never prints them, and the only way into the squad
 from that board's side is ADD TO SQUAD, in person.
 
+### Knowing there is an update
+
+Two ways, neither of which installs anything. At boot, a board with a saved
+WiFi network joins it for about a second, asks squachwatch.com for the latest
+version of its own build, and lets go again, all before Bluetooth starts;
+**UPDATE CHECK** on the SYSTEM page turns that off. And every board's hello
+to its squad carries its version, so a board that hears a member running
+something newer knows without touching WiFi. Either way Squachy says it once
+on the main screen, the SYSTEM row reads UPDATE, and UPDATE FIRMWARE names
+the version until you install it.
+
 ### Updating the squad
 
 **Settings → SYSTEM → UPDATE FIRMWARE → UPDATE SQUAD** tells every board in

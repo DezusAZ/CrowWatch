@@ -235,6 +235,10 @@ namespace Squachy {
     // Squachy knows who he is.
     void setNameTag(const char* name);
 
+    // A line from outside his own head, said once: the update notice. The
+    // text must outlive the bubble -- a static buffer, not a stack one.
+    void announce(const char* text);
+
 #if SQUACH_MESH
     // Which beat of a visit a line is wanted for. The pools live in
     // squachy.cpp with every other pool rather than out with the visit
