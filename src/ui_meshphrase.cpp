@@ -5,6 +5,7 @@
 #include "theme.h"
 #include "meshtalk.h"
 #include "meshmsg.h"
+#include "settings.h"
 #include "detection.h"
 #include <Arduino.h>
 #include <stdio.h>
@@ -46,6 +47,7 @@ uint8_t  s_letterWords[26];
 bool     s_lettersCounted = false;
 
 const int BW = 68, BH = 26;
+Rect s_showRow = { 0, 0, 0, 0 };   // the SHOW PHRASE row, when drawn
 
 // BACK's row and BACK's size, the same as every other screen here, with two
 // more beside it on the right.
@@ -127,10 +129,31 @@ void drawShow(TFT_eSPI& t) {
             while (*p && *p != ' ') p++;
             if (*p) *p++ = '\0';
         }
-        y = bigWords(t, y, words, Theme::VAPOR_YELLOW);
-        para(t, y + 4, "Anyone who has these five words can read your messages. "
-                       "Say them aloud only to people you trust.", Theme::W95_LIGHT);
+        // With SHOW PHRASE off the words are never printed: the squad grows
+        // by ADD TO SQUAD only, from this board's side.
+        const bool shown = Settings::phraseShown();
+        static const char* const DASHES[MeshMsg::PHRASE_WORDS] = { "-----", "-----", "-----", "-----", "-----" };
+        y = bigWords(t, y, shown ? words : DASHES, shown ? Theme::VAPOR_YELLOW : Theme::W95_SHADOW);
+        y = para(t, y + 4, shown ? "Anyone who has these five words can read your messages. "
+                                   "Say them aloud only to people you trust."
+                                 : "Hidden. This board never says its phrase; members join "
+                                   "by ADD TO SQUAD, in person.", Theme::W95_LIGHT);
+        // The switch, drawn as a settings row.
+        {
+            const int rh = 22;
+            s_showRow = { 3, (int16_t)(y + 4), (int16_t)(t.width() - 10), rh };
+            Theme::drawListRowPanel(t, t.width(), s_showRow.y, rh + 2);
+            t.setTextSize(1);
+            t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
+            t.setCursor(10, s_showRow.y + (rh - t.fontHeight()) / 2);
+            t.print("SHOW PHRASE");
+            const char* v = shown ? "ON" : "OFF";
+            t.setTextColor(Theme::WHITE, Theme::BG);
+            t.setCursor(t.width() - 16 - t.textWidth(v), s_showRow.y + (rh - t.fontHeight()) / 2);
+            t.print(v);
+        }
     } else {
+        s_showRow = { 0, 0, 0, 0 };
         t.setTextSize(2);
         t.setTextColor(Theme::WHITE, Theme::BG);
         t.setCursor(8, y);
@@ -342,6 +365,7 @@ void uiMeshPhraseTouch(int x, int y) {
 
     switch (s_mode) {
         case Mode::SHOW:
+            if (s_showRow.w && inRect(s_showRow, x, y)) { Settings::togglePhraseShown(); return; }
             if (b == 0) s_done = true;
             else if (b == 1) { MeshTalk::rollPhrase(s_rolled); s_status = nullptr; s_mode = Mode::ROLLED; }
             else if (b == 2) { s_pickN = 0; s_letter = 0; s_status = nullptr; s_mode = Mode::PICK; }

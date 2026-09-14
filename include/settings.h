@@ -181,6 +181,20 @@ namespace Settings {
     uint8_t     lightBrightness();       // 1..5, caps everything
     void        cycleLightBrightness();
 
+    // REMOTE UPDATE: whether a squad update nudge over SquachMesh may start
+    // an update on this board. OFF by default -- a board in a pocket that
+    // reboots on its own is a surprise nobody signed up for -- and on the
+    // SECURITY screen, because it is about who can do things to this board.
+    bool        remoteUpdate();
+    void        toggleRemoteUpdate();
+
+    // SHOW PHRASE: whether this board ever prints its five words. OFF makes
+    // the squad invite-only from this board's side: nobody can read the
+    // phrase off it, so the only way in is ADD TO SQUAD, in person. ON by
+    // default, which is what every board did before the switch existed.
+    bool        phraseShown();
+    void        togglePhraseShown();
+
     // What is CONFIGURED, ignoring the master switch. Only the power menu
     // wants these: it has to show you what you have chosen while the feature
     // is still switched off, which is the order most people will set it up in.

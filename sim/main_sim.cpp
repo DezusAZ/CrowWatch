@@ -51,6 +51,9 @@
 #include "ui_security.h"
 #include "ui_ignorelist.h"
 #include "ui_light.h"
+#include "ui_nudge.h"
+#include "ui_squadupdate.h"
+#include "ui_invite.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
 #include "png_writer.h"
@@ -413,6 +416,9 @@ int main(int argc, char** argv) {
         }
         else if (screen == "boot")     uiBootTick(frame, t);
         else if (screen == "update")   uiUpdateTick(frame, t);
+        else if (screen == "nudge")    uiNudgeTick(frame, t, engine);
+        else if (screen == "squadupdate") uiSquadUpdateTick(frame, t, engine);
+        else if (screen == "invite")   uiInviteTick(frame, t, engine);
         else if (screen == "wifipass") uiWifiPassTick(frame, t);
         else if (screen == "poses") {
             // Every arm movement he has, for the costume test in
@@ -454,6 +460,16 @@ int main(int argc, char** argv) {
     else if (screen == "colorcheck") uiColorCheckInit(frame);
     else if (screen == "boot")       uiBootInit(frame);
     else if (screen == "update")     uiUpdateInit(frame);
+    else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "NATE", v, 30, 0); }
+    else if (screen == "squadupdate") uiSquadUpdateInit(frame);
+    else if (screen == "invite") {
+        // --pose N picks the page: 0 offering, 1 asked, 2 code, 3 sending, 4 joined, 5 failed
+        uiInviteInit(frame);
+        static const MeshTalk::InviteState PAGES[] = { MeshTalk::InviteState::OFFERING, MeshTalk::InviteState::ASKED,
+            MeshTalk::InviteState::CODE, MeshTalk::InviteState::SENDING, MeshTalk::InviteState::JOINED, MeshTalk::InviteState::FAILED };
+        const int p = (poseIdx >= 0 && poseIdx < 6) ? poseIdx : 2;
+        uiInviteDemo(PAGES[p], 4821, "NATE", p == 0 || p == 3 || p == 5);
+    }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "The Burrow");
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
     else if (screen == "phrase")     {

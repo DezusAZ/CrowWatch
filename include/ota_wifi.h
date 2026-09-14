@@ -63,6 +63,9 @@ const Net*  net(uint8_t i);
 
 bool        hasSaved();
 const char* savedSsid();
+// The saved password, for the squad update nudge to share. Into the
+// caller's buffer, which the caller wipes.
+bool        savedPass(char* out, size_t cap);
 void        forget();
 
 // Join a network and check for the latest release. `save` keeps the password

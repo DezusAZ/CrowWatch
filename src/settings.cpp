@@ -89,6 +89,8 @@ static bool    s_lightMsgs   = true;
 static uint8_t s_lightIdle   = 1;    // BREATHE
 static uint8_t s_lightColor  = 0;    // THEME
 static uint8_t s_lightBright = 2;    // of 5
+static bool    s_remoteUpdate = false;
+static bool    s_phraseShown  = true;
 static const char* const LIGHT_IDLE_NAMES[]  = { "OFF", "BREATHE", "SOLID" };
 // BACKGROUND is stored as 10, after the fixed colours, so the indices saved
 // by the first build stay what they were; the cycle below still visits it
@@ -223,6 +225,8 @@ void load() {
     s_lightIdle    = s_prefs.getUChar("ltIdle", 1);
     s_lightColor   = s_prefs.getUChar("ltColor", 0);
     s_lightBright  = s_prefs.getUChar("ltBright", 2);
+    s_remoteUpdate = s_prefs.getBool("rmtUpd", false);
+    s_phraseShown  = s_prefs.getBool("phrShow", true);
     if (s_lightIdle > 2)                 s_lightIdle = 1;
     if (s_lightColor >= LIGHT_COLOR_N)   s_lightColor = 0;
     if (s_lightBright < 1 || s_lightBright > 5) s_lightBright = 2;
@@ -379,6 +383,10 @@ void cycleLightColor() {
     s_prefs.putUChar("ltColor", s_lightColor);
 }
 void cycleLightBrightness() { s_lightBright = (uint8_t)(s_lightBright % 5 + 1);          s_prefs.putUChar("ltBright", s_lightBright); }
+bool remoteUpdate()         { return s_remoteUpdate; }
+void toggleRemoteUpdate()   { s_remoteUpdate = !s_remoteUpdate; s_prefs.putBool("rmtUpd", s_remoteUpdate); }
+bool phraseShown()          { return s_phraseShown; }
+void togglePhraseShown()    { s_phraseShown = !s_phraseShown; s_prefs.putBool("phrShow", s_phraseShown); }
 
 bool boringMode() { return s_boringMode; }
 

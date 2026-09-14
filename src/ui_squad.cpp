@@ -28,7 +28,7 @@ uint8_t  s_selMac[6] = { 0 };
 bool     s_haveSel = false;
 uint8_t  s_unreadAtOpen = 0;   // how many to mark as new, counted before reading
 Rect     s_prev = { 0, 0, 0, 0 }, s_next = { 0, 0, 0, 0 };
-Rect     s_invite = { 0, 0, 0, 0 }, s_back = { 0, 0, 0, 0 };
+Rect     s_invite = { 0, 0, 0, 0 }, s_add = { 0, 0, 0, 0 }, s_back = { 0, 0, 0, 0 };
 Rect     s_rows[ROWS_MAX];
 uint8_t  s_rowN = 0;
 
@@ -132,10 +132,14 @@ void uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             t.fillTriangle(22, 84, 8, 95, 22, 106, Theme::VAPOR_PINK);
             t.fillTriangle(colW - 22, 84, colW - 8, 95, colW - 22, 106, Theme::CYAN);
         }
+        // Two buttons side by side: INVITE brings this Squachy onto the screen,
+        // ADD hands this board the phrase. Both fit under the name at 84 wide.
         const bool vis = visiting(m.mac);
-        s_invite = { (int16_t)(cx - 46), (int16_t)(baseY + 34), 92, 22 };
+        s_invite = { (int16_t)(cx - 88), (int16_t)(baseY + 34), 84, 22 };
+        s_add    = { (int16_t)(cx + 4),  (int16_t)(baseY + 34), 84, 22 };
         Theme::drawButton(t, s_invite.x, s_invite.y, s_invite.w, s_invite.h,
                           vis ? "VISITING" : "[ INVITE ]", vis);
+        Theme::drawButton(t, s_add.x, s_add.y, s_add.w, s_add.h, "ADD TO SQUAD", false);
     }
 
     // ---- the inbox ------------------------------------------------------
@@ -199,9 +203,13 @@ SquadHit uiSquadTouch(int x, int y, uint32_t now) {
         Mesh::preferPeer(s_members[s_sel].mac);
         return SquadHit::INVITED;
     }
+    if (s_n && in(s_add, x, y)) return SquadHit::ADD;
     for (uint8_t i = 0; i < s_rowN; i++)
         if (in(s_rows[i], x, y)) return SquadHit::REPLY;
     return SquadHit::NONE;
 }
+
+const uint8_t* uiSquadSelectedMac()  { return s_n ? s_members[s_sel].mac : nullptr; }
+const char*    uiSquadSelectedName() { return s_n ? memberName(s_members[s_sel].peer) : ""; }
 
 #endif // SQUACH_MESH

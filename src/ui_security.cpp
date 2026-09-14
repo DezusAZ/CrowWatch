@@ -67,6 +67,11 @@ static void rowContent(SecurityRow r, char* buf, size_t bufN,
         case SecurityRow::LOCK_ALERTS:
             label = "ALERTS LOCKED"; value = Security::lockAlertsLabel();
             break;
+        case SecurityRow::REMOTE_UPDATE:
+            // Not gated on the PIN: it is a permission, not a lock feature.
+            label = "REMOTE UPDATE"; value = Settings::remoteUpdate() ? "ON" : "OFF";
+            dimmed = false;
+            break;
         default: label = "?"; break;
     }
 }

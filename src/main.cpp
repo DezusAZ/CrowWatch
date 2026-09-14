@@ -154,6 +154,10 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 #include "ui_meshcompose.h"
 #include "meshtutor.h"
 #include "ui_squad.h"
+#include "ui_nudge.h"
+#include "ui_squadupdate.h"
+#include "ui_invite.h"
+#include "meshmsg.h"
 #endif
 #include "ignore_list.h"
 #include "ignore_list.h"
@@ -1240,6 +1244,108 @@ static void enterUpdate() {
     uiUpdateInit(*canvas);
 }
 
+static void releaseFrameForDownload();
+
+#if SQUACH_MESH
+// ---- the squad update -----------------------------------------------------
+// A nudge heard on the mesh waits here until the main screen is showing,
+// then becomes the countdown. Three minutes and it is forgotten: a nudge
+// from a while ago is not something to act on when a menu finally closes.
+static MeshTalk::NudgeIn s_nudge = {};
+static bool              s_nudgePending = false;
+static const uint32_t    NUDGE_HOLD_MS  = 180000;
+static const uint16_t    NUDGE_COUNT_S  = 30;
+
+// The update a nudge started, driven from the UPDATE state's tick in place
+// of the taps the manual flow takes. The shared network is used once and
+// wiped the moment it has been handed to the radio.
+static struct {
+    bool     active = false, connected = false, installed = false, haveCreds = false;
+    uint32_t failAt = 0;
+    char     ssid[MeshMsg::WIFI_SSID_MAX + 1] = "";
+    char     pass[MeshMsg::WIFI_PASS_MAX + 1] = "";
+} s_auto;
+
+static void enterNudge() {
+    state = AppState::NUDGE;
+    transitionStart = millis();
+    lastTouch = transitionStart;     // undims a sleeping screen, like an alert
+    if (s_screenDimmed) { s_screenDimmed = false; applyBrightness(); }
+    uiNudgeInit(*canvas, s_nudge.from, s_nudge.ver, NUDGE_COUNT_S, transitionStart);
+}
+
+static void enterSquadUpdate() {
+    state = AppState::SQUAD_UPDATE;
+    transitionStart = millis();
+    uiSquadUpdateInit(*canvas);
+}
+
+static void enterInvite() {
+    state = AppState::INVITE;
+    transitionStart = millis();
+    lastTouch = transitionStart;
+    if (s_screenDimmed) { s_screenDimmed = false; applyBrightness(); }
+    uiInviteInit(*canvas);
+}
+
+static void startNudgedUpdate() {
+    s_auto = {};
+    if (!OtaWifi::hasSaved())
+        s_auto.haveCreds = MeshTalk::takeNudgeWifi(s_nudge, s_auto.ssid, s_auto.pass);
+    if (!OtaWifi::hasSaved() && !s_auto.haveCreds) {
+        Theme::showToast("NO WIFI TO USE", "Do one WiFi update by hand first", Theme::AMBER);
+        enterClear();
+        return;
+    }
+    enterUpdate();
+    releaseFrameForDownload();
+    engine.startUpdateRadio();
+    if (!OtaWifi::begin()) {
+        engine.stopUpdateRadio();
+        memset(s_auto.pass, 0, sizeof s_auto.pass);
+        Theme::showToast("CAN'T START UPDATE", nullptr, Theme::AMBER);
+        enterClear();
+        return;
+    }
+    s_auto.active = true;
+    Serial.printf("[nudge] updating on %s's word, network %s\n", s_nudge.from,
+                  OtaWifi::hasSaved() ? "saved" : "shared");
+}
+
+// The taps the manual flow would make, made by the tick instead.
+static void autoUpdateTick(uint32_t now) {
+    if (!s_auto.active) return;
+    const OtaWifi::State ws = OtaWifi::state();
+    if (ws == OtaWifi::State::PICK && !s_auto.connected) {
+        s_auto.connected = true;
+        if (OtaWifi::hasSaved()) OtaWifi::connectSaved();
+        else                     OtaWifi::connect(s_auto.ssid, s_auto.pass, false);
+        memset(s_auto.pass, 0, sizeof s_auto.pass);
+    } else if (ws == OtaWifi::State::READY && !s_auto.installed) {
+        s_auto.installed = true;
+        if (OtaWifi::upToDate()) {
+            // The nudge said newer; the site disagrees. Nothing to do, and
+            // Bluetooth is already gone, so this restarts the board.
+            s_auto.active = false;
+            if (!OtaWifi::end()) { engine.stopUpdateRadio(); enterClear(); }
+        } else {
+            MeshTalk::markNudged();
+            OtaWifi::install();
+        }
+    } else if (ws == OtaWifi::State::FAILED) {
+        // On screen for a minute, then back to work on the old version.
+        if (!s_auto.failAt) s_auto.failAt = now;
+        else if (now - s_auto.failAt > 60000) {
+            s_auto.active = false;
+            if (!OtaWifi::end()) { engine.stopUpdateRadio(); enterClear(); }
+            else uiUpdateInit(*canvas);
+        }
+    } else if (ws == OtaWifi::State::OFF && !OtaCore::restartPending()) {
+        s_auto.active = false;      // somebody tapped CANCEL
+    }
+}
+#endif
+
 // A WiFi update's TLS handshake needs about 17 KB in ONE piece, and on the
 // bench the largest free block was 16 KB even with Bluetooth handed back --
 // "SSL - Memory allocation failed" on the first real HTTPS attempt. The frame
@@ -2023,6 +2129,28 @@ void loop() {
     MeshProbe::tick(now);
     Mesh::tick(now);
     MeshTalk::tick(now);
+    {
+        MeshTalk::NudgeIn n;
+        if (MeshTalk::takeNudge(n)) {
+            uint8_t mine[3] = { 0, 0, 0 };
+            MeshMsg::parseVersion(OtaCore::runningVersion(), mine);
+            if (!Settings::remoteUpdate())            Serial.println("[nudge] ignored: REMOTE UPDATE is off");
+            else if (Security::locked())              Serial.println("[nudge] ignored: locked");
+            else if (!MeshMsg::versionNewer(n.ver, mine)) Serial.println("[nudge] ignored: not newer than this build");
+            else { s_nudge = n; s_nudgePending = true; }
+        }
+        if (s_nudgePending && (int32_t)(now - s_nudge.at) > (int32_t)NUDGE_HOLD_MS) s_nudgePending = false;
+        if (s_nudgePending && state == AppState::CLEAR && !Security::locked()) {
+            s_nudgePending = false;
+            enterNudge();
+        }
+        MeshTalk::UpdatedIn u;
+        if (MeshTalk::takeUpdated(u) && state == AppState::SQUAD_UPDATE) uiSquadUpdateReported(u.from);
+        // Somebody offered us their squad. Asked from the main screen only,
+        // and never while locked; the offer stays on the air a minute.
+        if (MeshTalk::inviteState() == MeshTalk::InviteState::ASKED && state == AppState::CLEAR &&
+            !Security::locked()) enterInvite();
+    }
     // Beside the radio, not inside the draw: an emote arriving while any other
     // screen is up -- or while boring mode has turned Squachy off -- still has
     // to be taken off the queue and acted on when CLEAR comes back.
@@ -3450,6 +3578,9 @@ void loop() {
                     }
                 }
             }
+#if SQUACH_MESH
+            autoUpdateTick(now);
+#endif
             // touchJustDown, not the debounce timer: lastTouch is pinned above.
             if (touchJustDown) {
                 int netIndex = -1;
@@ -3520,6 +3651,9 @@ void loop() {
                         enterSettings();
                         uiSettingsOpenPage(SettingsPage::SYSTEM);
                         break;
+#if SQUACH_MESH
+                    case UpdateHit::SQUAD_START: enterSquadUpdate(); break;
+#endif
                     default: break;
                 }
             }
@@ -3560,6 +3694,72 @@ void loop() {
             }
             break;
         }
+        case AppState::NUDGE: {
+            uiNudgeTick(*canvas, now, engine);
+            lastTouch = now;     // no dimming, no auto-lock, mid-count
+            NudgeHit hit = NudgeHit::NONE;
+            if (touchJustDown) hit = uiNudgeHit(*canvas, tp.x, tp.y);
+            if (hit == NudgeHit::SKIP) { Serial.println("[nudge] skipped"); enterClear(); break; }
+            if (hit == NudgeHit::NOW || uiNudgeSecondsLeft(now) <= 0) startNudgedUpdate();
+            break;
+        }
+        case AppState::SQUAD_UPDATE: {
+            uiSquadUpdateTick(*canvas, now, engine);
+            if (touchJustDown) {
+                switch (uiSquadUpdateHit(*canvas, tp.x, tp.y)) {
+                    case SquadUpdateHit::SHARE: uiSquadUpdateToggleShare(); break;
+                    case SquadUpdateHit::SEND: {
+                        uint8_t ver[3] = { 0, 0, 0 };
+                        MeshMsg::parseVersion(OtaCore::runningVersion(), ver);
+                        char ssid[33] = "", pass[65] = "";
+                        if (uiSquadUpdateShareWifi()) {
+                            snprintf(ssid, sizeof ssid, "%s", OtaWifi::savedSsid());
+                            OtaWifi::savedPass(pass, sizeof pass);
+                        }
+                        const MeshTalk::Send r = MeshTalk::sendNudge(ver, ssid[0] ? ssid : nullptr, pass, now);
+                        memset(pass, 0, sizeof pass);
+                        uiSquadUpdateSent(r == MeshTalk::Send::OK, now);
+                        if (r == MeshTalk::Send::NOT_READY)    Theme::showToast("CAN'T SEND", "Messages need a phrase first", Theme::AMBER);
+                        else if (r == MeshTalk::Send::TRANSMIT_OFF) Theme::showToast("CAN'T SEND", "Turn TRANSMIT on in SquachMesh", Theme::AMBER);
+                        else if (r != MeshTalk::Send::OK)      Theme::showToast("CAN'T SEND", "WiFi password too long to share", Theme::AMBER);
+                        break;
+                    }
+                    case SquadUpdateHit::BACK: enterUpdate(); break;
+                    default: break;
+                }
+            }
+            break;
+        }
+        case AppState::INVITE: {
+            uiInviteTick(*canvas, now, engine);
+            lastTouch = now;
+            if (touchJustDown) {
+                switch (uiInviteHit(*canvas, tp.x, tp.y)) {
+                    case InviteHit::ACCEPT: {
+                        const MeshTalk::Send r = MeshTalk::inviteAccept(now);
+                        if (r == MeshTalk::Send::TRANSMIT_OFF) {
+                            Theme::showToast("CAN'T ANSWER", "Turn TRANSMIT on in SquachMesh", Theme::AMBER);
+                            MeshTalk::inviteCancel();
+                            enterClear();
+                        }
+                        break;
+                    }
+                    case InviteHit::DECLINE: MeshTalk::inviteDecline(); enterClear(); break;
+                    case InviteHit::MATCH:   MeshTalk::inviteConfirm(now); break;
+                    case InviteHit::NOMATCH: MeshTalk::inviteCancel(); Theme::showToast("INVITE STOPPED", "The digits did not match", Theme::AMBER); enterClear(); break;
+                    case InviteHit::CANCEL:  MeshTalk::inviteCancel(); enterClear(); break;
+                    case InviteHit::SHOW:    break;     // the screen shows the phrase itself
+                    case InviteHit::BACK:
+                        // Leaving a finished or failed invite clears it; leaving
+                        // SENDING lets the phrase finish its time on the air.
+                        if (MeshTalk::inviteState() != MeshTalk::InviteState::SENDING) MeshTalk::inviteCancel();
+                        enterClear();
+                        break;
+                    default: break;
+                }
+            }
+            break;
+        }
         case AppState::SQUAD: {
             uiSquadTick(*canvas, now, engine);
             if (touchJustDown && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
@@ -3569,6 +3769,16 @@ void loop() {
                     // Back to the main screen to watch the swap happen.
                     case SquadHit::INVITED: enterClear(); break;
                     case SquadHit::REPLY:   enterMeshCompose(); break;
+                    case SquadHit::ADD: {
+                        const uint8_t* mac = uiSquadSelectedMac();
+                        if (!mac) break;
+                        const MeshTalk::Send r = MeshTalk::inviteStart(mac, uiSquadSelectedName(), now);
+                        if (r == MeshTalk::Send::OK)            enterInvite();
+                        else if (r == MeshTalk::Send::NOT_READY) Theme::showToast("NO PHRASE TO SHARE", "Set one under SQUACHMESH first", Theme::AMBER);
+                        else if (r == MeshTalk::Send::TRANSMIT_OFF) Theme::showToast("CAN'T SEND", "Turn TRANSMIT on in SquachMesh", Theme::AMBER);
+                        else                                     Theme::showToast("CAN'T START", "Try again in a moment", Theme::AMBER);
+                        break;
+                    }
                     default: break;
                 }
             }
@@ -3758,6 +3968,7 @@ void loop() {
                         case SecurityRow::LOCK_AT_BOOT: if (on) Security::setLockAtBoot(!Security::lockAtBoot()); break;
                         case SecurityRow::WIPE_ON_FAIL: if (on) Security::setWipeOnFail(!Security::wipeOnFail()); break;
                         case SecurityRow::LOCK_ALERTS:  if (on) Security::cycleLockAlerts(); break;
+                        case SecurityRow::REMOTE_UPDATE: Settings::toggleRemoteUpdate(); break;
                         default: break;
                     }
                 }

@@ -14,6 +14,7 @@ namespace Pet {
 // him and starts looking like a caption.
 static const char* const QUIPS[] = {
     "nice shades",
+    "PCBWAY!",
     "how do you even walk",
     "you make a good chair",
     "great view up here",

@@ -188,6 +188,95 @@ enum class Emote : uint8_t {
 };
 constexpr size_t EMOTE_FRAME_LEN = HDR_LEN + 2 + TAG_LEN;   // 16
 static_assert(EMOTE_FRAME_LEN <= FRAME_MAX, "an emote fits where a message does");
+
+// ---- the squad update ---------------------------------------------------------
+// One board tells every board in range with the phrase to update itself.
+//
+//   NUDGE    the version to update to (three bytes) and how many WIFI parts
+//            follow it, at the next counters. Zero when the sender is not
+//            sharing its network.
+//   WIFI     twelve raw bytes of a blob -- [ssid length][pass length][ssid]
+//            [pass] -- in up to six parts, at the counters after the NUDGE.
+//            Raw bytes, not the message alphabet: passwords have case and
+//            symbols. Sealed like everything else, so only the phrase reads
+//            it; the receiver uses it once and never stores it.
+//   UPDATED  a board's one reply after the reboot: the version it now runs.
+//
+// The version is the SENDER'S running version. There is no 'whatever is
+// newest': a receiver has to be able to refuse without joining WiFi, since
+// leaving WiFi update mode costs a restart. Update one board, then nudge.
+constexpr uint8_t KIND_NUDGE   = 4;
+constexpr uint8_t KIND_WIFI    = 5;
+constexpr uint8_t KIND_UPDATED = 6;
+constexpr size_t  NUDGE_FRAME_LEN   = HDR_LEN + 4 + TAG_LEN;                  // 18
+constexpr size_t  UPDATED_FRAME_LEN = HDR_LEN + 3 + TAG_LEN;                  // 17
+constexpr uint8_t WIFI_PART_BYTES   = 12;
+constexpr uint8_t WIFI_PARTS_MAX    = 6;
+constexpr size_t  WIFI_BLOB_MAX     = WIFI_PART_BYTES * WIFI_PARTS_MAX;      // 72
+constexpr size_t  WIFI_FRAME_LEN    = HDR_LEN + 1 + WIFI_PART_BYTES + TAG_LEN; // 27
+constexpr uint8_t WIFI_SSID_MAX     = 32;
+constexpr uint8_t WIFI_PASS_MAX     = 38;    // 2 + 32 + 38 = 72, the six parts exactly
+static_assert(WIFI_FRAME_LEN <= FRAME_MAX, "a WiFi part fits where a message does");
+// The most frames one send can put on the air: a NUDGE and its WIFI parts.
+constexpr uint8_t OUT_PARTS_MAX = 1 + WIFI_PARTS_MAX;
+static_assert(OUT_PARTS_MAX >= TEXT_PARTS_MAX, "a text message still fits the out queue");
+
+// ---- the invite ---------------------------------------------------------------
+// Adding a nearby board to the squad without typing the phrase. Two frame
+// kinds, both in parts of twelve bytes over a 48-byte blob:
+//
+//   INVITE_PUB  [target mac 6][role 1][X25519 public key 32][zero 9]
+//               role 0 is the inviter's offer, 1 the invitee's answer. Not
+//               sealed -- there is no shared key yet -- so its tag is a plain
+//               hash: integrity against the air, nothing against a forger.
+//               What defeats a forger is the four-digit code both people
+//               compare, derived from both public keys (meshcrypto.h).
+//   INVITE_KEY  [phrase length 1][phrase 45][zero 2], sealed with the
+//               one-time session key from the exchange, addressed by the
+//               nonce's sender and the replay table like any message.
+constexpr uint8_t KIND_INVITE_PUB = 7;
+constexpr uint8_t KIND_INVITE_KEY = 8;
+constexpr uint8_t INVITE_PART_BYTES = 12;
+constexpr uint8_t INVITE_PARTS      = 4;
+constexpr size_t  INVITE_BLOB       = INVITE_PART_BYTES * INVITE_PARTS;   // 48
+constexpr size_t  INVITE_FRAME_LEN  = HDR_LEN + 1 + INVITE_PART_BYTES + TAG_LEN; // 27
+constexpr size_t  INVITE_PUB_LEN    = 32;
+static_assert(6 + 1 + INVITE_PUB_LEN <= INVITE_BLOB, "a public key and its address fit the blob");
+static_assert(1 + PHRASE_TEXT_MAX <= INVITE_BLOB, "a phrase fits the blob");
+
+// Plain-hash tag for the unsealed INVITE_PUB parts: the first TAG_LEN bytes
+// of SHA-256 over header and payload. Provided by the platform, since the
+// hash lives with the rest of the crypto.
+typedef void (*HashFn)(const uint8_t* in, size_t len, uint8_t out[32]);
+
+// The blobs.
+void invitePubBlob(const uint8_t target[6], uint8_t role, const uint8_t pub[INVITE_PUB_LEN], uint8_t out[INVITE_BLOB]);
+bool invitePubUnblob(const uint8_t in[INVITE_BLOB], uint8_t target[6], uint8_t& role, uint8_t pub[INVITE_PUB_LEN]);
+size_t inviteKeyBlob(const char* phrase, uint8_t out[INVITE_BLOB]);   // 0 if too long
+bool   inviteKeyUnblob(const uint8_t in[INVITE_BLOB], char out[PHRASE_TEXT_MAX + 1]);
+
+size_t sealInvitePub(HashFn h, uint32_t counter, const uint8_t blob[INVITE_BLOB], uint8_t part,
+                     uint8_t* out, size_t cap);
+size_t sealInviteKey(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                     const uint8_t blob[INVITE_BLOB], uint8_t part, uint8_t* out, size_t cap);
+
+// 'v1.7.5', '1.7.5-3-gabc' -> {1, 7, 5}. False when it does not start that way.
+bool parseVersion(const char* s, uint8_t v[3]);
+// a newer than b.
+bool versionNewer(const uint8_t a[3], const uint8_t b[3]);
+
+// The blob a WIFI series carries. Returns its length, 0 if either is too long.
+size_t wifiBlob(const char* ssid, const char* pass, uint8_t out[WIFI_BLOB_MAX]);
+bool   wifiUnblob(const uint8_t* blob, size_t len, char ssid[WIFI_SSID_MAX + 1], char pass[WIFI_PASS_MAX + 1]);
+uint8_t wifiParts(size_t blobLen);       // 1..6, 0 for an empty blob
+
+size_t sealNudge(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                 const uint8_t ver[3], uint8_t wifiParts, uint8_t* out, size_t cap);
+size_t sealWifiPart(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                    const uint8_t* blob, size_t blobLen, uint8_t part, uint8_t total,
+                    uint8_t* out, size_t cap);
+size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                   const uint8_t ver[3], uint8_t* out, size_t cap);
 // The setup byte, per emote. RPS: the sender's throw times three, plus the
 // receiver's -- each 0 rock, 1 paper, 2 scissors. The rest are described with
 // the scripts (EmoteScript::roll); an emote with nothing to agree on sends 0.
@@ -224,6 +313,45 @@ Open openTextPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size
 // this build: nothing here to act out, and nothing wrong either.
 Open openEmote(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t& emote, uint8_t& setup);
+Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+               uint32_t& counter, uint8_t ver[3], uint8_t& wifiParts);
+Open openWifiPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                  uint32_t& counter, uint8_t& part, uint8_t& total, uint8_t bytes[WIFI_PART_BYTES]);
+Open openUpdated(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                 uint32_t& counter, uint8_t ver[3]);
+Open openInvitePub(HashFn h, const uint8_t* in, size_t len,
+                   uint32_t& counter, uint8_t& part, uint8_t bytes[INVITE_PART_BYTES]);
+Open openInviteKey(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                   uint32_t& counter, uint8_t& part, uint8_t bytes[INVITE_PART_BYTES]);
+
+// One invite series in flight, from one sender: four parts of twelve.
+struct InviteAssembly {
+    uint8_t  mac[6] = {};
+    uint8_t  kind = 0;
+    uint32_t base = 0;
+    uint8_t  have = 0;
+    uint8_t  bytes[INVITE_BLOB] = {};
+    bool     live = false;
+    // True once all four parts are in; `bytes` is then the blob.
+    bool add(const uint8_t mac[6], uint8_t kind, uint32_t counter, uint8_t part, const uint8_t in[INVITE_PART_BYTES]);
+    void clear();
+};
+
+// One WIFI series in flight, from one sender. Same shape as Assembly below,
+// for bytes rather than text, and one slot: a nudge is a rare thing.
+struct WifiAssembly {
+    uint8_t  mac[6] = {};
+    uint32_t base = 0;
+    uint8_t  total = 0, have = 0;
+    uint8_t  bytes[WIFI_BLOB_MAX] = {};
+    bool     live = false, done = false;
+    // True once the series is complete; the blob is then in `bytes`, its
+    // length total * WIFI_PART_BYTES (the tail is zero padding).
+    bool add(const uint8_t mac[6], uint32_t counter, uint8_t part, uint8_t total,
+             const uint8_t in[WIFI_PART_BYTES]);
+    // The finished blob for a series that began at `base`, from `mac`.
+    bool take(const uint8_t mac[6], uint32_t base, char ssid[WIFI_SSID_MAX + 1], char pass[WIFI_PASS_MAX + 1]);
+};
 
 // ---- reassembly ----------------------------------------------------------------
 // Parts arrive in whatever order the scan catches them, and each is repeated

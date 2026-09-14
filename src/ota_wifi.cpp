@@ -378,6 +378,17 @@ uint8_t    netCount() { return s_netN; }
 const Net* net(uint8_t i) { return i < s_netN ? &s_nets[i] : nullptr; }
 
 bool hasSaved() { readSaved(); return s_saved[0] != '\0'; }
+bool savedPass(char* out, size_t cap) {
+    if (!out || cap == 0) return false;
+    out[0] = '\0';
+    if (!hasSaved()) return false;
+    Preferences p;
+    if (!p.begin(NVS_NS, true)) return false;
+    strncpy(out, p.getString("pass", "").c_str(), cap - 1);
+    out[cap - 1] = '\0';
+    p.end();
+    return true;
+}
 const char* savedSsid() { readSaved(); return s_saved; }
 
 void forget() {

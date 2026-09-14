@@ -89,6 +89,63 @@ struct EmoteIn {
 };
 bool takeEmote(EmoteIn& out);
 
+// ---- the squad update ----------------------------------------------------
+// See meshmsg.h. The sender puts a NUDGE (and, if sharing, its WIFI parts)
+// on the air for a minute; a board that hears one and decides to act calls
+// markNudged() before it installs, and after the reboot this file sends one
+// UPDATED reply on its own, once the radio is up.
+struct NudgeIn {
+    uint8_t  ver[3];
+    uint8_t  wifiParts;     // 0: the sender kept its network to itself
+    uint32_t wifiBase;      // the counter of the first WIFI part
+    char     from[13];
+    uint8_t  mac[6];
+    uint32_t at;
+};
+// ssid/pass may be nullptr: a nudge without a network.
+Send sendNudge(const uint8_t ver[3], const char* ssid, const char* pass, uint32_t now);
+bool takeNudge(NudgeIn& out);
+// The shared network for a nudge, once all its parts are in. Once only:
+// the copy is wiped on the way out.
+bool takeNudgeWifi(const NudgeIn& n, char ssid[MeshMsg::WIFI_SSID_MAX + 1], char pass[MeshMsg::WIFI_PASS_MAX + 1]);
+// Remembered across the reboot an install ends in, so the UPDATED reply
+// goes out on the next boot.
+void markNudged();
+struct UpdatedIn {
+    uint8_t ver[3];
+    char    from[13];
+    uint8_t mac[6];
+};
+bool takeUpdated(UpdatedIn& out);
+
+// ---- the invite -------------------------------------------------------------
+// See meshmsg.h and meshcrypto.h. Both roles live here; the screens only ask
+// what state it is in and press the three buttons. The invitee needs
+// MESSAGES on (to be handed frames at all) and TRANSMIT on (to answer), and
+// no phrase -- an invite is how a board gets one.
+enum class InviteState : uint8_t {
+    IDLE,
+    OFFERING,     // inviter: our key is on the air, waiting for theirs
+    ASKED,        // invitee: an offer arrived, the person has not answered
+    CODE,         // both: keys exchanged, four digits on screen, waiting for MATCHES
+    SENDING,      // inviter: MATCHES pressed, the phrase is on the air
+    WAITING,      // invitee: MATCHES pressed, waiting for the phrase
+    JOINED,       // invitee: phrase taken and the key derived
+    DONE,         // inviter: the phrase has been on the air its full time
+    FAILED,       // see inviteWhy()
+};
+InviteState inviteState();
+bool        inviteIsInviter();
+const char* inviteWhy();          // a short reason, from FAILED
+const char* invitePeerName();     // the other side
+uint16_t    inviteCode();         // 0..9999, from CODE on
+uint32_t    inviteSince();        // millis() of the last state change
+Send        inviteStart(const uint8_t target[6], const char* name, uint32_t now);   // inviter
+Send        inviteAccept(uint32_t now);           // invitee, from ASKED
+void        inviteDecline();                      // invitee, from ASKED
+Send        inviteConfirm(uint32_t now);          // both, from CODE: the digits match
+void        inviteCancel();                       // any state back to IDLE, keys wiped
+
 // Forget the phrase, the key and everything heard -- in RAM. The emulator's
 // half of a security wipe; on the device the store is erased and the board
 // restarts, which forgets all of it anyway.

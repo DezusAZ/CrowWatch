@@ -356,5 +356,249 @@ uint32_t Counter::reserve(uint32_t stored) {
     return limit;
 }
 
+// ---- the squad update -------------------------------------------------------------
+bool parseVersion(const char* s, uint8_t v[3]) {
+    if (!s) return false;
+    if (*s == 'v' || *s == 'V') s++;
+    for (int i = 0; i < 3; i++) {
+        if (*s < '0' || *s > '9') return false;
+        unsigned n = 0;
+        while (*s >= '0' && *s <= '9') { n = n * 10 + (unsigned)(*s - '0'); s++; if (n > 255) return false; }
+        v[i] = (uint8_t)n;
+        if (i < 2) { if (*s != '.') return false; s++; }
+    }
+    return true;
+}
+
+bool versionNewer(const uint8_t a[3], const uint8_t b[3]) {
+    for (int i = 0; i < 3; i++) {
+        if (a[i] != b[i]) return a[i] > b[i];
+    }
+    return false;
+}
+
+size_t wifiBlob(const char* ssid, const char* pass, uint8_t out[WIFI_BLOB_MAX]) {
+    const size_t sl = ssid ? strlen(ssid) : 0, pl = pass ? strlen(pass) : 0;
+    if (sl == 0 || sl > WIFI_SSID_MAX || pl > WIFI_PASS_MAX) return 0;
+    memset(out, 0, WIFI_BLOB_MAX);
+    out[0] = (uint8_t)sl;
+    out[1] = (uint8_t)pl;
+    memcpy(out + 2, ssid, sl);
+    memcpy(out + 2 + sl, pass, pl);
+    return 2 + sl + pl;
+}
+
+bool wifiUnblob(const uint8_t* blob, size_t len, char ssid[WIFI_SSID_MAX + 1], char pass[WIFI_PASS_MAX + 1]) {
+    if (!blob || len < 2) return false;
+    const size_t sl = blob[0], pl = blob[1];
+    if (sl == 0 || sl > WIFI_SSID_MAX || pl > WIFI_PASS_MAX || 2 + sl + pl > len) return false;
+    memcpy(ssid, blob + 2, sl); ssid[sl] = '\0';
+    memcpy(pass, blob + 2 + sl, pl); pass[pl] = '\0';
+    return true;
+}
+
+uint8_t wifiParts(size_t blobLen) {
+    if (blobLen == 0 || blobLen > WIFI_BLOB_MAX) return 0;
+    return (uint8_t)((blobLen + WIFI_PART_BYTES - 1) / WIFI_PART_BYTES);
+}
+
+static size_t sealBytes(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint8_t kind,
+                        const uint8_t* pt, size_t ptLen, uint8_t* out, size_t cap) {
+    const size_t need = HDR_LEN + ptLen + TAG_LEN;
+    if (cap < need || counter > COUNTER_MAX) return 0;
+    writeHeader(counter, kind, out);
+    uint8_t nonce[NONCE_LEN];
+    nonceFor(mac, counter, nonce);
+    if (!c.seal(nonce, out, HDR_LEN, pt, ptLen, out + HDR_LEN, out + HDR_LEN + ptLen)) return 0;
+    return need;
+}
+
+static Open openBytes(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                      uint8_t want, size_t ptLen, uint32_t& counter, uint8_t* pt) {
+    if (!isFrame(in, len)) return Open::NOT_OURS;
+    uint8_t kind;
+    if (!parseHeader(in, len, counter, kind)) return Open::BAD_FORMAT;
+    if (kind != want || len != HDR_LEN + ptLen + TAG_LEN) return Open::BAD_FORMAT;
+    uint8_t nonce[NONCE_LEN];
+    nonceFor(mac, counter, nonce);
+    if (!c.open(nonce, in, HDR_LEN, in + HDR_LEN, ptLen, in + HDR_LEN + ptLen, pt)) return Open::BAD_TAG;
+    return Open::OK;
+}
+
+size_t sealNudge(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                 const uint8_t ver[3], uint8_t wifiParts, uint8_t* out, size_t cap) {
+    if (wifiParts > WIFI_PARTS_MAX) return 0;
+    const uint8_t pt[4] = { ver[0], ver[1], ver[2], wifiParts };
+    return sealBytes(c, mac, counter, KIND_NUDGE, pt, sizeof pt, out, cap);
+}
+
+size_t sealWifiPart(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                    const uint8_t* blob, size_t blobLen, uint8_t part, uint8_t total,
+                    uint8_t* out, size_t cap) {
+    if (total == 0 || total > WIFI_PARTS_MAX || part >= total || wifiParts(blobLen) != total) return 0;
+    uint8_t pt[1 + WIFI_PART_BYTES];
+    pt[0] = (uint8_t)((part << 4) | total);
+    memset(pt + 1, 0, WIFI_PART_BYTES);
+    const size_t at = (size_t)part * WIFI_PART_BYTES;
+    const size_t n  = (blobLen > at) ? (blobLen - at < WIFI_PART_BYTES ? blobLen - at : WIFI_PART_BYTES) : 0;
+    memcpy(pt + 1, blob + at, n);
+    return sealBytes(c, mac, counter, KIND_WIFI, pt, sizeof pt, out, cap);
+}
+
+size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                   const uint8_t ver[3], uint8_t* out, size_t cap) {
+    return sealBytes(c, mac, counter, KIND_UPDATED, ver, 3, out, cap);
+}
+
+Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+               uint32_t& counter, uint8_t ver[3], uint8_t& wifiParts) {
+    uint8_t pt[4] = { 0, 0, 0, 0 };
+    const Open r = openBytes(c, mac, in, len, KIND_NUDGE, sizeof pt, counter, pt);
+    if (r != Open::OK) return r;
+    if (pt[3] > WIFI_PARTS_MAX) return Open::BAD_FORMAT;
+    ver[0] = pt[0]; ver[1] = pt[1]; ver[2] = pt[2];
+    wifiParts = pt[3];
+    return Open::OK;
+}
+
+Open openWifiPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                  uint32_t& counter, uint8_t& part, uint8_t& total, uint8_t bytes[WIFI_PART_BYTES]) {
+    uint8_t pt[1 + WIFI_PART_BYTES];
+    const Open r = openBytes(c, mac, in, len, KIND_WIFI, sizeof pt, counter, pt);
+    if (r != Open::OK) return r;
+    part  = pt[0] >> 4;
+    total = pt[0] & 0x0F;
+    if (total == 0 || total > WIFI_PARTS_MAX || part >= total || counter < part) return Open::BAD_FORMAT;
+    memcpy(bytes, pt + 1, WIFI_PART_BYTES);
+    return Open::OK;
+}
+
+Open openUpdated(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                 uint32_t& counter, uint8_t ver[3]) {
+    return openBytes(c, mac, in, len, KIND_UPDATED, 3, counter, ver);
+}
+
+bool WifiAssembly::add(const uint8_t m[6], uint32_t counter, uint8_t part, uint8_t tot,
+                       const uint8_t in[WIFI_PART_BYTES]) {
+    if (tot == 0 || tot > WIFI_PARTS_MAX || part >= tot || counter < part) return false;
+    const uint32_t b = counter - part;
+    if (!live || done || memcmp(mac, m, 6) != 0 || base != b || total != tot) {
+        memcpy(mac, m, 6);
+        base = b; total = tot; have = 0; live = true; done = false;
+        memset(bytes, 0, sizeof bytes);
+    }
+    memcpy(bytes + (size_t)part * WIFI_PART_BYTES, in, WIFI_PART_BYTES);
+    have |= (uint8_t)(1u << part);
+    done = (have == (uint8_t)((1u << tot) - 1));
+    return done;
+}
+
+bool WifiAssembly::take(const uint8_t m[6], uint32_t b, char ssid[WIFI_SSID_MAX + 1], char pass[WIFI_PASS_MAX + 1]) {
+    if (!live || !done || memcmp(mac, m, 6) != 0 || base != b) return false;
+    const bool ok = wifiUnblob(bytes, (size_t)total * WIFI_PART_BYTES, ssid, pass);
+    // Used once. The blob is wiped whether or not it parsed.
+    memset(bytes, 0, sizeof bytes);
+    live = false; done = false;
+    return ok;
+}
+
+// ---- the invite -----------------------------------------------------------------------
+void invitePubBlob(const uint8_t target[6], uint8_t role, const uint8_t pub[INVITE_PUB_LEN], uint8_t out[INVITE_BLOB]) {
+    memset(out, 0, INVITE_BLOB);
+    memcpy(out, target, 6);
+    out[6] = role;
+    memcpy(out + 7, pub, INVITE_PUB_LEN);
+}
+
+bool invitePubUnblob(const uint8_t in[INVITE_BLOB], uint8_t target[6], uint8_t& role, uint8_t pub[INVITE_PUB_LEN]) {
+    memcpy(target, in, 6);
+    role = in[6];
+    if (role > 1) return false;
+    memcpy(pub, in + 7, INVITE_PUB_LEN);
+    return true;
+}
+
+size_t inviteKeyBlob(const char* phrase, uint8_t out[INVITE_BLOB]) {
+    const size_t n = phrase ? strlen(phrase) : 0;
+    if (n == 0 || n > PHRASE_TEXT_MAX) return 0;
+    memset(out, 0, INVITE_BLOB);
+    out[0] = (uint8_t)n;
+    memcpy(out + 1, phrase, n);
+    return 1 + n;
+}
+
+bool inviteKeyUnblob(const uint8_t in[INVITE_BLOB], char out[PHRASE_TEXT_MAX + 1]) {
+    const size_t n = in[0];
+    if (n == 0 || n > PHRASE_TEXT_MAX) return false;
+    memcpy(out, in + 1, n);
+    out[n] = '\0';
+    return true;
+}
+
+size_t sealInvitePub(HashFn h, uint32_t counter, const uint8_t blob[INVITE_BLOB], uint8_t part,
+                     uint8_t* out, size_t cap) {
+    if (!h || cap < INVITE_FRAME_LEN || counter > COUNTER_MAX || part >= INVITE_PARTS) return 0;
+    writeHeader(counter, KIND_INVITE_PUB, out);
+    out[HDR_LEN] = (uint8_t)((part << 4) | INVITE_PARTS);
+    memcpy(out + HDR_LEN + 1, blob + (size_t)part * INVITE_PART_BYTES, INVITE_PART_BYTES);
+    uint8_t d[32];
+    h(out, HDR_LEN + 1 + INVITE_PART_BYTES, d);
+    memcpy(out + HDR_LEN + 1 + INVITE_PART_BYTES, d, TAG_LEN);
+    return INVITE_FRAME_LEN;
+}
+
+size_t sealInviteKey(const Crypto& c, const uint8_t mac[6], uint32_t counter,
+                     const uint8_t blob[INVITE_BLOB], uint8_t part, uint8_t* out, size_t cap) {
+    if (part >= INVITE_PARTS) return 0;
+    uint8_t pt[1 + INVITE_PART_BYTES];
+    pt[0] = (uint8_t)((part << 4) | INVITE_PARTS);
+    memcpy(pt + 1, blob + (size_t)part * INVITE_PART_BYTES, INVITE_PART_BYTES);
+    return sealBytes(c, mac, counter, KIND_INVITE_KEY, pt, sizeof pt, out, cap);
+}
+
+Open openInvitePub(HashFn h, const uint8_t* in, size_t len,
+                   uint32_t& counter, uint8_t& part, uint8_t bytes[INVITE_PART_BYTES]) {
+    if (!isFrame(in, len)) return Open::NOT_OURS;
+    uint8_t kind;
+    if (!parseHeader(in, len, counter, kind)) return Open::BAD_FORMAT;
+    if (kind != KIND_INVITE_PUB || len != INVITE_FRAME_LEN || !h) return Open::BAD_FORMAT;
+    uint8_t d[32];
+    h(in, HDR_LEN + 1 + INVITE_PART_BYTES, d);
+    if (memcmp(d, in + HDR_LEN + 1 + INVITE_PART_BYTES, TAG_LEN) != 0) return Open::BAD_TAG;
+    part = in[HDR_LEN] >> 4;
+    if ((in[HDR_LEN] & 0x0F) != INVITE_PARTS || part >= INVITE_PARTS || counter < part) return Open::BAD_FORMAT;
+    memcpy(bytes, in + HDR_LEN + 1, INVITE_PART_BYTES);
+    return Open::OK;
+}
+
+Open openInviteKey(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
+                   uint32_t& counter, uint8_t& part, uint8_t bytes[INVITE_PART_BYTES]) {
+    uint8_t pt[1 + INVITE_PART_BYTES];
+    const Open r = openBytes(c, mac, in, len, KIND_INVITE_KEY, sizeof pt, counter, pt);
+    if (r != Open::OK) return r;
+    part = pt[0] >> 4;
+    if ((pt[0] & 0x0F) != INVITE_PARTS || part >= INVITE_PARTS || counter < part) return Open::BAD_FORMAT;
+    memcpy(bytes, pt + 1, INVITE_PART_BYTES);
+    return Open::OK;
+}
+
+bool InviteAssembly::add(const uint8_t m[6], uint8_t k, uint32_t counter, uint8_t part, const uint8_t in[INVITE_PART_BYTES]) {
+    if (part >= INVITE_PARTS || counter < part) return false;
+    const uint32_t b = counter - part;
+    if (!live || memcmp(mac, m, 6) != 0 || kind != k || base != b) {
+        memcpy(mac, m, 6);
+        kind = k; base = b; have = 0; live = true;
+        memset(bytes, 0, sizeof bytes);
+    }
+    memcpy(bytes + (size_t)part * INVITE_PART_BYTES, in, INVITE_PART_BYTES);
+    have |= (uint8_t)(1u << part);
+    return have == (uint8_t)((1u << INVITE_PARTS) - 1);
+}
+
+void InviteAssembly::clear() {
+    memset(bytes, 0, sizeof bytes);
+    live = false; have = 0;
+}
+
 } // namespace MeshMsg
 #endif // SQUACH_MESH

@@ -16,7 +16,10 @@
 
 class DetectionEngine;
 
-enum class SquadHit : uint8_t { NONE, BACK, INVITED, REPLY };
+enum class SquadHit : uint8_t { NONE, BACK, INVITED, REPLY, ADD };
+// The board the carousel is showing, for ADD TO SQUAD.
+const uint8_t* uiSquadSelectedMac();
+const char*    uiSquadSelectedName();
 
 void     uiSquadInit(TFT_eSPI& t);
 void     uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);

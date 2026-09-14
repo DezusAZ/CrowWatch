@@ -63,5 +63,33 @@ const MeshMsg::Crypto STAND_IN = { standInDerive, standInSetKey, standInSeal, st
 } // namespace
 
 const MeshMsg::Crypto& MeshCrypto::impl() { return STAND_IN; }
+
+// The key exchange, stood in for: a "public key" is the private one with a
+// byte flipped, and the "shared secret" is the XOR of both privates, which
+// both sides can reach from what they hold. Enough for the screens.
+void MeshCrypto::sha256(const uint8_t* in, size_t len, uint8_t out[32]) {
+    // Not SHA-256: FNV spread over 32 bytes. Both ends of the emulator agree.
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < len; i++) h = (h ^ in[i]) * 16777619u;
+    for (size_t i = 0; i < 32; i++) { h = h * 1664525u + 1013904223u; out[i] = (uint8_t)(h >> 24); }
+}
+bool MeshCrypto::dhKeypair(uint8_t priv[DH_LEN], uint8_t pub[DH_LEN]) {
+    static uint32_t seed = 0x5EED1234u;
+    for (size_t i = 0; i < DH_LEN; i++) { seed = seed * 1664525u + 1013904223u; priv[i] = (uint8_t)(seed >> 24); }
+    for (size_t i = 0; i < DH_LEN; i++) pub[i] = (uint8_t)(priv[i] ^ 0xA5);
+    return true;
+}
+bool MeshCrypto::dhShared(const uint8_t priv[DH_LEN], const uint8_t peerPub[DH_LEN], uint8_t out[DH_LEN]) {
+    for (size_t i = 0; i < DH_LEN; i++) out[i] = (uint8_t)(priv[i] ^ (peerPub[i] ^ 0xA5));
+    return true;
+}
+void MeshCrypto::dhSessionKey(const uint8_t shared[DH_LEN], uint8_t key[MeshMsg::KEY_LEN]) {
+    for (size_t i = 0; i < MeshMsg::KEY_LEN; i++) key[i] = (uint8_t)(shared[i] ^ shared[i + 16] ^ 0x3C);
+}
+uint16_t MeshCrypto::dhCode(const uint8_t pubA[DH_LEN], const uint8_t pubB[DH_LEN]) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < DH_LEN; i++) { h = (h ^ (uint32_t)(pubA[i] ^ pubB[i])) * 16777619u; }
+    return (uint16_t)(h % 10000u);
+}
 // Nothing to test against: the golden frame is real AES-CCM and this is not.
 bool MeshCrypto::selfTest() { return true; }

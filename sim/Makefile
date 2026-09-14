@@ -106,6 +106,9 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/ui_rawscan.cpp \
             $(SRC)/ui_watchalert.cpp \
             $(SRC)/ui_update.cpp \
+            $(SRC)/ui_nudge.cpp \
+            $(SRC)/ui_squadupdate.cpp \
+            $(SRC)/ui_invite.cpp \
             $(SRC)/ui_wifipass.cpp \
             $(SIM_DIR)/ota_sim.cpp
 

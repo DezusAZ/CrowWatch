@@ -17,6 +17,7 @@ enum class SecurityRow : uint8_t {
     LOCK_AT_BOOT,
     WIPE_ON_FAIL,
     LOCK_ALERTS,
+    REMOTE_UPDATE,     // a squad update nudge may start an update here
     COUNT,
     NONE = 255
 };

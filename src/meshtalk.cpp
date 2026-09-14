@@ -4,6 +4,7 @@
 #if SQUACH_MESH
 #include "meshcrypto.h"
 #include "settings.h"
+#include "ota_core.h"
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_system.h>
@@ -36,8 +37,11 @@ constexpr uint32_t SEND_MS = 30000;
 // 4.8 s, six times in the thirty.
 constexpr uint32_t PART_MS = 1600;
 constexpr uint32_t EMOTE_MS = 9000;
-uint8_t  s_out[MeshMsg::TEXT_PARTS_MAX][MeshMsg::FRAME_MAX];
-uint8_t  s_outLen[MeshMsg::TEXT_PARTS_MAX] = { 0 };
+// A nudge and its WiFi parts: up to seven frames taking turns, so each is
+// on the air far less often than a message's three. A full minute.
+constexpr uint32_t NUDGE_MS = 60000;
+uint8_t  s_out[MeshMsg::OUT_PARTS_MAX][MeshMsg::FRAME_MAX];
+uint8_t  s_outLen[MeshMsg::OUT_PARTS_MAX] = { 0 };
 uint8_t  s_outN     = 0;
 uint32_t s_outStart = 0;
 uint32_t s_outUntil = 0;
@@ -49,6 +53,31 @@ Message  s_hist[INBOX_N];      // a ring, newest at s_histHead - 1
 uint8_t  s_histN = 0, s_histHead = 0;
 EmoteIn  s_emote = {};
 bool     s_emoteHave = false;
+NudgeIn   s_nudge = {};
+bool      s_nudgeHave = false;
+UpdatedIn s_updated = {};
+bool      s_updatedHave = false;
+MeshMsg::WifiAssembly s_wifiAsm;
+
+// ---- the invite ---------------------------------------------------------
+constexpr uint32_t INVITE_OFFER_MS = 60000;   // the public key's time on the air
+constexpr uint32_t INVITE_KEY_MS   = 30000;   // the phrase's
+constexpr uint32_t INVITE_WAIT_MS  = 90000;   // how long a side waits for the other
+InviteState s_invState = InviteState::IDLE;
+uint32_t    s_invSince = 0;
+bool        s_invInviter = false;
+uint8_t     s_invPeerMac[6] = { 0 };
+char        s_invPeerName[13] = "";
+uint8_t     s_invPriv[MeshCrypto::DH_LEN] = { 0 };
+uint8_t     s_invPub[MeshCrypto::DH_LEN]  = { 0 };
+uint8_t     s_invPeerPub[MeshCrypto::DH_LEN] = { 0 };
+uint8_t     s_invKey[MeshMsg::KEY_LEN] = { 0 };
+uint16_t    s_invCode = 0;
+const char* s_invWhy  = "";
+MeshMsg::InviteAssembly s_invAsm;
+char        s_invPhrase[MeshMsg::PHRASE_TEXT_MAX + 1] = "";   // invitee: held until MATCHES
+bool        s_invPhraseIn = false;
+bool      s_ackPending = false;    // an UPDATED reply owed after this boot
 
 // The replay table, to flash, after each message it records. Rare -- a few a
 // day is a lot -- so the wear is nothing, and it is what stops a frame somebody
@@ -89,6 +118,75 @@ void arrived(const Slot& s, uint32_t now) {
     if (s_histN < INBOX_N) s_histN++;
 }
 
+void inviteKeyRestore();
+void inviteFail(const char* why, uint32_t now);
+void inviteTo(InviteState st, uint32_t now) { s_invState = st; s_invSince = now; }
+
+void deliverInvite(const Slot& s, uint32_t now, uint32_t ctr, uint8_t kind) {
+    if (!s_selfTestOk || !s_macSet) return;
+    uint8_t part = 0, bytes[MeshMsg::INVITE_PART_BYTES];
+    if (kind == MeshMsg::KIND_INVITE_PUB) {
+        if (MeshMsg::openInvitePub(MeshCrypto::sha256, s.data, s.len, ctr, part, bytes) != MeshMsg::Open::OK) return;
+        if (!s_invAsm.add(s.mac, kind, ctr, part, bytes)) return;
+        uint8_t target[6], role = 0, pub[MeshMsg::INVITE_PUB_LEN];
+        const bool ok = MeshMsg::invitePubUnblob(s_invAsm.bytes, target, role, pub);
+        s_invAsm.clear();
+        if (!ok || memcmp(target, s_ownMac, 6) != 0) return;     // somebody else's invite
+        s_replay.record(s.mac, ctr);
+        saveReplay();
+        if (role == 0) {
+            // An offer. Only while nothing else is going on: a second offer
+            // mid-invite is ignored, not swapped in.
+            if (s_invState != InviteState::IDLE && s_invState != InviteState::ASKED) return;
+            memcpy(s_invPeerMac, s.mac, 6);
+            memcpy(s_invPeerPub, pub, sizeof s_invPeerPub);
+            snprintf(s_invPeerName, sizeof s_invPeerName, "%s", s.name[0] ? s.name : "SOMEONE");
+            s_invInviter = false;
+            inviteTo(InviteState::ASKED, now);
+            Serial.printf("[invite] %s offers to add us to their squad\n", s_invPeerName);
+        } else {
+            // An answer, to our offer, from the board we offered to.
+            if (s_invState != InviteState::OFFERING || !s_invInviter || memcmp(s.mac, s_invPeerMac, 6) != 0) return;
+            memcpy(s_invPeerPub, pub, sizeof s_invPeerPub);
+            uint8_t shared[MeshCrypto::DH_LEN];
+            if (!MeshCrypto::dhShared(s_invPriv, s_invPeerPub, shared)) { inviteFail("Bad key from their board", now); return; }
+            MeshCrypto::dhSessionKey(shared, s_invKey);
+            memset(shared, 0, sizeof shared);
+            s_invCode = MeshCrypto::dhCode(s_invPub, s_invPeerPub);
+            s_outN = 0; s_outGen++;      // our offer can come off the air
+            inviteTo(InviteState::CODE, now);
+            Serial.printf("[invite] %s answered; code %04u\n", s_invPeerName, (unsigned)s_invCode);
+        }
+        return;
+    }
+    if (kind == MeshMsg::KIND_INVITE_KEY) {
+        // Only the invitee, only from the inviter, only once the keys agree.
+        if (s_invInviter || (s_invState != InviteState::CODE && s_invState != InviteState::WAITING)) return;
+        if (memcmp(s.mac, s_invPeerMac, 6) != 0) return;
+        // The session key is what opens these. Swapped in for the call and
+        // the squad key (if this board had one) put back after.
+        if (!MeshCrypto::impl().setKey(s_invKey)) return;
+        const MeshMsg::Open r = MeshMsg::openInviteKey(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, part, bytes);
+        inviteKeyRestore();
+        if (r != MeshMsg::Open::OK) return;
+        if (!s_invAsm.add(s.mac, kind, ctr, part, bytes)) return;
+        const bool ok = MeshMsg::inviteKeyUnblob(s_invAsm.bytes, s_invPhrase);
+        s_invAsm.clear();
+        if (!ok) { inviteFail("Garbled phrase", now); return; }
+        s_replay.record(s.mac, ctr);
+        saveReplay();
+        s_invPhraseIn = true;
+        Serial.println("[invite] the phrase is in");
+        // Taken now if MATCHES was already pressed, else held for it.
+        if (s_invState == InviteState::WAITING) {
+            if (setPhrase(s_invPhrase)) inviteTo(InviteState::JOINED, now);
+            else inviteFail("Could not take the phrase", now);
+            memset(s_invPhrase, 0, sizeof s_invPhrase);
+            s_invPhraseIn = false;
+        }
+    }
+}
+
 void deliver(const Slot& s, uint32_t now) {
     uint32_t ctr = 0;
     uint8_t kind = 0;
@@ -96,6 +194,9 @@ void deliver(const Slot& s, uint32_t now) {
     // Cheap check first: a counter this sender has already used cannot be a
     // new message, so it never costs a decryption.
     if (!s_replay.fresh(s.mac, ctr)) return;
+    // The invite's frames are the one thing a board without a phrase reads.
+    if (kind == MeshMsg::KIND_INVITE_PUB || kind == MeshMsg::KIND_INVITE_KEY) { deliverInvite(s, now, ctr, kind); return; }
+    if (!ready()) return;
 
     if (kind == MeshMsg::KIND_CANNED) {
         uint8_t line = 0;
@@ -131,6 +232,59 @@ void deliver(const Slot& s, uint32_t now) {
         s_inbox.unknownLine = false;
         memcpy(s_inbox.body, body, sizeof s_inbox.body);
         arrived(s, now);
+        return;
+    }
+
+    if (kind == MeshMsg::KIND_NUDGE) {
+        uint8_t ver[3] = { 0, 0, 0 }, parts = 0;
+        if (MeshMsg::openNudge(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, ver, parts)
+                != MeshMsg::Open::OK) return;
+        // Recorded at the nudge's own counter, not past its WiFi parts: those
+        // still have to get through the replay check, and they carry
+        // higher counters of their own.
+        s_replay.record(s.mac, ctr);
+        saveReplay();
+        memcpy(s_nudge.ver, ver, 3);
+        s_nudge.wifiParts = parts;
+        s_nudge.wifiBase  = ctr + 1;
+        memcpy(s_nudge.mac, s.mac, 6);
+        const char* from = s.name[0] ? s.name : "SOMEONE";
+        size_t i = 0;
+        for (; i < sizeof s_nudge.from - 1 && from[i]; i++) s_nudge.from[i] = from[i];
+        s_nudge.from[i] = '\0';
+        s_nudge.at   = now;
+        s_nudgeHave  = true;
+        Serial.printf("[meshtalk] %s asks the squad to update to v%u.%u.%u (%u wifi parts)\n",
+                      s_nudge.from, ver[0], ver[1], ver[2], (unsigned)parts);
+        return;
+    }
+
+    if (kind == MeshMsg::KIND_WIFI) {
+        uint8_t part = 0, total = 0, bytes[MeshMsg::WIFI_PART_BYTES];
+        if (MeshMsg::openWifiPart(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, part, total, bytes)
+                != MeshMsg::Open::OK) return;
+        // Not recorded in the replay table part by part: a nudge is rare and
+        // the series is used once, so the table's slots are better spent on
+        // the senders' message counters. The nudge itself was recorded.
+        if (s_wifiAsm.add(s.mac, ctr, part, total, bytes))
+            Serial.println("[meshtalk] shared wifi received");
+        return;
+    }
+
+    if (kind == MeshMsg::KIND_UPDATED) {
+        uint8_t ver[3] = { 0, 0, 0 };
+        if (MeshMsg::openUpdated(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, ver)
+                != MeshMsg::Open::OK) return;
+        s_replay.record(s.mac, ctr);
+        saveReplay();
+        memcpy(s_updated.ver, ver, 3);
+        memcpy(s_updated.mac, s.mac, 6);
+        const char* from = s.name[0] ? s.name : "SOMEONE";
+        size_t i = 0;
+        for (; i < sizeof s_updated.from - 1 && from[i]; i++) s_updated.from[i] = from[i];
+        s_updated.from[i] = '\0';
+        s_updatedHave = true;
+        Serial.printf("[meshtalk] %s reports v%u.%u.%u\n", s_updated.from, ver[0], ver[1], ver[2]);
         return;
     }
 
@@ -207,6 +361,12 @@ void begin() {
     // has better things to do with them.
     s_havePhrase = s_selfTestOk && s_phrase[0] && kl == sizeof key &&
                    MeshCrypto::impl().setKey(key);
+    // A board that installed on a nudge owes the squad one word once it is
+    // back. Cleared here and sent from tick() when the radio is up.
+    if (s_prefs.getBool("nudged", false)) {
+        s_prefs.remove("nudged");
+        s_ackPending = true;
+    }
     // What had already been delivered before the reboot is still delivered.
     if (s_havePhrase && s_prefs.isKey("replay")) {
         uint8_t b[MeshMsg::Replay::BYTES];
@@ -310,6 +470,196 @@ Send sendEmote(uint8_t emote, uint8_t setup, uint32_t now) {
     return Send::OK;
 }
 
+Send sendNudge(const uint8_t ver[3], const char* ssid, const char* pass, uint32_t now) {
+    const Send ok = checks();
+    if (ok != Send::OK) return ok;
+    uint8_t blob[MeshMsg::WIFI_BLOB_MAX];
+    size_t  blobLen = 0;
+    if (ssid && ssid[0]) {
+        blobLen = MeshMsg::wifiBlob(ssid, pass ? pass : "", blob);
+        if (blobLen == 0) return Send::FAILED;      // too long to share
+    }
+    const uint8_t parts = MeshMsg::wifiParts(blobLen);
+    uint32_t base = 0;
+    if (!takeCounters((uint8_t)(1 + parts), base)) return Send::FAILED;
+    size_t n = MeshMsg::sealNudge(MeshCrypto::impl(), s_ownMac, base, ver, parts, s_out[0], sizeof s_out[0]);
+    if (n == 0) return Send::FAILED;
+    s_outLen[0] = (uint8_t)n;
+    for (uint8_t p = 0; p < parts; p++) {
+        n = MeshMsg::sealWifiPart(MeshCrypto::impl(), s_ownMac, base + 1 + p, blob, blobLen,
+                                  p, parts, s_out[1 + p], sizeof s_out[1 + p]);
+        if (n == 0) { s_outN = 0; memset(blob, 0, sizeof blob); return Send::FAILED; }
+        s_outLen[1 + p] = (uint8_t)n;
+    }
+    memset(blob, 0, sizeof blob);
+    onAir((uint8_t)(1 + parts), now, NUDGE_MS);
+    Serial.printf("[meshtalk] nudging the squad to v%u.%u.%u (#%lu, %u wifi parts)\n",
+                  ver[0], ver[1], ver[2], (unsigned long)base, (unsigned)parts);
+    return Send::OK;
+}
+
+bool takeNudge(NudgeIn& out) {
+    if (!s_nudgeHave) return false;
+    s_nudgeHave = false;
+    out = s_nudge;
+    return true;
+}
+
+bool takeNudgeWifi(const NudgeIn& n, char ssid[MeshMsg::WIFI_SSID_MAX + 1], char pass[MeshMsg::WIFI_PASS_MAX + 1]) {
+    if (n.wifiParts == 0) return false;
+    return s_wifiAsm.take(n.mac, n.wifiBase, ssid, pass);
+}
+
+void markNudged() { s_prefs.putBool("nudged", true); }
+
+bool takeUpdated(UpdatedIn& out) {
+    if (!s_updatedHave) return false;
+    s_updatedHave = false;
+    out = s_updated;
+    return true;
+}
+
+// ---- the invite -------------------------------------------------------------
+namespace {
+void inviteWipe() {
+    memset(s_invPriv, 0, sizeof s_invPriv);
+    memset(s_invPub, 0, sizeof s_invPub);
+    memset(s_invPeerPub, 0, sizeof s_invPeerPub);
+    memset(s_invKey, 0, sizeof s_invKey);
+    memset(s_invPhrase, 0, sizeof s_invPhrase);
+    s_invPhraseIn = false;
+    s_invAsm.clear();
+    s_invCode = 0;
+}
+// The squad key back on the cipher after a session-key call. A board with
+// no phrase (the invitee, usually) is left unkeyed, as it was.
+void inviteKeyRestore() {
+    uint8_t key[MeshMsg::KEY_LEN];
+    if (s_havePhrase && s_prefs.getBytes("key", key, sizeof key) == sizeof key) MeshCrypto::impl().setKey(key);
+    memset(key, 0, sizeof key);
+}
+void inviteFail(const char* why, uint32_t now) {
+    s_invWhy = why;
+    inviteWipe();
+    s_outN = 0; s_outGen++;
+    inviteTo(InviteState::FAILED, now);
+    Serial.printf("[invite] failed: %s\n", why);
+}
+// Four parts of a blob onto the air, INVITE_PUB in the clear or INVITE_KEY
+// under the session key.
+Send invitePut(uint8_t kind, const uint8_t blob[MeshMsg::INVITE_BLOB], uint32_t ms, uint32_t now) {
+    uint32_t base = 0;
+    if (!takeCounters(MeshMsg::INVITE_PARTS, base)) return Send::FAILED;
+    if (kind == MeshMsg::KIND_INVITE_KEY && !MeshCrypto::impl().setKey(s_invKey)) return Send::FAILED;
+    bool ok = true;
+    for (uint8_t p = 0; p < MeshMsg::INVITE_PARTS && ok; p++) {
+        const size_t n = (kind == MeshMsg::KIND_INVITE_PUB)
+            ? MeshMsg::sealInvitePub(MeshCrypto::sha256, base + p, blob, p, s_out[p], sizeof s_out[p])
+            : MeshMsg::sealInviteKey(MeshCrypto::impl(), s_ownMac, base + p, blob, p, s_out[p], sizeof s_out[p]);
+        s_outLen[p] = (uint8_t)n;
+        ok = n != 0;
+    }
+    if (kind == MeshMsg::KIND_INVITE_KEY) inviteKeyRestore();
+    if (!ok) { s_outN = 0; return Send::FAILED; }
+    onAir(MeshMsg::INVITE_PARTS, now, ms);
+    return Send::OK;
+}
+} // namespace
+
+InviteState inviteState()    { return s_invState; }
+bool        inviteIsInviter() { return s_invInviter; }
+const char* inviteWhy()      { return s_invWhy; }
+const char* invitePeerName() { return s_invPeerName; }
+uint16_t    inviteCode()     { return s_invCode; }
+uint32_t    inviteSince()    { return s_invSince; }
+
+Send inviteStart(const uint8_t target[6], const char* name, uint32_t now) {
+    // Needs a phrase to hand over and the radio to hand it with.
+    if (!s_havePhrase || !s_selfTestOk) return Send::NOT_READY;
+    if (!Settings::meshTransmit()) return Send::TRANSMIT_OFF;
+    if (!s_macSet) return Send::FAILED;
+    inviteWipe();
+    if (!MeshCrypto::dhKeypair(s_invPriv, s_invPub)) return Send::FAILED;
+    memcpy(s_invPeerMac, target, 6);
+    snprintf(s_invPeerName, sizeof s_invPeerName, "%s", name && name[0] ? name : "SOMEONE");
+    s_invInviter = true;
+    uint8_t blob[MeshMsg::INVITE_BLOB];
+    MeshMsg::invitePubBlob(target, 0, s_invPub, blob);
+    const Send r = invitePut(MeshMsg::KIND_INVITE_PUB, blob, INVITE_OFFER_MS, now);
+    if (r != Send::OK) { inviteWipe(); return r; }
+    inviteTo(InviteState::OFFERING, now);
+    Serial.printf("[invite] offering our squad to %s\n", s_invPeerName);
+    return Send::OK;
+}
+
+Send inviteAccept(uint32_t now) {
+    if (s_invState != InviteState::ASKED) return Send::FAILED;
+    if (!Settings::meshTransmit()) return Send::TRANSMIT_OFF;
+    if (!s_macSet) return Send::FAILED;
+    if (!MeshCrypto::dhKeypair(s_invPriv, s_invPub)) { inviteFail("Could not make a key", now); return Send::FAILED; }
+    uint8_t shared[MeshCrypto::DH_LEN];
+    if (!MeshCrypto::dhShared(s_invPriv, s_invPeerPub, shared)) { inviteFail("Bad key from their board", now); return Send::FAILED; }
+    MeshCrypto::dhSessionKey(shared, s_invKey);
+    memset(shared, 0, sizeof shared);
+    s_invCode = MeshCrypto::dhCode(s_invPub, s_invPeerPub);
+    uint8_t blob[MeshMsg::INVITE_BLOB];
+    MeshMsg::invitePubBlob(s_invPeerMac, 1, s_invPub, blob);
+    const Send r = invitePut(MeshMsg::KIND_INVITE_PUB, blob, INVITE_OFFER_MS, now);
+    if (r != Send::OK) { inviteFail("Could not answer", now); return r; }
+    inviteTo(InviteState::CODE, now);
+    Serial.printf("[invite] answered %s; code %04u\n", s_invPeerName, (unsigned)s_invCode);
+    return Send::OK;
+}
+
+void inviteDecline() { inviteCancel(); }
+
+Send inviteConfirm(uint32_t now) {
+    if (s_invState != InviteState::CODE) return Send::FAILED;
+    if (s_invInviter) {
+        uint8_t blob[MeshMsg::INVITE_BLOB];
+        if (MeshMsg::inviteKeyBlob(s_phrase, blob) == 0) { inviteFail("No phrase to send", now); return Send::FAILED; }
+        const Send r = invitePut(MeshMsg::KIND_INVITE_KEY, blob, INVITE_KEY_MS, now);
+        memset(blob, 0, sizeof blob);
+        if (r != Send::OK) { inviteFail("Could not send the phrase", now); return r; }
+        inviteTo(InviteState::SENDING, now);
+        Serial.println("[invite] digits matched; the phrase is on the air");
+        return Send::OK;
+    }
+    // Invitee: the phrase may already be in.
+    if (s_invPhraseIn) {
+        if (setPhrase(s_invPhrase)) inviteTo(InviteState::JOINED, now);
+        else inviteFail("Could not take the phrase", now);
+        memset(s_invPhrase, 0, sizeof s_invPhrase);
+        s_invPhraseIn = false;
+        return Send::OK;
+    }
+    inviteTo(InviteState::WAITING, now);
+    return Send::OK;
+}
+
+void inviteCancel() {
+    if (s_invState == InviteState::IDLE) return;
+    inviteWipe();
+    if (s_invState == InviteState::OFFERING || s_invState == InviteState::SENDING || s_invState == InviteState::CODE) { s_outN = 0; s_outGen++; }
+    s_invState = InviteState::IDLE;
+    s_invWhy = "";
+}
+
+static Send sendUpdated(uint32_t now) {
+    const Send ok = checks();
+    if (ok != Send::OK) return ok;
+    uint8_t ver[3] = { 0, 0, 0 };
+    MeshMsg::parseVersion(OtaCore::runningVersion(), ver);
+    uint32_t c = 0;
+    if (!takeCounters(1, c)) return Send::FAILED;
+    const size_t n = MeshMsg::sealUpdated(MeshCrypto::impl(), s_ownMac, c, ver, s_out[0], sizeof s_out[0]);
+    if (n == 0) return Send::FAILED;
+    s_outLen[0] = (uint8_t)n;
+    onAir(1, now);
+    Serial.printf("[meshtalk] telling the squad: updated to v%u.%u.%u\n", ver[0], ver[1], ver[2]);
+    return Send::OK;
+}
+
 const uint8_t* outgoing(uint32_t now, size_t& len, uint32_t& gen) {
     if (s_outN && (int32_t)(now - s_outUntil) < 0) {
         const uint8_t p = (uint8_t)(((now - s_outStart) / PART_MS) % s_outN);
@@ -342,6 +692,10 @@ void forget() {
     for (uint8_t i = 0; i < INBOX_N; i++) s_hist[i] = Message{};
     s_histN = 0; s_histHead = 0;
     s_emoteHave  = false;
+    s_nudgeHave  = false;
+    s_updatedHave = false;
+    s_wifiAsm    = MeshMsg::WifiAssembly();
+    inviteCancel();
     s_outN       = 0;
     s_outGen++;
 }
@@ -378,12 +732,27 @@ void onFrame(const uint8_t mac[6], const uint8_t* d, size_t len, const char* nam
 }
 
 void tick(uint32_t now) {
+    // Ten seconds in: the radio is up, the sender's screen is likely still
+    // showing its tally, and nothing else is on the air yet.
+    if (s_ackPending && now > 10000 && s_macSet && ready() && !sending(now)) {
+        s_ackPending = false;
+        sendUpdated(now);
+    }
+    // The invite's clocks: a side that waits too long for the other gives up,
+    // and the inviter is done once the phrase has had its time on the air.
+    if (s_invState == InviteState::OFFERING && now - s_invSince > INVITE_WAIT_MS) inviteFail("No answer from their board", now);
+    if (s_invState == InviteState::WAITING  && now - s_invSince > INVITE_WAIT_MS) inviteFail("The phrase never arrived", now);
+    if (s_invState == InviteState::SENDING  && now - s_invSince > INVITE_KEY_MS + 1000) inviteTo(InviteState::DONE, now);
+    // A finished or failed invite left on screen must not block the next
+    // offer for ever: back to IDLE on its own after a while.
+    if ((s_invState == InviteState::DONE || s_invState == InviteState::FAILED || s_invState == InviteState::JOINED) &&
+        now - s_invSince > 300000) inviteCancel();
     uint32_t t = __atomic_load_n(&s_tail, __ATOMIC_RELAXED);
     const uint32_t h = __atomic_load_n(&s_head, __ATOMIC_ACQUIRE);
     while (t != h) {
         // Dropped unread when messages are off or there is no key -- the
         // ring still drains, so switching on later does not replay a backlog.
-        if (ready()) deliver(s_ring[t % RING], now);
+        deliver(s_ring[t % RING], now);
         t++;
         __atomic_store_n(&s_tail, t, __ATOMIC_RELEASE);
     }

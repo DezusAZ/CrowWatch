@@ -22,7 +22,7 @@ const int ROW_GAP = 3;
 // the two cannot drift apart.
 struct Geom {
     int x, w;                          // the wide buttons
-    int wifiY, btY, switchY;
+    int wifiY, btY, squadY, switchY;
     int backX, backY, backW;
 };
 
@@ -36,7 +36,12 @@ Geom geom(TFT_eSPI& t) {
     g.backX = (w - g.backW) / 2;
     g.backY = h - BTN_H - 6;
     g.switchY = g.backY - BTN_H - 8;
-    g.btY     = OtaCore::otherVersion() ? g.switchY - BTN_H - 8 : g.switchY;
+    g.squadY  = OtaCore::otherVersion() ? g.switchY - BTN_H - 8 : g.switchY;
+#if SQUACH_MESH
+    g.btY     = g.squadY - BTN_H - 8;
+#else
+    g.btY     = g.squadY;
+#endif
     g.wifiY   = g.btY - BTN_H - 8;
     return g;
 }
@@ -144,6 +149,9 @@ void drawMenu(TFT_eSPI& t) {
 
     Theme::drawWin95Button(t, g.x, g.wifiY, g.w, BTN_H, "UPDATE OVER WIFI", false);
     Theme::drawWin95Button(t, g.x, g.btY,   g.w, BTN_H, "UPDATE OVER BLUETOOTH (BETA)", false);
+#if SQUACH_MESH
+    Theme::drawWin95Button(t, g.x, g.squadY, g.w, BTN_H, "UPDATE SQUAD", false);
+#endif
     if (other) {
         char b[40];
         snprintf(b, sizeof b, "SWITCH TO %.20s", other);
@@ -486,6 +494,9 @@ UpdateHit uiUpdateHitTest(TFT_eSPI& t, int x, int y, int* netIndex) {
             }
             if (in(x, y, g.x, g.wifiY, g.w, BTN_H)) return UpdateHit::WIFI_START;
             if (in(x, y, g.x, g.btY,   g.w, BTN_H)) return UpdateHit::BT_START;
+#if SQUACH_MESH
+            if (in(x, y, g.x, g.squadY, g.w, BTN_H)) return UpdateHit::SQUAD_START;
+#endif
             if (OtaCore::otherVersion() && in(x, y, g.x, g.switchY, g.w, BTN_H)) return UpdateHit::SWITCH;
             return onBack ? UpdateHit::BACK : UpdateHit::NONE;
         case OtaBle::State::WAITING:

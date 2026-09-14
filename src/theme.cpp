@@ -5062,7 +5062,7 @@ void drawFire(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         static const char* const QUIPS[] = {
             "it's always DNS", "RTFM",          "rm -rf /",
             "ROT13 twice",       "allegedly",     "flag{h00t}",
-            "salt your hash",    "0 days since"
+            "salt your hash",    "0 days since",  "PCBWAY!"
         };
         static const uint8_t NQUIP = sizeof(QUIPS) / sizeof(QUIPS[0]);
         // While the werewolf is on stage the owl has other priorities.

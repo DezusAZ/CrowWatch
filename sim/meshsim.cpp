@@ -67,8 +67,8 @@ uint8_t  squad = 1;
 int      replyLine = -1;
 // What it is sending: one frame for a canned line, up to three for a typed
 // one, fed one per advert in turn -- the way a board's scan response rotates.
-uint8_t  frames[MeshMsg::TEXT_PARTS_MAX][MeshMsg::FRAME_MAX];
-size_t   frameLen[MeshMsg::TEXT_PARTS_MAX] = { 0 };
+uint8_t  frames[MeshMsg::OUT_PARTS_MAX][MeshMsg::FRAME_MAX];
+size_t   frameLen[MeshMsg::OUT_PARTS_MAX] = { 0 };
 uint8_t  frameN = 0, frameAt = 0;
 char     said[MeshMsg::TEXT_MAX + 1] = "", heard[MeshMsg::TEXT_MAX + 1] = "";
 MeshMsg::Assembly asmb;
@@ -213,6 +213,25 @@ void hear(const uint8_t* out, size_t len, uint32_t gen, uint32_t now) {
         snprintf(heard, sizeof heard, "%s", body);
         fprintf(stderr, "[meshsim] %s heard \"%s\" (%u parts)\n", peerName(), heard, (unsigned)total);
         replyLater(REPLY_TO_TEXT, now);
+        return;
+    }
+    if (kind == MeshMsg::KIND_NUDGE) {
+        uint8_t ver[3] = { 0, 0, 0 }, parts = 0;
+        if (MeshMsg::openNudge(MeshCrypto::impl(), OWN_MAC, out, len, c, ver, parts) != MeshMsg::Open::OK) {
+            fprintf(stderr, "[meshsim] %s could not open our nudge\n", peerName());
+            return;
+        }
+        snprintf(heard, sizeof heard, "(update to v%u.%u.%u)", ver[0], ver[1], ver[2]);
+        fprintf(stderr, "[meshsim] %s heard: update to v%u.%u.%u, %u wifi parts\n", peerName(), ver[0], ver[1], ver[2], (unsigned)parts);
+        return;
+    }
+    if (kind == MeshMsg::KIND_WIFI) {
+        uint8_t part = 0, total = 0, bytes[MeshMsg::WIFI_PART_BYTES];
+        if (MeshMsg::openWifiPart(MeshCrypto::impl(), OWN_MAC, out, len, c, part, total, bytes) != MeshMsg::Open::OK) {
+            fprintf(stderr, "[meshsim] %s could not open our wifi part\n", peerName());
+            return;
+        }
+        fprintf(stderr, "[meshsim] %s heard wifi part %u of %u\n", peerName(), (unsigned)part + 1, (unsigned)total);
         return;
     }
     if (kind == MeshMsg::KIND_EMOTE) {

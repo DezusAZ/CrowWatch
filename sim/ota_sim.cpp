@@ -132,6 +132,7 @@ uint8_t    netCount() { return sizeof NETS / sizeof NETS[0]; }
 const Net* net(uint8_t i) { return i < netCount() ? &NETS[i] : nullptr; }
 bool        hasSaved()  { return s_saved; }
 const char* savedSsid() { return s_saved ? "SquachNet" : ""; }
+bool        savedPass(char* out, size_t cap) { if (!s_saved || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
 void        forget()    { s_saved = false; }
 
 void connect(const char* ssid, const char*, bool) {

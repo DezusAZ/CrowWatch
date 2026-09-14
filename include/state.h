@@ -133,7 +133,10 @@ enum class AppState : uint8_t {
     UPDATE           = 26, // UPDATE FIRMWARE, from Settings' SYSTEM page:
                             // WiFi or Bluetooth update, or switch slots
     WIFI_PASS        = 27, // typing a WiFi password, from UPDATE's network list
-    STATUS_LIGHT     = 28  // the RGB LED's settings, from the APPEARANCE page
+    STATUS_LIGHT     = 28, // the RGB LED's settings, from the APPEARANCE page
+    NUDGE            = 29, // another board asked the squad to update: the countdown
+    SQUAD_UPDATE     = 30, // UPDATE SQUAD, from the UPDATE FIRMWARE screen
+    INVITE           = 31  // ADD TO SQUAD, either side of it
 };
 
 enum class ButtonId : uint8_t {

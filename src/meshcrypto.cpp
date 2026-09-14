@@ -6,6 +6,9 @@
 #include "mbedtls/ccm.h"
 #include "mbedtls/md.h"
 #include "mbedtls/pkcs5.h"
+#include "mbedtls/ecdh.h"
+#include "mbedtls/sha256.h"
+#include <esp_system.h>
 #include <string.h>
 
 namespace {
@@ -61,6 +64,84 @@ const MeshMsg::Crypto IMPL = { pbkdf2Derive, ccmSetKey, ccmSeal, ccmOpen };
 } // namespace
 
 const MeshMsg::Crypto& MeshCrypto::impl() { return IMPL; }
+
+namespace {
+int hwRng(void*, unsigned char* out, size_t n) {
+    esp_fill_random(out, n);
+    return 0;
+}
+} // namespace
+
+void MeshCrypto::sha256(const uint8_t* in, size_t len, uint8_t out[32]) {
+    mbedtls_sha256_ret(in, len, out, 0);
+}
+
+bool MeshCrypto::dhKeypair(uint8_t priv[DH_LEN], uint8_t pub[DH_LEN]) {
+    mbedtls_ecp_group grp;
+    mbedtls_mpi d;
+    mbedtls_ecp_point Q;
+    mbedtls_ecp_group_init(&grp);
+    mbedtls_mpi_init(&d);
+    mbedtls_ecp_point_init(&Q);
+    bool ok = mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_CURVE25519) == 0 &&
+              mbedtls_ecdh_gen_public(&grp, &d, &Q, hwRng, nullptr) == 0 &&
+              mbedtls_mpi_write_binary(&d, priv, DH_LEN) == 0 &&
+              mbedtls_mpi_write_binary(&Q.X, pub, DH_LEN) == 0;
+    mbedtls_ecp_point_free(&Q);
+    mbedtls_mpi_free(&d);
+    mbedtls_ecp_group_free(&grp);
+    return ok;
+}
+
+bool MeshCrypto::dhShared(const uint8_t priv[DH_LEN], const uint8_t peerPub[DH_LEN], uint8_t out[DH_LEN]) {
+    mbedtls_ecp_group grp;
+    mbedtls_mpi d, z;
+    mbedtls_ecp_point Qp;
+    mbedtls_ecp_group_init(&grp);
+    mbedtls_mpi_init(&d);
+    mbedtls_mpi_init(&z);
+    mbedtls_ecp_point_init(&Qp);
+    bool ok = mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_CURVE25519) == 0 &&
+              mbedtls_mpi_read_binary(&d, priv, DH_LEN) == 0 &&
+              mbedtls_mpi_read_binary(&Qp.X, peerPub, DH_LEN) == 0 &&
+              mbedtls_mpi_lset(&Qp.Z, 1) == 0 &&
+              mbedtls_ecdh_compute_shared(&grp, &z, &Qp, &d, hwRng, nullptr) == 0 &&
+              mbedtls_mpi_write_binary(&z, out, DH_LEN) == 0;
+    mbedtls_ecp_point_free(&Qp);
+    mbedtls_mpi_free(&z);
+    mbedtls_mpi_free(&d);
+    mbedtls_ecp_group_free(&grp);
+    // An all-zero secret means the other side sent a low-order point. Refused.
+    if (ok) { uint8_t acc = 0; for (size_t i = 0; i < DH_LEN; i++) acc |= out[i]; ok = acc != 0; }
+    return ok;
+}
+
+void MeshCrypto::dhSessionKey(const uint8_t shared[DH_LEN], uint8_t key[MeshMsg::KEY_LEN]) {
+    static const char LABEL[] = "squachwatch-invite";
+    uint8_t h[32];
+    mbedtls_sha256_context c;
+    mbedtls_sha256_init(&c);
+    mbedtls_sha256_starts_ret(&c, 0);
+    mbedtls_sha256_update_ret(&c, (const unsigned char*)LABEL, sizeof LABEL - 1);
+    mbedtls_sha256_update_ret(&c, shared, DH_LEN);
+    mbedtls_sha256_finish_ret(&c, h);
+    mbedtls_sha256_free(&c);
+    memcpy(key, h, MeshMsg::KEY_LEN);
+    memset(h, 0, sizeof h);
+}
+
+uint16_t MeshCrypto::dhCode(const uint8_t pubA[DH_LEN], const uint8_t pubB[DH_LEN]) {
+    const bool aFirst = memcmp(pubA, pubB, DH_LEN) <= 0;
+    uint8_t h[32];
+    mbedtls_sha256_context c;
+    mbedtls_sha256_init(&c);
+    mbedtls_sha256_starts_ret(&c, 0);
+    mbedtls_sha256_update_ret(&c, aFirst ? pubA : pubB, DH_LEN);
+    mbedtls_sha256_update_ret(&c, aFirst ? pubB : pubA, DH_LEN);
+    mbedtls_sha256_finish_ret(&c, h);
+    mbedtls_sha256_free(&c);
+    return (uint16_t)(((uint32_t)h[0] << 24 | (uint32_t)h[1] << 16 | (uint32_t)h[2] << 8 | h[3]) % 10000u);
+}
 
 bool MeshCrypto::selfTest() {
     namespace V = MeshMsgVec;
