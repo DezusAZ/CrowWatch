@@ -4591,11 +4591,12 @@ void loop() {
         static uint32_t lastFrameSay = 0;
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u\n",
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
                           (unsigned long)(1000000UL / s_frameUsAvg),
                           (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10),
-                          (unsigned)state);
+                          (unsigned)state, (unsigned long)ESP.getFreeHeap(),
+                          (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         }
     }
 #if CROWD_BENCH

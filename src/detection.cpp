@@ -705,9 +705,22 @@ static const uint32_t SCAN_FLUSH_MS = 60000;
 // aborted in the host task before the first flush ever came round. So the
 // heap is watched too: a flush also goes out the moment the largest free
 // block falls under this, no more than once every few seconds.
-static const uint32_t SCAN_FLUSH_MIN_MS   = 4000;
-static const uint32_t SCAN_FLUSH_BLOCK_B  = 20000;
+static const uint32_t SCAN_FLUSH_MIN_MS   = 2500;
+static const uint32_t SCAN_FLUSH_BLOCK_B  = 24000;
+// And when flushing is not enough -- the same user's board, on the first
+// fix, flushed six times in 28 seconds, 9 KB each, and sat at 14 KB free
+// with a 5 KB largest block between them -- the scan goes PASSIVE for a
+// while. A passive scan sends no scan requests, so nothing waits on a
+// scan response and the list cannot grow at all. What it costs is the
+// scan responses themselves: the names some devices only give when asked.
+// Two minutes of that, then active again, and again if it comes to it.
+static const uint32_t SCAN_PASSIVE_MS     = 120000;
+static const uint8_t  SCAN_PRESSED_LIMIT  = 3;       // pressed flushes inside a minute
 static uint32_t       s_lastFlush   = 0;
+static uint32_t       s_pressedAt[SCAN_PRESSED_LIMIT] = { 0, 0, 0 };
+static uint8_t        s_pressedIx   = 0;
+static volatile uint32_t s_passiveUntil = 0;        // read on the host task
+static bool           s_passiveNow  = false;         // what the host task last set
 static ScanFlushStats s_flush       = { 0, 0, 0 };   // written on the host task
 static uint32_t       s_flushLogged = 0;
 static struct ble_npl_event s_flushEv;
@@ -726,6 +739,11 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     const uint32_t before = ESP.getFreeHeap();
     scan->stop();
     const uint32_t after = ESP.getFreeHeap();
+    // Active or passive, as the loop task decided; the mode only takes at
+    // a start, which is why the decision is carried in here.
+    const uint32_t nowMs = millis();
+    const bool passive = s_passiveUntil && (int32_t)(s_passiveUntil - nowMs) > 0;
+    if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }
     scan->start(0, nullptr, false);
     const uint32_t freed = (after > before) ? after - before : 0;
     s_flush.lastFreed   = freed;
@@ -748,8 +766,24 @@ static void scanFlushTick() {
     const bool pressed = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < SCAN_FLUSH_BLOCK_B &&
                          now - s_lastFlush >= SCAN_FLUSH_MIN_MS;
     if (!pressed && now - s_lastFlush < SCAN_FLUSH_MS) return;
-    if (pressed) Serial.printf("[scan] heap pressed: largest block %lu, flushing early\n",
-                               (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    if (pressed) {
+        Serial.printf("[scan] heap pressed: largest block %lu, flushing early\n",
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        // Three pressed flushes inside a minute: flushing is losing, go passive.
+        s_pressedAt[s_pressedIx] = now;
+        s_pressedIx = (uint8_t)((s_pressedIx + 1) % SCAN_PRESSED_LIMIT);
+        bool allRecent = true;
+        for (uint8_t i = 0; i < SCAN_PRESSED_LIMIT; i++)
+            if (!s_pressedAt[i] || now - s_pressedAt[i] > 60000) allRecent = false;
+        if (allRecent && !(s_passiveUntil && (int32_t)(s_passiveUntil - now) > 0)) {
+            s_passiveUntil = now + SCAN_PASSIVE_MS;
+            for (uint8_t i = 0; i < SCAN_PRESSED_LIMIT; i++) s_pressedAt[i] = 0;
+            Serial.printf("[scan] passive for %lu s: too many devices for the heap here\n",
+                          (unsigned long)(SCAN_PASSIVE_MS / 1000));
+        }
+    } else if (s_passiveNow && !(s_passiveUntil && (int32_t)(s_passiveUntil - now) > 0)) {
+        Serial.println("[scan] back to active scanning");
+    }
     s_lastFlush = now;
     NimBLEScan* scan = NimBLEDevice::getScan();
     // Never restart a scan that is not running: that would be switching
