@@ -74,13 +74,12 @@ int main() {
         t.setTextSize(1);
         // fontdata[1] in the real library is { ..., height 8, baseline 7 }.
         ck("fontHeight(1) agrees", t.fontHeight(1) == 8);
-        // Font 2 is not compiled into this firmware (LOAD_FONT2 was dropped
-        // to save flash), so the real fontdata[2].height is 0. The shim
-        // returning 0 is therefore correct, not a stub -- and it means
-        // ui_clear's fontHeight(2) call, which reads as "height at size 2"
-        // but asks for "font 2", behaves the same in both places today.
-        // It would stop doing so the moment anyone enabled LOAD_FONT2.
-        ck("fontHeight(2) is 0 on both sides", t.fontHeight(2) == 0);
+        // Font 2 IS compiled in since v1.7.6 (LOAD_FONT2 in every user setup:
+        // the speech bubbles are set in it), so the real fontdata[2].height
+        // is 16 and the shim renders it from sim/font16_data.h. This used to
+        // assert 0 on both sides, with a note that it would stop holding the
+        // moment anyone enabled LOAD_FONT2 -- which is what happened.
+        ck("fontHeight(2) is 16 on both sides", t.fontHeight(2) == 16);
     }
 
     suite("Opaque text fills the whole advance width");

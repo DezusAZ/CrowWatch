@@ -63,7 +63,10 @@ int main() {
             ck("every letter exactly once", letters);
             ck("space",     find(k, n, ' ') >= 0);
             ck("backspace", bi >= 0);
-            ck("clear",     find(k, n, CLR) >= 0);
+            // The message board clears; the name board shuffles the curated
+            // name instead, in the same slot (v1.7.8).
+            if (ext) ck("clear",   find(k, n, CLR)  >= 0);
+            else     ck("shuffle", find(k, n, SHUF) >= 0);
             ck("OK",        find(k, n, OK)  >= 0);
         }
 
