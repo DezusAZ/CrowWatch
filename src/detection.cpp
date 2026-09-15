@@ -461,7 +461,7 @@ bool DetectionEngine::init() {
     // comes once the rate of adverts says the room can afford it -- see
     // scanModeTick() below.
     scan->setActiveScan(false);
-    if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning for good (three short boots in a row)");
+    if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning for good (five short boots in a row)");
     scan->setInterval(100);
     scan->setWindow(99);
     scan->setDuplicateFilter(false);

@@ -47,19 +47,19 @@ RTC_NOINIT_ATTR static struct {
     uint32_t heapBlock;
     uint32_t lifetime;
     uint8_t  screen;
-    // Boots in a row that died inside their first minute. Kept across the
-    // resets themselves, cleared by a boot that lives. Three in a row is a
-    // boot loop, and the third boot comes up in safe mode -- see
+    // Boots in a row that died inside 90 seconds. Kept across the resets
+    // themselves, cleared by a boot that lives. Four in a row is a boot
+    // loop, and the fifth boot comes up in safe mode -- see
     // crashReportInit() and setScanSafe().
     uint8_t  shortCrashes;
 } g_crumb;
 static bool g_safeBoot = false;
 // The breadcrumb dies with the power, and a board on a supply that sags
 // comes back saying "power-on" every time, which reads as a clean start.
-// So a second count lives in flash: boots in a row that never reached two
-// minutes up, whatever the reset reason (a restart the firmware asked for
-// is not counted). Written once a boot and cleared once at two minutes.
-// Three in a row caps the backlight for that boot: if the loop is the
+// So a second count lives in flash: boots in a row that never reached 90
+// seconds up, whatever the reset reason (a restart the firmware asked for
+// is not counted). Written once a boot and cleared once at 90 seconds.
+// Five in a row caps the backlight for that boot: if the loop is the
 // supply, that is the one load worth taking off it, and the card says so.
 static uint8_t           g_shortBoots  = 0;
 static bool              g_powerSafe   = false;
@@ -109,7 +109,7 @@ static void crashReportInit() {
             bp.putUChar("short", n);
             bp.end();
             g_shortBoots = n;             // counts this boot: 1 is an ordinary plug-in
-            g_powerSafe  = n >= 3;
+            g_powerSafe  = n >= 5;
         }
     }
     const bool panicked = (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
@@ -120,8 +120,8 @@ static void crashReportInit() {
         (g_crumb.uptimeMs > 30UL * 24 * 3600 * 1000 || g_crumb.heapFree > 400000)) g_crumb.magic = 0;
     if (panicked && g_crumb.magic == CRUMB_MAGIC) {
         if (g_crumb.shortCrashes > 10) g_crumb.shortCrashes = 0;   // RTC RAM from an older firmware
-        if (g_crumb.uptimeMs < 60000) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;
-        g_safeBoot = g_crumb.shortCrashes >= 2;
+        if (g_crumb.uptimeMs < 90000) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;
+        g_safeBoot = g_crumb.shortCrashes >= 4;
         g_lastCrash.valid     = true;
         g_lastCrash.uptimeMs  = g_crumb.uptimeMs;
         g_lastCrash.heapFree  = g_crumb.heapFree;
@@ -177,8 +177,8 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
     g_crumb.heapBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     g_crumb.lifetime  = lifetime;
     g_crumb.screen    = screen;
-    // Two minutes up is a boot that lived: the loop, if there was one, is over.
-    if (now > 120000) {
+    // Ninety seconds up is a boot that lived: the loop, if there was one, is over.
+    if (now > 90000) {
         g_crumb.shortCrashes = 0;
         static bool cleared = false;
         if (!cleared) {
@@ -230,7 +230,7 @@ static void drawCrashCard(TFT_eSPI& t) {
         t.setCursor(10, y); t.print(line); y += 11;
     }
     if (g_shortBoots >= 2) {
-        snprintf(line, sizeof line, "%u BOOTS IN A ROW UNDER 2 MIN%s", (unsigned)g_shortBoots,
+        snprintf(line, sizeof line, "%u BOOTS IN A ROW UNDER 90 S%s", (unsigned)g_shortBoots,
                  (g_resetReason == ESP_RST_POWERON || g_resetReason == ESP_RST_BROWNOUT) ? ": CHECK THE POWER" : "");
         t.setCursor(10, y); t.print(line); y += 11;
     }
@@ -240,7 +240,7 @@ static void drawCrashCard(TFT_eSPI& t) {
     }
     if (g_safeBoot) {
         t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
-        t.setCursor(10, y); t.print("SAFE MODE: 3 short boots, Bluetooth scan is passive");
+        t.setCursor(10, y); t.print("SAFE MODE: 5 short boots, Bluetooth scan is passive");
     }
 }
 #include "state.h"
@@ -1050,7 +1050,7 @@ static bool s_screenDimmed = false;
 
 static void applyBrightness() {
     uint8_t duty = s_screenDimmed ? Settings::dimLevel() : Settings::brightness();
-    if (g_powerSafe && duty > 64) duty = 64;   // three short boots in a row: see g_shortBoots
+    if (g_powerSafe && duty > 64) duty = 64;   // five short boots in a row: see g_shortBoots
     ledcWrite(BL_CH_ORIG, duty);
     ledcWrite(BL_CH_CAP,  duty);
     ledcWrite(BL_CH_AWOK, duty);
@@ -1875,7 +1875,7 @@ static void printBootBanner() {
             Serial.println("*** That was not a clean boot.");
             Serial.printf("*** Short boots in a row: %u%s\n", (unsigned)g_crumb.shortCrashes,
                           g_safeBoot ? " -- SAFE MODE, passive Bluetooth scan" : "");
-            Serial.printf("*** Boots in a row under two minutes, any reason: %u%s\n", (unsigned)g_shortBoots,
+            Serial.printf("*** Boots in a row under 90 s, any reason: %u%s\n", (unsigned)g_shortBoots,
                           g_powerSafe ? " -- backlight capped this boot" : "");
             Serial.println("*** The crash is saved in flash. To read it out:");
             Serial.println("***   esptool read_flash 0x3F0000 0x10000 core.bin");
