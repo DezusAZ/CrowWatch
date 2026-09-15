@@ -81,6 +81,9 @@ struct DiagnosticsInfo {
     // System.
     uint32_t    freeHeap;
     uint32_t    largestBlock;
+    // ...and the same pair at the first pass of loop(), for the BOOT line.
+    uint32_t    loopFree;
+    uint32_t    loopLargest;
     const char* resetReason;
     const char* boardName;
     // Which app slot is running, and the version in the other one (nullptr

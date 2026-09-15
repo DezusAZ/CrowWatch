@@ -46,6 +46,11 @@ bool DetectionEngine::init() { return true; }
 void DetectionEngine::loop() {}
 // No radio, so nothing to restart and nothing freed.
 ScanFlushStats scanFlushStats() { return ScanFlushStats{ 0, 0, 0 }; }
+BootHeap bootHeap()             { return BootHeap{ 0, 0, 0, 0 }; }
+bool     scanPassiveNow()       { return false; }
+bool     scanSafe()             { return false; }
+void     setScanSafe(bool)      {}
+uint32_t advertsDropped()       { return 0; }
 
 void DetectionEngine::clearLog() {
     _logCount = 0;

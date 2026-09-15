@@ -67,6 +67,9 @@ static uint32_t s_advertsDropped = 0;   // adverts refused for want of heap; rep
 // do per advert on the task that also has to receive them.
 static volatile bool s_heapLow = false;
 static bool s_scanSafe = false;
+static BootHeap s_bootHeap = { 0, 0, 0, 0 };
+BootHeap bootHeap()       { return s_bootHeap; }
+uint32_t advertsDropped() { return s_advertsDropped; }
 void setScanSafe(bool safe) { s_scanSafe = safe; }
 bool scanSafe() { return s_scanSafe; }
 
@@ -442,6 +445,10 @@ bool DetectionEngine::init() {
     // A breath between the two radios' start-up bursts, so the supply is not
     // asked for both at once -- see the backlight note in main.cpp's setup().
     delay(150);
+    s_bootHeap.wifiFree    = ESP.getFreeHeap();
+    s_bootHeap.wifiLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    Serial.printf("[boot] heap with WiFi up: %lu free, %lu largest\n",
+                  (unsigned long)s_bootHeap.wifiFree, (unsigned long)s_bootHeap.wifiLargest);
     Serial.println("[boot] starting Bluetooth");
     Serial.flush();
     NimBLEDevice::init("");
@@ -472,6 +479,10 @@ bool DetectionEngine::init() {
     // scan-complete callback below are never read).
     scan->setMaxResults(0);
     scan->start(0, nullptr, false);
+    s_bootHeap.bleFree    = ESP.getFreeHeap();
+    s_bootHeap.bleLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    Serial.printf("[boot] heap with Bluetooth up: %lu free, %lu largest\n",
+                  (unsigned long)s_bootHeap.bleFree, (unsigned long)s_bootHeap.bleLargest);
 
     // 4. BT Classic inquiry for skimmer names (best-effort, every 60 s)
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) {
@@ -716,9 +727,9 @@ static const uint32_t SCAN_FLUSH_MS = 60000;
 // block falls under this, no more than once every few seconds.
 static const uint32_t SCAN_FLUSH_MIN_MS   = 4000;
 static const uint32_t SCAN_FLUSH_BLOCK_B  = 20000;
-// No pressed flush in the first seconds: the heap is still settling from
-// the radios coming up, and a flush storm at boot helps nobody.
-static const uint32_t SCAN_FLUSH_SETTLE_MS = 15000;
+// A breath after the radios come up, no more: the same user's board, with
+// fifteen seconds here, was dead at two seconds up.
+static const uint32_t SCAN_FLUSH_SETTLE_MS = 1000;
 // And when flushing is not enough -- the same user's board, on the first
 // fix, flushed six times in 28 seconds, 9 KB each, and sat at 14 KB free
 // with a 5 KB largest block between them -- the scan goes PASSIVE for a
@@ -733,6 +744,7 @@ static uint32_t       s_pressedAt[SCAN_PRESSED_LIMIT] = { 0, 0, 0 };
 static uint8_t        s_pressedIx   = 0;
 static volatile uint32_t s_passiveUntil = 0;        // read on the host task
 static bool           s_passiveNow  = false;         // what the host task last set
+bool scanPassiveNow() { return s_scanSafe || s_passiveNow; }
 static ScanFlushStats s_flush       = { 0, 0, 0 };   // written on the host task
 static uint32_t       s_flushLogged = 0;
 static struct ble_npl_event s_flushEv;

@@ -120,6 +120,17 @@ struct ScanFlushStats {
 };
 ScanFlushStats scanFlushStats();
 
+// The heap at each step of the radios coming up, for DIAGNOSTICS: a board
+// that is short of heap in one place and not another says WHICH radio took
+// it only if someone wrote the numbers down on the way. free/largest, bytes.
+struct BootHeap {
+    uint32_t wifiFree, wifiLargest;   // WiFi sniffing on, Bluetooth not yet
+    uint32_t bleFree,  bleLargest;    // the Bluetooth scan just started
+};
+BootHeap bootHeap();
+bool     scanPassiveNow();   // the scan is passive right now (pressed, or safe mode)
+uint32_t advertsDropped();   // adverts the seatbelt refused for want of heap
+
 class DetectionEngine {
 public:
     bool     init();

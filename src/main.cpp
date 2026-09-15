@@ -54,6 +54,16 @@ RTC_NOINIT_ATTR static struct {
     uint8_t  shortCrashes;
 } g_crumb;
 static bool g_safeBoot = false;
+// The breadcrumb dies with the power, and a board on a supply that sags
+// comes back saying "power-on" every time, which reads as a clean start.
+// So a second count lives in flash: boots in a row that never reached two
+// minutes up, whatever the reset reason (a restart the firmware asked for
+// is not counted). Written once a boot and cleared once at two minutes.
+// Three in a row caps the backlight for that boot: if the loop is the
+// supply, that is the one load worth taking off it, and the card says so.
+static uint8_t           g_shortBoots  = 0;
+static bool              g_powerSafe   = false;
+static esp_reset_reason_t g_resetReason = ESP_RST_UNKNOWN;
 
 // Snapshotted at boot, before the live breadcrumb starts overwriting it.
 static CrashReport g_lastCrash = {};
@@ -90,6 +100,18 @@ static WipeBoot takeWipeBoot() {
 
 static void crashReportInit() {
     const esp_reset_reason_t r = esp_reset_reason();
+    g_resetReason = r;
+    {
+        Preferences bp;
+        if (bp.begin("boot", false)) {
+            uint8_t n = bp.getUChar("short", 0);
+            n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
+            bp.putUChar("short", n);
+            bp.end();
+            g_shortBoots = n;             // counts this boot: 1 is an ordinary plug-in
+            g_powerSafe  = n >= 3;
+        }
+    }
     const bool panicked = (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
                            r == ESP_RST_TASK_WDT || r == ESP_RST_WDT);
     if (panicked && g_crumb.magic == CRUMB_MAGIC) {
@@ -148,7 +170,15 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
     g_crumb.lifetime  = lifetime;
     g_crumb.screen    = screen;
     // Two minutes up is a boot that lived: the loop, if there was one, is over.
-    if (now > 120000) g_crumb.shortCrashes = 0;
+    if (now > 120000) {
+        g_crumb.shortCrashes = 0;
+        static bool cleared = false;
+        if (!cleared) {
+            cleared = true;
+            Preferences bp;
+            if (bp.begin("boot", false)) { bp.putUChar("short", 0); bp.end(); }
+        }
+    }
 }
 
 // The crash, on the splash. DIAGNOSTICS has shown the last crash since
@@ -156,10 +186,12 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 // dies before the menu. So on a boot after a panic the splash holds for
 // nine seconds with the same lines in a box at the bottom, and a photo of
 // the splash is the bug report.
-static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || g_safeBoot; }
+static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || g_safeBoot || g_shortBoots >= 2; }
+static const char* resetReasonName();
 static void drawCrashCard(TFT_eSPI& t) {
     const int w = t.width(), h = t.height();
-    const int lines = 1 + (g_lastCrash.haveDump ? 2 : 1) + (g_safeBoot ? 1 : 0);
+    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (g_safeBoot ? 1 : 0) +
+                      (g_shortBoots >= 2 ? 1 : 0) + (g_powerSafe ? 1 : 0);
     const int bh = 8 + lines * 11;
     const int y0 = h - bh - 4;
     t.fillRoundRect(4, y0, w - 8, bh, 4, Theme::BG);
@@ -174,7 +206,7 @@ static void drawCrashCard(TFT_eSPI& t) {
                  (unsigned long)(g_lastCrash.uptimeMs / 60000), (unsigned long)((g_lastCrash.uptimeMs / 1000) % 60),
                  (unsigned long)g_lastCrash.heapFree, (unsigned long)g_lastCrash.heapBlock);
     else
-        snprintf(line, sizeof line, "LAST CRASH: no breadcrumb survived");
+        snprintf(line, sizeof line, "LAST RESET: %s", resetReasonName());
     t.setCursor(10, y); t.print(line); y += 11;
     if (g_lastCrash.haveDump) {
         snprintf(line, sizeof line, "IN: %s @ %08lX%s", g_lastCrash.task, (unsigned long)g_lastCrash.pc,
@@ -184,10 +216,19 @@ static void drawCrashCard(TFT_eSPI& t) {
         for (uint8_t i = 0; i < g_lastCrash.btN && i < 4; i++)
             o += snprintf(line + o, sizeof line - o, " %08lX", (unsigned long)g_lastCrash.bt[i]);
         t.setCursor(10, y); t.print(line); y += 11;
-    } else {
+    } else if (g_lastCrash.valid) {
         snprintf(line, sizeof line, "ON: screen %u, %lu detections", (unsigned)g_lastCrash.screen,
                  (unsigned long)g_lastCrash.lifetime);
         t.setCursor(10, y); t.print(line); y += 11;
+    }
+    if (g_shortBoots >= 2) {
+        snprintf(line, sizeof line, "%u BOOTS IN A ROW UNDER 2 MIN%s", (unsigned)g_shortBoots,
+                 (g_resetReason == ESP_RST_POWERON || g_resetReason == ESP_RST_BROWNOUT) ? ": CHECK THE POWER" : "");
+        t.setCursor(10, y); t.print(line); y += 11;
+    }
+    if (g_powerSafe) {
+        t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
+        t.setCursor(10, y); t.print("SCREEN DIMMED THIS BOOT TO SPARE THE SUPPLY"); y += 11;
     }
     if (g_safeBoot) {
         t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
@@ -1001,6 +1042,7 @@ static bool s_screenDimmed = false;
 
 static void applyBrightness() {
     uint8_t duty = s_screenDimmed ? Settings::dimLevel() : Settings::brightness();
+    if (g_powerSafe && duty > 64) duty = 64;   // three short boots in a row: see g_shortBoots
     ledcWrite(BL_CH_ORIG, duty);
     ledcWrite(BL_CH_CAP,  duty);
     ledcWrite(BL_CH_AWOK, duty);
@@ -1825,6 +1867,8 @@ static void printBootBanner() {
             Serial.println("*** That was not a clean boot.");
             Serial.printf("*** Short boots in a row: %u%s\n", (unsigned)g_crumb.shortCrashes,
                           g_safeBoot ? " -- SAFE MODE, passive Bluetooth scan" : "");
+            Serial.printf("*** Boots in a row under two minutes, any reason: %u%s\n", (unsigned)g_shortBoots,
+                          g_powerSafe ? " -- backlight capped this boot" : "");
             Serial.println("*** The crash is saved in flash. To read it out:");
             Serial.println("***   esptool read_flash 0x3F0000 0x10000 core.bin");
             Serial.println("***   espcoredump.py info_corefile -c core.bin firmware.elf");
@@ -2277,6 +2321,14 @@ void loop() {
         touchJustUp = false;
     }
     engine.loop();
+    // The heap at the first pass of loop(), for DIAGNOSTICS' BOOT line.
+    static uint32_t s_loopHeapFree = 0, s_loopHeapLargest = 0;
+    if (!s_loopHeapFree) {
+        s_loopHeapFree    = ESP.getFreeHeap();
+        s_loopHeapLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        Serial.printf("[boot] heap at the first loop: %lu free, %lu largest\n",
+                      (unsigned long)s_loopHeapFree, (unsigned long)s_loopHeapLargest);
+    }
     crashCrumbTick(now, engine.lifetimeTotal(), (uint8_t)state);
     // Confirms a probationary image once it has run long enough, and drives a
     // Bluetooth update's flash work -- the BLE callbacks only hand it jobs.
@@ -4543,6 +4595,8 @@ void loop() {
             info.freeHeap = ESP.getFreeHeap();
             info.largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
             info.resetReason = resetReasonName();
+            info.loopFree    = s_loopHeapFree;
+            info.loopLargest = s_loopHeapLargest;
             info.otaSlot  = OtaCore::runningSlot();
             info.otaOther = OtaCore::otherVersion();
 

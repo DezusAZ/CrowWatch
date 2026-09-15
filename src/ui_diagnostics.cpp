@@ -99,6 +99,15 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
     }
     y = drawLine(t, y, Theme::CYAN, "HEAP:", "%lu free / %lu largest",
                  (unsigned long)info.freeHeap, (unsigned long)info.largestBlock);
+    // Where the heap went on the way up, in KB: free/largest with WiFi up,
+    // with Bluetooth up, and at the first pass of loop().
+    {
+        const BootHeap bh = bootHeap();
+        y = drawLine(t, y, Theme::CYAN, "BOOT:", "wifi %lu/%lu  ble %lu/%lu  loop %lu/%lu KB",
+                     (unsigned long)(bh.wifiFree / 1024), (unsigned long)(bh.wifiLargest / 1024),
+                     (unsigned long)(bh.bleFree / 1024),  (unsigned long)(bh.bleLargest / 1024),
+                     (unsigned long)(info.loopFree / 1024), (unsigned long)(info.loopLargest / 1024));
+    }
     y = drawLine(t, y, Theme::CYAN, "SLOT:", "%s  other: %s",
                  info.otaSlot ? info.otaSlot : "?", info.otaOther ? info.otaOther : "none");
     y += 4;
@@ -152,9 +161,17 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
     {
         y += 4;
         const MeshProbe::Stats ms = MeshProbe::stats();
-        y = drawLine(t, y, ms.advOn ? Theme::GREEN : Theme::CYAN, "BLE SEEN:", "%u.%u /s, %s",
+        y = drawLine(t, y, ms.advOn ? Theme::GREEN : Theme::CYAN, "BLE SEEN:", "%u.%u /s, %s%s",
                      (unsigned)(ms.offRate / 10), (unsigned)(ms.offRate % 10),
-                     ms.advOn ? "advertising" : "not advertising");
+                     ms.advOn ? "advertising" : "not advertising",
+                     scanSafe() ? ", SAFE" : (scanPassiveNow() ? ", passive" : ""));
+        // The seatbelt's count: adverts refused because the largest free
+        // block was under 1.5 KB when they came in. A big number here with
+        // a small HEAP line is a board that is only alive because it is
+        // ignoring the radio.
+        if (advertsDropped())
+            y = drawLine(t, y, Theme::VAPOR_PINK, "DROPPED:", "%lu adverts, no heap for them",
+                         (unsigned long)advertsDropped());
         // What the once-a-minute scan restart gave back: the leak it closes,
         // measured. This row used to repeat the HEAP line at the top, which
         // already carries free and largest block. Kilobytes a restart in a busy
