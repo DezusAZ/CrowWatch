@@ -5,4 +5,4 @@
 
 void uiBootInit(TFT_eSPI& t);
 void uiBootTick(TFT_eSPI& t, uint32_t now);
-bool uiBootDone(uint32_t startMs);  // true after 1500 ms
+bool uiBootDone(uint32_t startMs, uint32_t holdMs = 3000);

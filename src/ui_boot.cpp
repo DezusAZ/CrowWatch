@@ -221,6 +221,6 @@ void uiBootTick(TFT_eSPI& t, uint32_t now) {
     Theme::drawScanline(t, phase, Theme::VAPOR_PURPLE);
 }
 
-bool uiBootDone(uint32_t startMs) {
-    return (millis() - startMs) >= 3000;
+bool uiBootDone(uint32_t startMs, uint32_t holdMs) {
+    return (millis() - startMs) >= holdMs;
 }

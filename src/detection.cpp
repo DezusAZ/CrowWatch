@@ -61,6 +61,14 @@ static void formatMac(char* dst, size_t dstSize, const uint8_t* mac) {
 // onResult() in real time for every advertisement seen, live, with no
 // restart needed.
 static uint32_t s_advertsDropped = 0;   // adverts refused for want of heap; reported with the flush
+// Set on the loop task by scanFlushTick from one heap walk a frame, and read
+// here on the host task: the walk itself takes the heap lock and a few
+// hundred microseconds, and at 130 adverts a second that is not a thing to
+// do per advert on the task that also has to receive them.
+static volatile bool s_heapLow = false;
+static bool s_scanSafe = false;
+void setScanSafe(bool safe) { s_scanSafe = safe; }
+bool scanSafe() { return s_scanSafe; }
 
 class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* adv) override {
@@ -69,7 +77,7 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         // is the abort a user photographed at 28 seconds up. With nothing
         // to allocate into, the advert is dropped instead: the next flush
         // (see scanFlushTick) is what makes room, not this callback.
-        if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 1536) {
+        if (s_heapLow) {
             s_advertsDropped++;
             return;
         }
@@ -438,7 +446,8 @@ bool DetectionEngine::init() {
     Serial.flush();
     NimBLEDevice::init("");
     NimBLEScan* scan = NimBLEDevice::getScan();
-    scan->setActiveScan(true);
+    scan->setActiveScan(!s_scanSafe);
+    if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning from the start (three short boots in a row)");
     scan->setInterval(100);
     scan->setWindow(99);
     scan->setDuplicateFilter(false);
@@ -705,8 +714,11 @@ static const uint32_t SCAN_FLUSH_MS = 60000;
 // aborted in the host task before the first flush ever came round. So the
 // heap is watched too: a flush also goes out the moment the largest free
 // block falls under this, no more than once every few seconds.
-static const uint32_t SCAN_FLUSH_MIN_MS   = 2500;
-static const uint32_t SCAN_FLUSH_BLOCK_B  = 24000;
+static const uint32_t SCAN_FLUSH_MIN_MS   = 4000;
+static const uint32_t SCAN_FLUSH_BLOCK_B  = 20000;
+// No pressed flush in the first seconds: the heap is still settling from
+// the radios coming up, and a flush storm at boot helps nobody.
+static const uint32_t SCAN_FLUSH_SETTLE_MS = 15000;
 // And when flushing is not enough -- the same user's board, on the first
 // fix, flushed six times in 28 seconds, 9 KB each, and sat at 14 KB free
 // with a 5 KB largest block between them -- the scan goes PASSIVE for a
@@ -742,7 +754,7 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     // Active or passive, as the loop task decided; the mode only takes at
     // a start, which is why the decision is carried in here.
     const uint32_t nowMs = millis();
-    const bool passive = s_passiveUntil && (int32_t)(s_passiveUntil - nowMs) > 0;
+    const bool passive = s_scanSafe || (s_passiveUntil && (int32_t)(s_passiveUntil - nowMs) > 0);
     if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }
     scan->start(0, nullptr, false);
     const uint32_t freed = (after > before) ? after - before : 0;
@@ -763,12 +775,13 @@ static void scanFlushTick() {
                       (unsigned long)s_advertsDropped);
     }
     const uint32_t now = millis();
-    const bool pressed = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < SCAN_FLUSH_BLOCK_B &&
+    const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    s_heapLow = largest < 1536;
+    const bool pressed = largest < SCAN_FLUSH_BLOCK_B && now > SCAN_FLUSH_SETTLE_MS &&
                          now - s_lastFlush >= SCAN_FLUSH_MIN_MS;
     if (!pressed && now - s_lastFlush < SCAN_FLUSH_MS) return;
     if (pressed) {
-        Serial.printf("[scan] heap pressed: largest block %lu, flushing early\n",
-                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        Serial.printf("[scan] heap pressed: largest block %lu, flushing early\n", (unsigned long)largest);
         // Three pressed flushes inside a minute: flushing is losing, go passive.
         s_pressedAt[s_pressedIx] = now;
         s_pressedIx = (uint8_t)((s_pressedIx + 1) % SCAN_PRESSED_LIMIT);

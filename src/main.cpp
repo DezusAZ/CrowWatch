@@ -32,6 +32,7 @@
 #endif
 #include <esp_heap_caps.h>
 #include "ui_diagnostics.h"   // CrashReport, used by the breadcrumb below
+#include "theme.h"            // the crash card on the splash
 
 // Written every second, read once on the next boot. RTC_NOINIT_ATTR is the
 // point: it survives a software reset WITHOUT being zeroed on the way back
@@ -46,7 +47,13 @@ RTC_NOINIT_ATTR static struct {
     uint32_t heapBlock;
     uint32_t lifetime;
     uint8_t  screen;
+    // Boots in a row that died inside their first minute. Kept across the
+    // resets themselves, cleared by a boot that lives. Three in a row is a
+    // boot loop, and the third boot comes up in safe mode -- see
+    // crashReportInit() and setScanSafe().
+    uint8_t  shortCrashes;
 } g_crumb;
+static bool g_safeBoot = false;
 
 // Snapshotted at boot, before the live breadcrumb starts overwriting it.
 static CrashReport g_lastCrash = {};
@@ -86,6 +93,9 @@ static void crashReportInit() {
     const bool panicked = (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
                            r == ESP_RST_TASK_WDT || r == ESP_RST_WDT);
     if (panicked && g_crumb.magic == CRUMB_MAGIC) {
+        if (g_crumb.shortCrashes > 10) g_crumb.shortCrashes = 0;   // RTC RAM from an older firmware
+        if (g_crumb.uptimeMs < 60000) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;
+        g_safeBoot = g_crumb.shortCrashes >= 2;
         g_lastCrash.valid     = true;
         g_lastCrash.uptimeMs  = g_crumb.uptimeMs;
         g_lastCrash.heapFree  = g_crumb.heapFree;
@@ -121,7 +131,9 @@ static void crashReportInit() {
         }
     }
 #endif
+    if (g_crumb.magic != CRUMB_MAGIC) g_crumb.shortCrashes = 0;   // a cold boot: nothing to count
     g_crumb.magic = CRUMB_MAGIC;
+    if (g_safeBoot) setScanSafe(true);
 }
 
 // Once a second is plenty: this is for telling a slow heap death from a
@@ -135,6 +147,52 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
     g_crumb.heapBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     g_crumb.lifetime  = lifetime;
     g_crumb.screen    = screen;
+    // Two minutes up is a boot that lived: the loop, if there was one, is over.
+    if (now > 120000) g_crumb.shortCrashes = 0;
+}
+
+// The crash, on the splash. DIAGNOSTICS has shown the last crash since
+// v1.7.x, and a user in a boot loop cannot reach DIAGNOSTICS: the board
+// dies before the menu. So on a boot after a panic the splash holds for
+// nine seconds with the same lines in a box at the bottom, and a photo of
+// the splash is the bug report.
+static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || g_safeBoot; }
+static void drawCrashCard(TFT_eSPI& t) {
+    const int w = t.width(), h = t.height();
+    const int lines = 1 + (g_lastCrash.haveDump ? 2 : 1) + (g_safeBoot ? 1 : 0);
+    const int bh = 8 + lines * 11;
+    const int y0 = h - bh - 4;
+    t.fillRoundRect(4, y0, w - 8, bh, 4, Theme::BG);
+    t.drawRoundRect(4, y0, w - 8, bh, 4, Theme::RED);
+    t.setTextSize(1);
+    t.setTextWrap(false);
+    t.setTextColor(Theme::RED, Theme::BG);
+    int y = y0 + 4;
+    char line[64];
+    if (g_lastCrash.valid)
+        snprintf(line, sizeof line, "LAST CRASH: %lum%02lus up, %lu free, %lu block",
+                 (unsigned long)(g_lastCrash.uptimeMs / 60000), (unsigned long)((g_lastCrash.uptimeMs / 1000) % 60),
+                 (unsigned long)g_lastCrash.heapFree, (unsigned long)g_lastCrash.heapBlock);
+    else
+        snprintf(line, sizeof line, "LAST CRASH: no breadcrumb survived");
+    t.setCursor(10, y); t.print(line); y += 11;
+    if (g_lastCrash.haveDump) {
+        snprintf(line, sizeof line, "IN: %s @ %08lX%s", g_lastCrash.task, (unsigned long)g_lastCrash.pc,
+                 g_lastCrash.dumpOlder ? " (old fw)" : "");
+        t.setCursor(10, y); t.print(line); y += 11;
+        size_t o = snprintf(line, sizeof line, "BT:");
+        for (uint8_t i = 0; i < g_lastCrash.btN && i < 4; i++)
+            o += snprintf(line + o, sizeof line - o, " %08lX", (unsigned long)g_lastCrash.bt[i]);
+        t.setCursor(10, y); t.print(line); y += 11;
+    } else {
+        snprintf(line, sizeof line, "ON: screen %u, %lu detections", (unsigned)g_lastCrash.screen,
+                 (unsigned long)g_lastCrash.lifetime);
+        t.setCursor(10, y); t.print(line); y += 11;
+    }
+    if (g_safeBoot) {
+        t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
+        t.setCursor(10, y); t.print("SAFE MODE: 3 short boots, Bluetooth scan is passive");
+    }
 }
 #include "state.h"
 #include "theme.h"
@@ -1765,6 +1823,8 @@ static void printBootBanner() {
         case ESP_RST_WDT:
         case ESP_RST_BROWNOUT:
             Serial.println("*** That was not a clean boot.");
+            Serial.printf("*** Short boots in a row: %u%s\n", (unsigned)g_crumb.shortCrashes,
+                          g_safeBoot ? " -- SAFE MODE, passive Bluetooth scan" : "");
             Serial.println("*** The crash is saved in flash. To read it out:");
             Serial.println("***   esptool read_flash 0x3F0000 0x10000 core.bin");
             Serial.println("***   espcoredump.py info_corefile -c core.bin firmware.elf");
@@ -2476,8 +2536,9 @@ void loop() {
             }
 #else
             uiBootTick(*canvas, now);
+            if (crashCardWanted()) drawCrashCard(*canvas);
 #endif
-            if (uiBootDone(bootStart)) {
+            if (uiBootDone(bootStart, crashCardWanted() ? 9000 : 3000)) {
                 // First-ever boot only -- goes straight into the normal
                 // onboarding overlay once this screen's own DONE button
                 // reaches enterClear(), same as it always did before
@@ -3629,6 +3690,7 @@ void loop() {
                         case SettingsRow::SQUACHY_SIZE: Settings::cycleSquachySize(); break;
                         case SettingsRow::OUTFIT:       enterOutfit(); break;
                         case SettingsRow::PET:          Squachy::togglePet(); break;
+                        case SettingsRow::BANTER:       Settings::cycleBanter(); break;
                         case SettingsRow::VIEW_DIARY:   enterDiary(); break;
                         case SettingsRow::APPEARANCE:  uiSettingsOpenAppearance(true); break;
                         case SettingsRow::TOP_HAT:     Settings::toggleTopHat(); break;
