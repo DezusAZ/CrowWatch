@@ -61,7 +61,7 @@ static const SettingsRow ALL_ROWS[] = {
     // SIZE, OUTFIT, PET and SHADES COLOR all live on the APPEARANCE page now
     // -- see APPEARANCE_ROWS. Everything about how he LOOKS is on one page;
     // what stays here is what he DOES.
-    SettingsRow::REPLAY_INTRO, SettingsRow::SHOW_OFF, SettingsRow::VIEW_DIARY,
+    SettingsRow::REPLAY_INTRO, SettingsRow::SHOW_OFF, SettingsRow::VIEW_DIARY, SettingsRow::DESK_MODE,
     SettingsRow::POWER_SAVER,
     SettingsRow::SECURITY,
     // CALIBRATE, CHECK COLORS, DIAGNOSTICS and RESET STATS moved behind the
@@ -92,7 +92,8 @@ static const SettingsRow APPEARANCE_ROWS[] = {
 // The SYSTEM page: the rarely-needed machinery, off the main list.
 static const SettingsRow SYSTEM_ROWS[] = {
     SettingsRow::CALIBRATE, SettingsRow::CHECK_COLORS,
-    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::RESET_STATS,
+    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::TIME_ZONE,
+    SettingsRow::RESET_STATS,
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
@@ -164,6 +165,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::SQUACHMESH:
         case SettingsRow::REPLAY_INTRO:
         case SettingsRow::VIEW_DIARY:
+        case SettingsRow::DESK_MODE:
         case SettingsRow::SHOW_OFF:
             return RowGroupId::SQUACHY;
         default:  // CALIBRATE, CHECK_COLORS, DIAGNOSTICS, RESET_STATS, BACK
@@ -704,6 +706,9 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
         case SettingsRow::UPDATE_CHECK:
             label = "UPDATE CHECK"; value = Settings::updateCheck() ? "AT BOOT" : "OFF";
             break;
+        case SettingsRow::TIME_ZONE:
+            label = "TIME ZONE"; value = Settings::timeZoneName();
+            break;
         case SettingsRow::REPLAY_INTRO:
             label = "REPLAY INTRO";
             break;
@@ -747,6 +752,10 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::VIEW_DIARY:
             label = "SQUACHY'S DIARY";
+            break;
+        case SettingsRow::DESK_MODE:
+            label = "DESK MODE";
+            value = ">";
             break;
         case SettingsRow::RESET_STATS:
             label = "RESET STATS";

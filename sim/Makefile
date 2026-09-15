@@ -96,6 +96,8 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/ui_boot.cpp \
             $(SRC)/ui_colorcheck.cpp \
             $(SRC)/ui_diagnostics.cpp \
+            $(SRC)/ui_desk.cpp \
+            $(SRC)/ui_zone.cpp \
             $(SRC)/ui_diary.cpp \
             $(SRC)/ui_hunt.cpp \
             $(SRC)/ui_outfit.cpp \

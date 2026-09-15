@@ -45,6 +45,9 @@
 #include "ui_watchalert.h"
 #include "ui_colorcheck.h"
 #include "ui_diagnostics.h"
+#include "ui_desk.h"
+#include "ui_zone.h"
+#include "clock.h"
 #include "ui_boot.h"
 #include "ui_detfilter.h"
 #include "ui_power.h"
@@ -258,6 +261,7 @@ int main(int argc, char** argv) {
     frame.createSprite(W, H);
 
     Settings::load();
+    Clock::begin();
     // Settings' own cycle* mutators are the only public way in, so walk
     // them to the requested index rather than reaching past the API.
     if (themeIdx >= 0) while ((int)Settings::paletteIndex() != themeIdx % (int)Theme::PALETTE_COUNT) Settings::cyclePalette();
@@ -381,6 +385,8 @@ int main(int argc, char** argv) {
         else if (screen == "ignorelist") uiIgnoreListTick(frame, t);
         else if (screen == "light")    uiLightTick(frame, t, engine);
         else if (screen == "diary")    uiDiaryTick(frame, t, engine);
+        else if (screen == "desk")     uiDeskTick(frame, t, engine);
+        else if (screen == "zonecard") { uiClearTick(frame, t, engine, true, false); uiZoneCardDraw(frame, t); }
         else if (screen == "hunt")     uiHuntTick(frame, t, engine);
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
@@ -451,11 +457,16 @@ int main(int argc, char** argv) {
     };
 
     // Per-screen init, where the screen has one.
-    if      (screen == "clear")      uiClearInit(frame);
+    if      (screen == "clear" || screen == "zonecard") uiClearInit(frame);
     else if (screen == "log")        uiLogInit(frame);
     else if (screen == "settings")   uiSettingsInit(frame);
     else if (screen == "detfilter")  uiDetFilterInit(frame);
     else if (screen == "diary")      uiDiaryInit(frame);
+    else if (screen == "desk")       {
+        uiDeskInit(frame);
+        if (getenv("SQUACH_TIMER")) uiDeskTapTimer(now);
+        if (getenv("SQUACH_ALERT") && engine.logAt(0)) uiDeskAlert(*engine.logAt(0), now);
+    }
     else if (screen == "rawscan")    uiRawScanInit(frame, true);
     else if (screen == "watchalert") uiWatchAlertInit(frame);
     else if (screen == "diagnostics") uiDiagnosticsInit(frame);
@@ -474,7 +485,7 @@ int main(int argc, char** argv) {
         const int p = (poseIdx >= 0 && poseIdx < 8) ? poseIdx : 2;
         uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "BIGFOOT" : "YETI", p == 0 || p == 3 || p == 5 || p == 7);
     }
-    else if (screen == "wifipass")   uiWifiPassInit(frame, "The Burrow");
+    else if (screen == "wifipass")   uiWifiPassInit(frame, "SquachNet");
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
     else if (screen == "roster") {
         // Three members, through the real paths: an advert each so Mesh knows

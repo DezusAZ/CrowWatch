@@ -253,6 +253,31 @@ int main() {
            openCanned(TOY, me, f, sizeof f, c, line) == Open::OK && c == COUNTER_MAX);
     }
 
+    suite("A hello carries the version, and from v1.9.0 the clock");
+    {
+        TOY.setKey(key);
+        const uint8_t ver[3] = { 1, 9, 0 };
+        uint8_t f[FRAME_MAX];
+        uint32_t c = 0; uint8_t v[3]; uint32_t epoch = 1; uint8_t zone = 1;
+        // The v1.7.8 form: version only. Opens with the new opener, no clock.
+        const size_t n4 = sealHello(TOY, me, 7, ver, f, sizeof f);
+        ck("the version-only hello is four bytes of plaintext", n4 == CANNED_FRAME_LEN + 3);
+        ck("it opens", openHello(TOY, me, f, n4, c, v, epoch, zone) == Open::OK);
+        ck("the version survives", v[0] == 1 && v[1] == 9 && v[2] == 0);
+        ck("and it carries no clock", epoch == 0 && zone == 0);
+        // The full form: version, epoch, zone.
+        const size_t n9 = sealHello(TOY, me, 8, ver, 1789396740u, 1, f, sizeof f);
+        ck("the full hello is nine bytes of plaintext", n9 == CANNED_FRAME_LEN + 8);
+        ck("it fits a frame", n9 <= FRAME_MAX);
+        ck("it opens", openHello(TOY, me, f, n9, c, v, epoch, zone) == Open::OK);
+        ck("the counter survives", c == 8);
+        ck("the epoch survives", epoch == 1789396740u);
+        ck("the zone survives", zone == 1);
+        ck("the old opener still takes it", openHello(TOY, me, f, n9, c, v) == Open::OK && v[1] == 9);
+        // The v1.7.7 form, one byte and nothing else, has no public sealer any
+        // more; its opener is exercised by the length branch above.
+    }
+
     suite("Anything tampered with is refused, not misread");
     {
         TOY.setKey(key);

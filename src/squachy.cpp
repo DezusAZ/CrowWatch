@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "signatures.h"
 #include "settings.h"
+#include "clock.h"
 #include "void_eye.h"
 #if SQUACH_MESH
 #include "emote_script.h"   // spokenName, for the banter
@@ -346,6 +347,44 @@ static const char* PARTY_LINES[] = {
     "This is a disco now. No refunds.",
     "Cryptid rave. Don't tell anyone.",
 };
+
+// The freelance-police register: a calm, faintly formal voice that says
+// alarming things in a level tone and ordinary things as if they were the
+// end of the world, ornate mock-oaths, tangents that go nowhere on purpose,
+// and a gleeful streak underneath it. Written new; the rhythm is the debt.
+static const char* const NOIR_LINES[] = {
+    "Great galloping router tables. Nothing happened again.",
+    "I've seen things you wouldn't believe. Most of them were printers.",
+    "Sweet sizzling substations, the air's quiet. I don't trust it.",
+    "It was a quiet night. Too quiet. Then it stayed quiet. I made a sandwich.",
+    "Somewhere out there a Flock cam is thinking about you. I'm thinking about lunch.",
+    "Holy jumping junction boxes, that's a lot of Bluetooth for a Tuesday.",
+    "I don't have a badge. I have feet. Big ones. It's basically the same.",
+    "Note to self: the smart fridge is not a suspect. Yet.",
+    "Crime never sleeps. Neither do I. Neither does the doorbell. We're all very tired.",
+    "Suffering succotash of the airwaves, a printer just asked to be my friend.",
+    "Nothing to report but my own magnificence. I've filed it under M.",
+    "If I had a nickel for every tracker I've seen, I'd need somewhere to keep nickels.",
+    "Great screaming skimmers of the seven-elevens. Still nothing. Carry on.",
+    "This is the part of the case where I stare meaningfully at a router.",
+    "I could go for some crime right now. Small crime. Jaywalking. I'd watch.",
+    "By the sacred sideburns of the switchboard, I'm bored.",
+};
+static const uint8_t NOIR_LINES_N = sizeof(NOIR_LINES) / sizeof(NOIR_LINES[0]);
+
+// The same register on a catch: the ornate oath first, the plain fact
+// tacked on so the line still tells you what it was.
+static const char* const OATH_LINES[] = {
+    "Holy hopping hotspots. %s.",
+    "Great galloping glass fibre! %s. Act natural.",
+    "Sweet screaming sensor arrays. A %s. Of course.",
+    "By the beard of the modem, a %s.",
+    "Well slap me with a spectrum analyser. %s.",
+    "Suffering skimmers, a %s. Nobody move. Or move. I'm not the boss of you.",
+    "Jumping jitterbugs of the junction box, %s.",
+    "Great heaving heatmaps. %s. I love this job.",
+};
+static const uint8_t OATH_LINES_N = sizeof(OATH_LINES) / sizeof(OATH_LINES[0]);
 
 struct DetLines { const char* a; const char* b; };
 // Indexed by DetectionType (UNKNOWN..RING), matches state.h ordering.
@@ -1173,6 +1212,11 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
                 uint8_t idx = (uint8_t)dt;
                 if (idx >= DET_LINES_N) idx = 0;
                 const char* base = random(0, 2) ? DET_LINES[idx].a : DET_LINES[idx].b;
+                static char oath[96];
+                if (random(0, 3) == 0) {
+                    snprintf(oath, sizeof oath, pick(OATH_LINES, OATH_LINES_N), detectionTypeName(dt));
+                    base = oath;
+                }
                 // High confidence hits get the line straight — no need
                 // to hedge on something we're actually sure about. Med
                 // /Low get an honest number tacked on so a shakier
@@ -1505,8 +1549,15 @@ static const int NO_TAIL = -10000;
 // on the way out, so nothing drawn after a bubble notices.
 static void drawBubbleIn(TFT_eSPI& t, int cx, int topY, const char* text,
                          uint32_t now, bool mayRise, int tailX);
+// Desk mode holds his bubble while a squad message's box is up beside him:
+// the bubble spans the screen and would sit across the message. He keeps
+// moving; only the words wait.
+static bool s_bubbleHeld = false;
+void holdBubble(bool held) { s_bubbleHeld = held; }
+
 static void drawBubble(TFT_eSPI& t, int cx, int topY, const char* text,
                        uint32_t now, bool mayRise = false, int tailX = NO_TAIL) {
+    if (s_bubbleHeld) return;
     Theme::bubbleFontOn(t);
     drawBubbleIn(t, cx, topY, text, now, mayRise, tailX);
     Theme::bubbleFontOff(t);
@@ -1803,6 +1854,126 @@ void setNameTag(const char* name) {
 }
 
 static void say(const char* line, uint32_t ms);
+
+// ---- the clock's lines ---------------------------------------------------
+// Only ever spoken when the real clock is set (see clock.h). Nothing here
+// changes how he looks: the hour changes what he says, not what he is.
+static const char* const EARLY_LINES[] = {      // five to eight
+    "Up early. Or not down yet. Either way, hi.",
+    "Coffee first. Then the block.",
+    "Dawn patrol. Two routers and a squirrel so far.",
+    "The birds are on the air before anybody's phone.",
+};
+static const char* const MORNING_LINES[] = {    // eight to eleven
+    "Morning shift. Inbox zero, detections zero.",
+    "Delivery vans are the busiest thing on the air right now.",
+    "Nine to five, but for cryptids.",
+    "Good morning. I've been up all night. I'm a screen.",
+};
+static const char* const LUNCH_LINES[] = {      // eleven to two
+    "Lunch. Get me nothing, I'm a screen.",
+    "Half the block just walked past with Bluetooth on.",
+    "Midday. Peak phones. Peak everything.",
+    "Eat something. The scanner can watch itself for ten minutes.",
+};
+static const char* const SLUMP_LINES[] = {      // two to five
+    "Three o'clock slump. Even the routers are yawning.",
+    "Afternoon. Nothing moves but the ALPRs.",
+    "This is the hour where I question the WiFi.",
+    "Stretch. You've been sitting since lunch. I checked.",
+};
+static const char* const EVENING_LINES[] = {    // five to nine
+    "Evening. The commuters are lighting up the air.",
+    "Quitting time somewhere. Not here. Here we scan.",
+    "Golden hour. Best light for spotting cameras.",
+    "Dinner plans? Mine's watching channel six.",
+};
+static const char* const NIGHT_LINES[] = {      // nine to eleven
+    "Getting late. The trackers don't sleep, but you should.",
+    "Night shift. Just me and the smart bulbs.",
+    "The good hackers are only just waking up.",
+    "Quiet on the air. That's when you listen hardest.",
+};
+static const char* const LATE_LINES[] = {       // eleven to five
+    "It's very late. Go to bed. I'll take the watch.",
+    "Nothing good happens on Bluetooth after midnight.",
+    "Just us and the routers now.",
+    "If you're up at this hour, so am I. Fair.",
+};
+static const char* const MONDAY_LINES[] = {
+    "Monday. The cameras don't care, but I feel it.",
+    "Monday. Everybody's phone is back at work, and so is everybody's tracker.",
+};
+static const char* const FRIDAY_LINES[] = {
+    "Friday. Even the Flock cams look tired.",
+    "Friday. Take me somewhere with worse WiFi.",
+};
+static const char* const WEEKEND_LINES[] = {
+    "Weekend. The neighborhood's phones are all home.",
+    "Saturday scanning. A cryptid's day off is a day scanning something else.",
+    "Weekend. Nothing to catch but the lawnmower's Bluetooth.",
+};
+
+static const char* pickTimeLine() {
+    const uint8_t wd = Clock::weekday();
+    if (Clock::weekend() && random(0, 4) == 0)  return pick(WEEKEND_LINES, 3);
+    if (wd == 1 && random(0, 4) == 0)           return pick(MONDAY_LINES, 2);
+    if (wd == 5 && random(0, 4) == 0)           return pick(FRIDAY_LINES, 2);
+    const uint8_t h = Clock::hour();
+    if (h < 5)   return pick(LATE_LINES, 4);
+    if (h < 8)   return pick(EARLY_LINES, 4);
+    if (h < 11)  return pick(MORNING_LINES, 4);
+    if (h < 14)  return pick(LUNCH_LINES, 4);
+    if (h < 17)  return pick(SLUMP_LINES, 4);
+    if (h < 21)  return pick(EVENING_LINES, 4);
+    if (h < 23)  return pick(NIGHT_LINES, 4);
+    return pick(LATE_LINES, 4);
+}
+
+// The days that count, and what he says on them. Said once each, ever: the
+// last one said is kept in NVS beside the day he was born.
+struct DayMilestone { uint16_t days; const char* line; };
+static const DayMilestone DAY_MILESTONES[] = {
+    { 1000, "A thousand days. That's a lot of Flocks." },
+    {  730, "Two years today. Still nobody's caught us." },
+    {  500, "Five hundred days. I've forgotten what the box looked like." },
+    {  365, "A year. A whole year. Nobody caught us." },
+    {  200, "Two hundred days together. I'd get a cake but I can't hold one." },
+    {  100, "A hundred days. Send cake. Or batteries." },
+    {   30, "A month. I know this desk better than my own cave." },
+    {    7, "A week with you. Nobody's caught us yet." },
+    {    1, "Day two together. I've stopped counting boots." },
+};
+
+const char* takeDayLine() {
+    if (!Clock::isSet()) return nullptr;
+    static char buf[96];
+    const uint32_t day = Clock::localDay();
+    if (day && day != Clock::greetedDay()) {
+        Clock::setGreetedDay(day);
+        char date[20];
+        Clock::formatDate(date, sizeof date);
+        const uint8_t h = Clock::hour();
+        const char* fmt;
+        if      (h < 5)  fmt = random(0, 2) ? "Past midnight. %s, technically. Hi." : "New day. %s. Same me.";
+        else if (h < 12) fmt = Clock::weekend() ? (random(0, 2) ? "Morning. %s. Nowhere to be." : "%s. Weekend. Sleep in, I've got this.")
+                                                : (random(0, 2) ? "Morning. %s." : "%s. Coffee's on you.");
+        else if (h < 17) fmt = random(0, 2) ? "Afternoon. %s. First I've seen of you." : "%s. You're late. I'm not.";
+        else             fmt = random(0, 2) ? "Evening. %s. Late start for us." : "%s. Better late than never.";
+        snprintf(buf, sizeof buf, fmt, date);
+        return buf;
+    }
+    const uint32_t days = Clock::daysTogether();
+    for (const DayMilestone& m : DAY_MILESTONES) {
+        if (days >= m.days && Clock::milestoneSaid() < m.days) {
+            Clock::setMilestoneSaid(m.days);
+            return m.line;
+        }
+    }
+    return nullptr;
+}
+
+
 void announce(const char* text) { if (text && text[0]) say(text, 6000); }
 
 void unlockPet() {
@@ -2162,6 +2333,36 @@ static const Exchange HANG_EXCHANGES[] = {
       "Careful now."                         },
     { "Quiet's holding.",               "Long may it.",
       "Long may it."                         },
+    // Setup and undercut: one of them calm and ornate, the other gleeful
+    // and short. Which is which changes with who's hosting.
+    { "Quiet night. Suspiciously quiet.",            "I could fix that.",
+      "Please don't."                                   },
+    { "I've seen things that would curl your fur.",  "Was it the printer?",
+      "It was the printer."                             },
+    { "Great galloping gateways, is that a doorbell?", "Can we arrest it?",
+      "We can look at it sternly."                      },
+    { "In my professional opinion, nothing's happening.", "Your opinion's not professional.",
+      "It's freelance."                                 },
+    { "I've filed the evening under 'uneventful'.",  "I filed it under 'yet'.",
+      "That's not a category."                          },
+    { "I sense a great disturbance in the WiFi.",    "That's the microwave.",
+      "The microwave is a person of interest."          },
+    { "Two of us. The neighborhood's safest block.",  "The neighborhood should be worried.",
+      "The neighborhood should be thrilled."            },
+    { "Somewhere out there a tracker's thinking about us.", "Let it come.",
+      "Let it come slowly. I'm comfortable."             },
+    { "If this were a case I'd call it closed.",      "You'd call it lunch.",
+      "Same thing."                                     },
+    { "Holy hopping hotspots. Nothing again.",        "I love nothing. Nothing's the best.",
+      "Nothing pays the same as something."             },
+    { "Any last words before another quiet hour?",   "Crime!",
+      "You always say that."                            },
+    { "My gut says something's coming.",             "Your gut's been wrong since Tuesday.",
+      "My gut has a record, yes."                       },
+    { "The suspect's a smart bulb.",                 "Book it.",
+      "On what charge?"                                 },
+    { "Stay frosty.",                                "I'm a screen, I'm always frosty.",
+      "That's the spirit. Or a bug."                    },
 };
 static const uint8_t HANG_EXCHANGES_N =
     sizeof(HANG_EXCHANGES) / sizeof(HANG_EXCHANGES[0]);
@@ -4504,7 +4705,16 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         const int sd = (int)s_shadeDrop;
         t.fillRoundRect(cx2 - S(12), hh + S(6) + sd, S(10), S(7), 2, BLACK);
         t.fillRoundRect(cx2 + S(2),  hh + S(6) + sd, S(10), S(7), 2, BLACK);
-        t.fillRect(cx2 - S(2), hh + S(8) + sd, S(4), S(2), BLACK);
+        // The bridge runs from the left frame's edge to the right frame's,
+        // measured off the frames as drawn. It used to be placed from its own
+        // scaled offsets, and S(12) - S(10) is 3 at some sizes where S(2) is
+        // 2, which left one column of fur showing between it and the left
+        // lens -- visible on the main screen, never in the emulator's 1x.
+        {
+            const int bx0 = cx2 - S(12) + S(10) - 1;       // the left frame's last column
+            const int bx1 = cx2 + S(2);                    // the right frame's first
+            t.fillRect(bx0, hh + S(8) + sd, bx1 - bx0 + 1, S(2), BLACK);
+        }
         t.fillRoundRect(cx2 - S(11), hh + S(7) + sd, S(8), S(5), 1, lensL);
         t.fillRoundRect(cx2 + S(3),  hh + S(7) + sd, S(8), S(5), 1, lensR);
         if (sd > 0) {
@@ -5113,6 +5323,9 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
                 say(pick(ALERT_MOOD_LINES, 4), MIN_BUBBLE_MS);
             } else if (s_activityHeat < 15.0f && longIdle && random(0, 2) == 0) {
                 say(pick(RELAXED_MOOD_LINES, 4), MIN_BUBBLE_MS);
+            } else if (Clock::isSet() && random(0, 3) == 0) {
+                // The hour, the day of the week: what a clock is for.
+                say(pickTimeLine(), MIN_BUBBLE_MS);
             } else if (haveHistory && random(0, 6) == 0) {
                 say(buildStatLine(), MIN_BUBBLE_MS);
             } else if (random(0, hintAvailable() ? 2 : 6) == 0) {
@@ -5121,6 +5334,8 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
                 say(pickBackgroundLine(), MIN_BUBBLE_MS);
             } else if (longIdle && random(0, 3) == 0) {
                 say(pick(BORED_LINES, 4), MIN_BUBBLE_MS);
+            } else if (random(0, 5) == 0) {
+                say(pick(NOIR_LINES, NOIR_LINES_N), MIN_BUBBLE_MS);
             } else if (random(0, 4) == 0) {
                 say(pick(ENCOURAGE_LINES, 8), MIN_BUBBLE_MS);
             } else {

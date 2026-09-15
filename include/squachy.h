@@ -239,6 +239,16 @@ namespace Squachy {
     // text must outlive the bubble -- a static buffer, not a stack one.
     void announce(const char* text);
 
+    // The clock's lines, when it is set. Once a day the first time CLEAR is
+    // up, a hello with the date in it; on the days that count (a week, a
+    // month, a hundred days, a year...) how long it has been. nullptr when
+    // there is nothing to say. main.cpp announces what comes back.
+    const char* takeDayLine();
+
+    // Hold his speech bubble off the screen (he still moves). Desk mode
+    // uses it while a message box shares the screen with him.
+    void holdBubble(bool held);
+
 #if SQUACH_MESH
     // Which beat of a visit a line is wanted for. The pools live in
     // squachy.cpp with every other pool rather than out with the visit

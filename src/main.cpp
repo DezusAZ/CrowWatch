@@ -140,6 +140,8 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 #include "theme.h"
 #include "detection.h"
 #include "clock.h"
+#include "ui_desk.h"
+#include "ui_zone.h"
 #include "ui_boot.h"
 #include "ui_clear.h"
 #include "crowd_bench.h"
@@ -1140,8 +1142,14 @@ static bool s_scanPickerOpen = false;
 static void enterLocked();
 // Every way home goes through here, which makes it the one place the lock has
 // to be honoured: while locked, "home" is the lock screen.
+// An ALERT opened from the desk's small card goes back to the desk when it
+// is dismissed, not to CLEAR. Set in enterAlert(), spent here.
+static bool s_backToDesk = false;
+static void enterDesk();
 static void enterClear() {
     if (Security::locked()) { enterLocked(); return; }
+    if (s_backToDesk) { s_backToDesk = false; enterDesk(); return; }
+    Settings::deskActive(false);
     state = AppState::CLEAR;
     transitionStart = millis();
     s_scanPickerOpen = false;
@@ -1183,11 +1191,24 @@ static bool s_alertArmed = true;
 static char s_firstLine[64] = "";
 
 static void enterAlert(const Detection& d) {
+    s_backToDesk = (state == AppState::DESK);
     state = AppState::ALERT;
     // The lifetime count for the type includes this one, so one means first.
     {
         const bool first = engine.lifetimeTypeCount(d.type) == 1;
         uiAlertSetFirst(first);
+        // The hour, from the real clock: a tracker at two in the morning
+        // is a different thing from one at lunch, and the card says so.
+        const bool night = Clock::night();
+        uiAlertSetNight(night);
+        if (night && !first) {
+            static const char* const NIGHT_LINES[] = {
+                "A %s at this hour. That's not nothing.", "%s. At night. I don't love it.",
+                "Who runs a %s past midnight? Noted.",   "A %s while the street's asleep. Hm.",
+            };
+            snprintf(s_firstLine, sizeof s_firstLine, NIGHT_LINES[random(0, 4)],
+                     detectionTypeName(d.type));
+        }
         if (first) {
             static const char* const FIRST_LINES[] = {
                 "A %s! Never had one of those.", "First %s ever. Mark the date.",
@@ -1254,9 +1275,17 @@ static void enterRawScan(bool isBle) {
 }
 
 static void enterSettings() {
+    Settings::deskActive(false);
     state = AppState::SETTINGS;
     transitionStart = millis();
     uiSettingsInit(*canvas);
+}
+
+static void enterDesk() {
+    Settings::deskActive(true);
+    state = AppState::DESK;
+    transitionStart = millis();
+    uiDeskInit(*canvas);
 }
 
 static void enterDiagnostics() {
@@ -1531,6 +1560,7 @@ static void startPinFlow(PinFlow f, const char* prompt = nullptr) {
 }
 
 static void enterLocked() {
+    Settings::deskActive(false);
     state = AppState::LOCKED;
     transitionStart = millis();
     s_scanPickerOpen = false;
@@ -1801,6 +1831,7 @@ void setup() {
     // of tft.setRotation() below so that call can already use the
     // saved rotation instead of always starting from the board default.
     Settings::load();
+    Clock::begin();   // after Settings: the zone is applied there, the history here
     Security::begin();
     // Which version lives in this slot, and whether this boot is a fresh
     // update on probation or the aftermath of one that was rolled back.
@@ -2250,7 +2281,8 @@ void loop() {
          state == AppState::OUTFIT || state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
          state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER || state == AppState::SECURITY ||
          state == AppState::STATUS_LIGHT ||
-         state == AppState::DIARY || state == AppState::HUNT || state == AppState::DIAGNOSTICS) &&
+         state == AppState::DIARY || state == AppState::HUNT || state == AppState::DIAGNOSTICS ||
+         state == AppState::DESK) &&
         Theme::lockButtonHit(tp.x, tp.y, tft.width())) {
         lastTouch = now;
         if (state == AppState::RAWSCAN) engine.stopRawScan();
@@ -2449,8 +2481,9 @@ void loop() {
                 // onboarding overlay once this screen's own DONE button
                 // reaches enterClear(), same as it always did before
                 // this existed.
-                if (!Settings::colorChecked()) enterColorCheck(false);
-                else                            enterClear();
+                if (!Settings::colorChecked())    enterColorCheck(false);
+                else if (Settings::deskWanted())  enterDesk();   // switched off on the desk: back to it
+                else                              enterClear();
             }
             break;
         }
@@ -2460,6 +2493,10 @@ void loop() {
             if (now - transitionStart > 7000 && !Squachy::visiting()) {
                 const char* n = OtaCore::takeAvailableNotice();
                 if (n) Squachy::announce(n);
+                // Once a day, a hello with the date in it; on the days that
+                // count, how long it has been.
+                const char* dl = Squachy::takeDayLine();
+                if (dl) Squachy::announce(dl);
             }
             // And the first-of-its-kind line, straight after the card.
             if (s_firstLine[0] && now - transitionStart > 1200) {
@@ -2498,6 +2535,22 @@ void loop() {
             // NEARBY, so SNOOZED and READ, both raised on the way here or while
             // here, went unseen.
             Theme::drawToast(*canvas, now);
+            // The clock is set and no zone was ever picked: the card, over
+            // everything, until THIS IS RIGHT. A tap on it is the card's; a
+            // tap beside it is the main screen's, so he can still be poked.
+            if (uiZoneCardWanted()) {
+                uiZoneCardDraw(*canvas, now);
+                if (touchJustDown && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
+                    const ZoneHit zh = uiZoneCardHit(tp.x, tp.y, tft.width(), tft.height());
+                    if (zh != ZoneHit::NONE) {
+                        lastTouch = now;
+                        if      (zh == ZoneHit::PREV) Settings::stepTimeZone(-1);
+                        else if (zh == ZoneHit::NEXT) Settings::stepTimeZone(1);
+                        else if (zh == ZoneHit::OK)   Settings::markTimeZoneChosen();
+                        break;
+                    }
+                }
+            }
 #if CROWD_BENCH
             // The crowd benchmark (a test build): its numbers or its table go
             // over everything, a tap moves it on, and nothing else on this
@@ -3510,6 +3563,7 @@ void loop() {
                         case SettingsRow::BACKGROUND: Settings::cycleBackground(); break;
                         case SettingsRow::BACKGROUND_LOCK: Settings::toggleBackgroundLocked(); break;
                         case SettingsRow::UPDATE_CHECK:    Settings::toggleUpdateCheck();     break;
+                        case SettingsRow::TIME_ZONE:       Settings::cycleTimeZone();         break;
                         case SettingsRow::INVERT:
                             Settings::toggleInvert();
                             // XOR against the panel's own baseline, not an
@@ -3564,6 +3618,7 @@ void loop() {
                             break;
                         case SettingsRow::CHECK_COLORS: enterColorCheck(true); break;
                         case SettingsRow::DIAGNOSTICS:  enterDiagnostics(); break;
+                        case SettingsRow::DESK_MODE:    enterDesk(); break;
                         case SettingsRow::UPDATE_FIRMWARE: enterUpdate(); break;
                         case SettingsRow::SHOW_OFF:
                             Squachy::startShowOff();
@@ -4330,6 +4385,49 @@ void loop() {
             }
             break;
         }
+        case AppState::DESK: {
+            Settings::deskActive(true);
+            // The same test CLEAR makes, but the answer is a small card
+            // beside the clock, and Squachy's reaction, not a new screen.
+            {
+                const Detection* latest = engine.latest();
+                if (latest && (now - latest->firstSeen) < 200 &&
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::contains(latest->mac)) {
+                    uiDeskAlert(*latest, now);
+                    lastAlertType = latest->type;
+                    Squachy::trigger(Squachy::Event::DETECTION, latest->type, engine.lifetimeTotal(),
+                                     latest->hits, latest->rssi, latest->conf);
+                }
+            }
+            uiDeskTick(*canvas, now, engine);
+            Theme::drawToast(*canvas, now);
+            if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
+                // The same edge slivers CLEAR uses, below the title bar and
+                // above the buttons: left edge back, right edge forward.
+                const int ez = tft.width() / 10;
+                const bool edge = (tp.x < ez || tp.x >= tft.width() - ez) && tp.y >= 16 &&
+                                  tp.y < Theme::computeButtonBar(tft.width(), tft.height()).y;
+                if (uiDeskHitMessage(tp.x, tp.y)) {
+                    lastTouch = now;
+                } else if (uiDeskHitAlert(tp.x, tp.y, now)) {
+                    lastTouch = now;
+                    uiAlertSetRedacted(false);
+                    enterAlert(*uiDeskAlertDetection());
+                } else if (uiDeskHitBack(tp.x, tp.y, tft.width(), tft.height())) {
+                    lastTouch = now;
+                    enterClear();   // BACK means the main screen, not the settings it came through
+                } else if (uiDeskHitTimer(tp.x, tp.y, tft.width(), tft.height())) {
+                    lastTouch = now;
+                    uiDeskTapTimer(now);
+                } else if (edge && touchJustDown && !Settings::backgroundLocked()) {
+                    lastTouch = now;
+                    if (tp.x < ez) Settings::cyclePrevDeskBackground();
+                    else           Settings::cycleDeskBackground();
+                    Theme::showToast(Settings::backgroundName(Settings::background()), "DESK BACKGROUND", Theme::CYAN);
+                }
+            }
+            break;
+        }
         case AppState::DIAGNOSTICS: {
             DiagnosticsInfo info;
 #if defined(TOUCH_ON_DISPLAY_BUS)
@@ -4515,8 +4613,9 @@ void loop() {
         // hides the thing it just found is worse than one with no saver at all.
         const bool alerting = (state == AppState::ALERT || state == AppState::WATCH_ALERT);
         const uint16_t timeoutSec = Settings::screenTimeoutSec();
+        // Desk mode is a clock; a clock that goes dark is not there.
         const bool wantDim = timeoutSec && idleMs > (uint32_t)timeoutSec * 1000UL &&
-                             !(Settings::wakeOnAlert() && alerting);
+                             !(Settings::wakeOnAlert() && alerting) && state != AppState::DESK;
         if (wantDim != s_screenDimmed) {
             s_screenDimmed = wantDim;
             applyBrightness();
@@ -4562,6 +4661,8 @@ void loop() {
         // A fox caught on the HUNT gauge flashes the light green, the same
         // three flashes a detection gets in its own colour.
         if (state == AppState::HUNT && uiHuntCaught()) { lc.alert = true; lc.alertColor = Theme::GREEN; }
+        if (state == AppState::DESK && uiDeskChime(now)) { lc.alert = true; lc.alertColor = Theme::GREEN; }
+        if (state == AppState::DESK && uiDeskAlertUp(now)) { lc.alert = true; lc.alertColor = Theme::colorFor(uiDeskAlertDetection()->type); }
 #if SQUACH_MESH
         lc.unread     = MeshTalk::inbox().unread;
         lc.visiting   = Squachy::visiting();

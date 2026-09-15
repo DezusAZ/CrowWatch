@@ -140,11 +140,14 @@ static uint8_t glitchStepLevel(uint8_t step) {
 }
 
 static bool s_first = false;
+static bool s_night = false;
 void uiAlertSetFirst(bool first) { s_first = first; }
+void uiAlertSetNight(bool night) { s_night = night; }
 
 void uiAlertInit(TFT_eSPI& t, const Detection& d) {
     s_last = d;
     s_first = false;
+    s_night = false;
     s_touched = false;
     s_alertStart = millis();
     s_glitchStep = 0;
@@ -480,8 +483,9 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     t.print(info);
     // The first one of its kind, ever, on this board: a line in the gap
     // between the strip and the plate, in the strip's own colour.
-    if (s_first) {
-        const char* fl = "* FIRST OF ITS KIND *";
+    if (s_first || s_night) {
+        const char* fl = (s_first && s_night) ? "* FIRST, AND AT NIGHT *"
+                       : s_first ? "* FIRST OF ITS KIND *" : "* AT NIGHT *";
         t.setTextSize(1);
         t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
         t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, STRIP_H + 2);

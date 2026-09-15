@@ -39,6 +39,16 @@ namespace Settings {
 
     Background background();
     void       cycleBackground();    // advances+wraps, persists
+
+    // Desk mode keeps its own background, remembered separately ("deskBg"),
+    // so the scene you leave beside the keyboard is not the scene you carry
+    // in your pocket. Until one is picked it follows the main one. While
+    // deskActive(true) is set, background() answers with the desk's, so
+    // every drawing routine works unchanged.
+    void       deskActive(bool on);   // also remembered, so a board switched off on the desk comes back to it
+    bool       deskWanted();
+    void       cycleDeskBackground();
+    void       cyclePrevDeskBackground();
     void       cyclePrevBackground(); // same, but backward
 
     // Disables the two CLEAR-screen gestures that cycle background
@@ -192,6 +202,17 @@ namespace Settings {
     // at boot to ask the site for a newer release. Tells, never installs.
     bool        updateCheck();
     void        toggleUpdateCheck();
+
+    // TIME ZONE: an index into Clock's zone table, applied at load and on
+    // every change. UTC until somebody picks one; timeZoneChosen() says
+    // whether anybody has, so Squachy can ask once.
+    uint8_t     timeZone();
+    const char* timeZoneName();
+    void        cycleTimeZone();
+    void        stepTimeZone(int dir);      // the card's arrows: steps without choosing
+    void        setTimeZone(uint8_t i);     // from the ZONE serial command
+    void        markTimeZoneChosen();       // THIS IS RIGHT on the card
+    bool        timeZoneChosen();
 
     // SHOW PHRASE: whether this board ever prints its five words. OFF makes
     // the squad invite-only from this board's side: nobody can read the

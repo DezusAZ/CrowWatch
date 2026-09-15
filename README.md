@@ -126,9 +126,53 @@ A full beginner-friendly walkthrough is in [docs/BUILD.md](docs/BUILD.md).
 
 If a microSD card is present, every detection is also appended to
 `squachwatch-<day>.log` (CSV: `ts,type,rssi,mac,channel,vendor,ssid`).
-There is no GPS and no network sync — the clock is set over serial with a
-single `TIME <epoch>` line at 2,000,000 baud, and until it is, timestamps
-count from boot.
+
+### The clock
+
+There is no GPS, and the board never joins a network to scan. But it does
+join one for the update check at boot, and for UPDATE OVER WIFI, and the
+clock rides along: one NTP round trip while the radio is up anyway, about a
+second. The zone is yours to pick, and there are three ways: the web
+flasher's **Set Time & Zone** button sends this computer's clock and zone
+down the same cable right after flashing; the first time the clock is set
+with no zone chosen, a card on the main screen asks, with the live time in
+the zone it shows so you can see when it's right; and **TIME ZONE** on the
+SYSTEM page changes it later. Daylight saving takes care of itself. Without
+a saved network the clock can still be set over serial with a `TIME <epoch>`
+line at 2,000,000 baud, and `ZONE US EASTERN` sets the zone the same way.
+And every squad hello carries the sender's clock and zone, so a board with
+neither takes them from the first member it hears: update one board by USB
+and the rest of the squad know the time within a minute of meeting it.
+Until the clock is set, timestamps count from boot.
+
+Once it is set, the LOG shows the real time of each catch (or the date, for
+one from another day); the alert card says **AT NIGHT** for anything caught
+between eleven and five, and Squachy's line sharpens to match; he says hello
+once a day with the date in it, knows whether it's Monday, lunch, the three
+o'clock slump or two in the morning, and counts the days since the board
+first knew the date: a week, a month, a hundred days, a year.
+
+### Desk mode
+
+<p align="center">
+  <img src="docs/desk-mode.gif" width="640"
+       alt="Desk mode: the date and time in big digits over the fire scene with Squachy talking below; a catch appears as a small card; a squad message drops out from behind the clock with the sender's polaroid; the focus timer starts; the LOG shows real times; the time zone card asks once.">
+</p>
+
+**DESK MODE** in Settings turns the board into the thing beside the
+keyboard: your background, the date and the time in big seven-segment
+digits on a plate over it, Squachy underneath doing what he does, and a
+focus timer. **FOCUS 25** starts twenty-five minutes: the scene clears, he
+goes still and quiet, and when it runs out the light on the back goes
+green, he tells you to stand up, and a five-minute break counts down on its
+own. A tap on the running timer stops it. The desk keeps its own
+background, picked with a tap at the left or right edge and remembered
+separately from the main screen's. Detection keeps running behind all of
+it: a catch shows as a small card by the buttons instead of the full
+ALERT (tap it for the full card), and a squad message stands where Squachy
+stands, as a polaroid of the sender's Squachy with his name in the margin,
+the message on a note beside it and the time it came, until you tap it.
+The power saver never dims this screen.
 
 ## The status light
 
@@ -346,7 +390,7 @@ SquachWatch-CYD/
 │   ├── signatures.h              (the tables and their lookups)
 │   ├── detection.h
 │   ├── remote_id.h               (ASTM F3411 decoder)
-│   ├── clock.h                   (wall clock, set over serial)
+│   ├── clock.h                   (wall clock: NTP at the boot check, zones, the calendar)
 │   ├── ignore_list.h             (per-device alert suppression)
 │   ├── status_light.h            (the RGB LED and its rules)
 │   ├── meshmsg.h                 (sealed frames: messages, emotes, nudges, invites)

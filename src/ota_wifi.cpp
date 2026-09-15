@@ -2,6 +2,7 @@
 #include "ota_wifi.h"
 #include "ota_roots.h"
 #include "security.h"
+#include "clock.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -207,6 +208,8 @@ bool join() {
         return false;
     }
     Serial.printf("[ota] joined %s as %s\n", s_ssid, WiFi.localIP().toString().c_str());
+    // The clock rides along: one NTP round trip while the radio is up anyway.
+    Clock::syncWait(1500);
     if (s_save) {
         Preferences p;
         p.begin(NVS_NS, false);
@@ -307,6 +310,7 @@ void download() {
 
 void run(void*) {
     WiFi.scanDelete();
+    Clock::syncStop();
     WiFi.disconnect(false, false);
     delay(100);
     releaseBluetooth();
@@ -445,6 +449,9 @@ bool bootCheck(uint32_t budgetMs) {
     bool found = false;
     if (st == WL_CONNECTED) {
         Serial.printf("[ota] boot check: joined in %lu ms\n", (unsigned long)(millis() - t0));
+        // The clock, asked at the same time as the manifest so the two
+        // answers overlap; waited for below, briefly, once the manifest is in.
+        Clock::syncStart();
         uint8_t body[1024];
         size_t  len = 0;
         const uint32_t left = budgetMs - (millis() - t0);
@@ -488,6 +495,20 @@ bool bootCheck(uint32_t budgetMs) {
     } else {
         Serial.printf("[ota] boot check: no join (%d) in %lu ms\n", (int)st, (unsigned long)(millis() - t0));
     }
+    if (st == WL_CONNECTED) {
+        // A time server answers in well under a second; this is the cap on
+        // a bad day, not the usual cost. Skipped once the clock is fresh.
+        const uint32_t t2 = millis();
+        const uint32_t used = t2 - t0;
+        uint32_t left = used < budgetMs ? budgetMs - used : 0;
+        if (left > 2500) left = 2500;
+        const bool ok = Clock::syncWait(left);
+        char clk[24];
+        Clock::formatClock(clk, sizeof clk);
+        Serial.printf("[clock] %s in %lu ms (%s)\n", ok ? "set" : "no answer",
+                      (unsigned long)(millis() - t2), clk);
+    }
+    Clock::syncStop();
     // Everything back the way it was: the driver torn down, so Bluetooth
     // starts into the heap it always had.
     WiFi.disconnect(true, true);
@@ -521,6 +542,7 @@ void        install()       { if (s_state == State::READY) s_install = true; }
 bool canTryAgain() { return s_state == State::FAILED && !s_downloadStarted && !s_task; }
 void tryAgain() {
     if (!canTryAgain()) return;
+    Clock::syncStop();
     WiFi.disconnect(false, false);
     startScan();
 }

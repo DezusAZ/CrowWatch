@@ -136,7 +136,8 @@ enum class AppState : uint8_t {
     STATUS_LIGHT     = 28, // the RGB LED's settings, from the APPEARANCE page
     NUDGE            = 29, // another board asked the squad to update: the countdown
     SQUAD_UPDATE     = 30, // UPDATE SQUAD, from the UPDATE FIRMWARE screen
-    INVITE           = 31  // ADD TO SQUAD, either side of it
+    INVITE           = 31, // ADD TO SQUAD, either side of it
+    DESK             = 32  // desk mode: the clock, the date, the focus timer
 };
 
 enum class ButtonId : uint8_t {

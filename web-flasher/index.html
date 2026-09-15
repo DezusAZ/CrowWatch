@@ -728,6 +728,11 @@
       <button id="identifyBtn" class="identify-btn">[ IDENTIFY MY BOARD ]</button>
       <div class="identify-result" id="identifyResult"></div>
     </div>
+    <div class="identify-row">
+      <button id="clockBtn" class="identify-btn">[ SET TIME &amp; ZONE ]</button>
+      <div class="identify-result" id="clockResult"></div>
+    </div>
+    <p class="browser-note">After flashing, <strong>Set Time &amp; Zone</strong> tells the board this computer's clock and time zone over the same cable. The zone is kept for good; the clock lasts until the board is unplugged, and a saved WiFi network puts it back at every boot.</p>
   </div>
 
   <div class="legend-section">
@@ -1569,6 +1574,113 @@
       identifyBtn.textContent = '[ IDENTIFY MY BOARD ] (needs a desktop browser)';
     } else {
       identifyBtn.addEventListener('click', identifyBoard);
+    }
+  }
+
+  // ---- Set time & zone -------------------------------------------------
+  // The firmware reads two lines on its console at 2,000,000 baud: TIME
+  // <epoch seconds> and ZONE <name>. The browser knows both. Opening the
+  // port pulses the board's reset line, so the lines go out after it has
+  // had time to boot, and the boot-time update check with it.
+  var clockBtn = document.getElementById('clockBtn');
+  var clockResult = document.getElementById('clockResult');
+  if (clockBtn) {
+    if (!('serial' in navigator)) {
+      clockBtn.disabled = true;
+      clockBtn.textContent = '[ SET TIME & ZONE ] (needs a desktop browser)';
+    } else {
+      clockBtn.addEventListener('click', setBoardClock);
+    }
+  }
+
+  // The browser's zone name onto the firmware's short table. Anything
+  // unlisted lands on UTC and the result says so.
+  function zoneForBrowser() {
+    var tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    var rules = [
+      [/^America\/(New_York|Detroit|Toronto|Montreal|Nassau|Indiana|Kentucky|Indianapolis|Louisville|Iqaluit|Port-au-Prince)/, 'US EASTERN'],
+      [/^America\/(Chicago|Winnipeg|Menominee|North_Dakota|Rankin_Inlet|Resolute|Matamoros|Mexico_City|Monterrey|Merida)/, 'US CENTRAL'],
+      [/^America\/(Denver|Edmonton|Boise|Yellowknife|Inuvik|Cambridge_Bay|Ojinaga|Ciudad_Juarez)/, 'US MOUNTAIN'],
+      [/^America\/(Phoenix|Hermosillo|Creston|Dawson_Creek|Fort_Nelson|Whitehorse|Dawson)/, 'ARIZONA'],
+      [/^America\/(Los_Angeles|Vancouver|Tijuana)/, 'US PACIFIC'],
+      [/^America\/(Anchorage|Juneau|Sitka|Nome|Yakutat|Metlakatla)/, 'ALASKA'],
+      [/^Pacific\/Honolulu/, 'HAWAII'],
+      [/^America\/(Halifax|Glace_Bay|Moncton|Goose_Bay|Bermuda|Puerto_Rico|Santo_Domingo)/, 'ATLANTIC'],
+      [/^America\/St_Johns/, 'NEWFOUNDLAND'],
+      [/^America\/(Sao_Paulo|Argentina|Buenos_Aires|Montevideo|Fortaleza|Recife|Bahia|Belem|Maceio|Cayenne|Paramaribo|Punta_Arenas|Santiago)/, 'BRAZIL'],
+      [/^(Europe\/(London|Dublin|Lisbon|Belfast|Guernsey|Jersey|Isle_of_Man)|Atlantic\/(Canary|Faroe|Madeira))/, 'UK'],
+      [/^Europe\/(Athens|Helsinki|Kiev|Kyiv|Bucharest|Sofia|Riga|Tallinn|Vilnius|Chisinau|Mariehamn|Nicosia)|^Asia\/(Nicosia|Beirut|Jerusalem|Tel_Aviv)|^Africa\/Cairo/, 'EU EASTERN'],
+      [/^Europe\/(Moscow|Minsk|Istanbul|Kirov|Simferopol|Volgograd)|^Asia\/(Riyadh|Baghdad|Qatar|Bahrain|Kuwait|Aden)|^Africa\/Nairobi/, 'MOSCOW'],
+      [/^Europe\//, 'EU CENTRAL'],
+      [/^Africa\/(Lagos|Algiers|Tunis|Casablanca|Johannesburg|Maputo|Harare|Windhoek)/, 'EU CENTRAL'],
+      [/^Asia\/(Kolkata|Calcutta|Colombo)/, 'INDIA'],
+      [/^Asia\/(Shanghai|Chongqing|Harbin|Urumqi|Hong_Kong|Macau|Taipei|Singapore|Kuala_Lumpur|Manila|Makassar|Brunei|Ulaanbaatar|Irkutsk)/, 'CHINA'],
+      [/^Asia\/(Tokyo|Seoul|Pyongyang|Jayapura|Yakutsk|Chita|Dili)|^Pacific\/Palau/, 'JAPAN'],
+      [/^Australia\/(Sydney|Melbourne|Hobart|Canberra|Currie|Brisbane|Lindeman)|^Pacific\/(Guam|Port_Moresby)/, 'AUS EASTERN'],
+      [/^Australia\/Perth/, 'AUS WESTERN'],
+      [/^Pacific\/(Auckland|Fiji|Funafuti|Tarawa|Majuro|Wake|Wallis|Nauru)|^Antarctica\/McMurdo/, 'NEW ZEALAND'],
+    ];
+    for (var i = 0; i < rules.length; i++) if (rules[i][0].test(tz)) return { zone: rules[i][1], from: tz, sure: true };
+    return { zone: 'UTC', from: tz || 'unknown', sure: false };
+  }
+
+  async function setBoardClock() {
+    clockBtn.disabled = true;
+    clockResult.className = 'identify-result';
+    var port, writer, reader;
+    var z = zoneForBrowser();
+    try {
+      clockResult.textContent = 'Pick the board’s port...';
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 2000000, bufferSize: 65536 });
+      // Both lines low: the board runs. Opening the port may have reset it,
+      // so give it the whole boot, update check and all, before talking.
+      try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) {}
+      for (var sec = 9; sec > 0; sec--) {
+        clockResult.textContent = 'Letting the board boot... ' + sec;
+        await new Promise(function (r) { setTimeout(r, 1000); });
+      }
+      var epoch = Math.floor(Date.now() / 1000);
+      // A blank line first: the first byte after an open can go missing.
+      var lines = '\nTIME ' + epoch + '\nZONE ' + z.zone + '\n';
+      writer = port.writable.getWriter();
+      await writer.write(new TextEncoder().encode(lines));
+      writer.releaseLock(); writer = null;
+      // Read the console for a moment and look for the two replies.
+      var text = '';
+      reader = port.readable.getReader();
+      var t0 = Date.now();
+      var dec = new TextDecoder();
+      while (Date.now() - t0 < 3000) {
+        var chunk = await Promise.race([reader.read(), new Promise(function (r) { setTimeout(function () { r({ done: false, value: null }); }, 300); })]);
+        if (chunk.done) break;
+        if (chunk.value) text += dec.decode(chunk.value, { stream: true });
+        if (text.indexOf('[zone]') >= 0 && text.indexOf('[clock]') >= 0) break;
+      }
+      await reader.cancel(); reader.releaseLock(); reader = null;
+      await port.close(); port = null;
+      var gotClock = /\[clock\] set to ([^\r\n]+)/.exec(text);
+      var gotZone  = /\[zone\] ([^\r\n]+)/.exec(text);
+      var locked   = text.indexOf('[security] locked') >= 0;
+      if (locked) {
+        clockResult.className = 'identify-result err';
+        clockResult.textContent = 'The board is locked. Unlock it on the screen, then try again.';
+      } else if (gotClock || gotZone) {
+        clockResult.textContent = 'SET: ' + (gotZone ? gotZone[1] : z.zone) + (gotClock ? '  ·  clock ' + gotClock[1] : '') +
+          (z.sure ? '' : '  (your zone, ' + z.from + ', is not in the list: pick one under SYSTEM)');
+        say('Clock set. I know what day it is now. Big day for me.', 7600);
+      } else {
+        clockResult.textContent = 'Sent TIME and ZONE ' + z.zone + ' but heard nothing back. If the board was still booting, try once more.';
+      }
+    } catch (err) {
+      clockResult.className = 'identify-result err';
+      clockResult.textContent = 'Couldn’t set it: ' + (err && err.message ? err.message : 'unknown error');
+      try { if (writer) writer.releaseLock(); } catch (e2) {}
+      try { if (reader) { await reader.cancel(); reader.releaseLock(); } } catch (e3) {}
+      try { if (port) await port.close(); } catch (e4) {}
+    } finally {
+      clockBtn.disabled = false;
     }
   }
 

@@ -1,5 +1,6 @@
 // SquachWatch-CYD — persisted user settings implementation
 #include "settings.h"
+#include "clock.h"
 #include "theme.h"
 #include <Preferences.h>
 
@@ -32,6 +33,8 @@ static const uint8_t CROWD_MAX = 8;
 static uint8_t     s_meshCrowd = 1;   // how many on screen at once, 1..CROWD_MAX
 static uint8_t     s_rotation = 1;
 static bool        s_backgroundLocked = false;
+static uint8_t     s_deskBg     = 255;     // 255: not picked yet, follow s_background
+static bool        s_deskActive = false;
 // Bit N = DetectionType N enabled. UNKNOWN (0) is never included -- see
 // Types that arrive switched OFF, on a fresh install and on upgrade alike.
 //
@@ -93,6 +96,8 @@ static uint8_t s_lightBright = 2;    // of 5
 static bool    s_remoteUpdate = false;
 static bool    s_phraseShown  = true;
 static bool    s_updateCheck  = true;
+static uint8_t s_timeZone     = 10;   // UTC in Clock's table
+static bool    s_tzChosen     = false;
 static const char* const LIGHT_IDLE_NAMES[]  = { "OFF", "BREATHE", "SOLID" };
 // BACKGROUND is stored as 10, after the fixed colours, so the indices saved
 // by the first build stay what they were; the cycle below still visits it
@@ -202,6 +207,8 @@ void load() {
     s_rotation = s_prefs.getUChar("rot", 1);
     if (s_rotation > 3) s_rotation = 1;
     s_backgroundLocked = s_prefs.getBool("bglock", false);
+    s_deskBg = s_prefs.getUChar("deskBg", 255);
+    if (s_deskBg != 255 && s_deskBg >= BACKGROUND_COUNT) s_deskBg = 255;
     s_brightness = s_prefs.getUChar("bri", 255);
     if (s_brightness < 32) s_brightness = 32;
     s_minConf    = (Confidence)s_prefs.getUChar("conf", (uint8_t)Confidence::LOW_CONF);
@@ -234,6 +241,10 @@ void load() {
     s_remoteUpdate = s_prefs.getBool("rmtUpd", true);
     s_phraseShown  = s_prefs.getBool("phrShow", true);
     s_updateCheck  = s_prefs.getBool("updChk", true);
+    s_timeZone     = s_prefs.getUChar("tz", 10);
+    s_tzChosen     = s_prefs.getBool("tzSet", false);
+    if (s_timeZone >= Clock::zoneCount()) s_timeZone = 10;
+    Clock::applyZone(s_timeZone);
     if (s_lightIdle > 2)                 s_lightIdle = 1;
     if (s_lightColor >= LIGHT_COLOR_N)   s_lightColor = 0;
     if (s_lightBright < 1 || s_lightBright > 5) s_lightBright = 2;
@@ -282,7 +293,27 @@ void cyclePalette() {
     Theme::applyPalette(s_palette);
 }
 
-Background background() { return s_background; }
+Background background() {
+    if (s_deskActive && s_deskBg != 255 && backgroundSelectable((Background)s_deskBg)) return (Background)s_deskBg;
+    return s_background;
+}
+void deskActive(bool on) {
+    s_deskActive = on;
+    // Written only on a change: this is called every time CLEAR is entered.
+    if (s_prefs.getBool("deskOn", false) != on) s_prefs.putBool("deskOn", on);
+}
+bool deskWanted() { return s_prefs.getBool("deskOn", false); }
+static void stepDeskBackground(int dir) {
+    uint8_t b = (s_deskBg == 255) ? (uint8_t)s_background : s_deskBg;
+    for (uint8_t i = 0; i < BACKGROUND_COUNT; i++) {
+        b = (uint8_t)((b + BACKGROUND_COUNT + dir) % BACKGROUND_COUNT);
+        if (backgroundSelectable((Background)b)) break;
+    }
+    s_deskBg = b;
+    s_prefs.putUChar("deskBg", s_deskBg);
+}
+void cycleDeskBackground()     { stepDeskBackground(1); }
+void cyclePrevDeskBackground() { stepDeskBackground(-1); }
 
 bool backgroundSelectable(Background b) {
     // BLACK is the only conditional one, and it is gated on boring mode
@@ -396,6 +427,27 @@ bool phraseShown()          { return s_phraseShown; }
 void togglePhraseShown()    { s_phraseShown = !s_phraseShown; s_prefs.putBool("phrShow", s_phraseShown); }
 bool updateCheck()          { return s_updateCheck; }
 void toggleUpdateCheck()    { s_updateCheck = !s_updateCheck; s_prefs.putBool("updChk", s_updateCheck); }
+uint8_t     timeZone()      { return s_timeZone; }
+const char* timeZoneName()  { return Clock::zoneName(s_timeZone); }
+bool        timeZoneChosen(){ return s_tzChosen; }
+void markTimeZoneChosen() {
+    if (!s_tzChosen) { s_tzChosen = true; s_prefs.putBool("tzSet", true); }
+}
+void setTimeZone(uint8_t i) {
+    if (i >= Clock::zoneCount()) return;
+    s_timeZone = i;
+    s_prefs.putUChar("tz", s_timeZone);
+    markTimeZoneChosen();
+    Clock::applyZone(s_timeZone);
+}
+// The arrows on the card and the SYSTEM row step without marking the zone
+// chosen: only THIS IS RIGHT, the row's own tap, or the flasher does that.
+void cycleTimeZone()     { stepTimeZone(1); markTimeZoneChosen(); }
+void stepTimeZone(int dir) {
+    s_timeZone = (uint8_t)((s_timeZone + Clock::zoneCount() + dir) % Clock::zoneCount());
+    s_prefs.putUChar("tz", s_timeZone);
+    Clock::applyZone(s_timeZone);
+}
 
 bool boringMode() { return s_boringMode; }
 

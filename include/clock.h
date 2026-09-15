@@ -5,21 +5,23 @@
 // which tells you the order things happened in and nothing else -- and the
 // diary, which is supposed to be a record of days, could not name one.
 //
-// WHY THERE IS NO NETWORK SYNC. The obvious answer is SNTP, and it is not
-// available here. detection.cpp puts the radio into promiscuous mode and
-// never associates with an access point: the whole device is a passive
-// sniffer. Getting network time would mean asking the user for WiFi
-// credentials, building somewhere to type them, dropping out of
-// promiscuous mode for several seconds and going deaf while it syncs.
-// That is a feature, not a detail, and it is not this one.
+// HOW IT GETS SET. The board is a passive sniffer and never associates with
+// an access point on its own -- except for the two moments it already
+// does: the update check at boot and UPDATE OVER WIFI. Both join the saved
+// network anyway, so the clock rides along: SNTP starts the moment the join
+// succeeds and is stopped again with the radio. A board with no saved
+// network can still be told the time over serial (TIME <epoch>, at the
+// documented 2,000,000 baud). Either way the clock is SET rather than
+// continuously synced, and it is honest about not knowing: unset,
+// everything falls back to uptime exactly as before.
 //
-// So the clock is SET rather than synced -- over serial, which the project
-// already documents at 2,000,000 baud -- and it is honest about not
-// knowing. Unset, everything falls back to uptime exactly as before.
-//
-// It does survive a reboot, which is the case that matters most: the ESP32
+// It survives a reboot, which is the case that matters most: the ESP32
 // keeps system time across a software reset, so a watchdog or a panic (or
-// the SD-card boot loop) does not lose it. Pulling the power does.
+// the SD-card boot loop) does not lose it. Pulling the power does, until
+// the next boot check puts it back.
+//
+// The zone is the user's to pick (TIME ZONE on the SYSTEM page): a POSIX
+// rule per zone, so daylight saving flips itself.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -46,8 +48,53 @@ void formatUptime(char* out, size_t n);
 void formatClock(char* out, size_t n);
 
 // One millis() stamp, as a log row wants it: "14:32" wall-clock when the
-// clock is set, and the old "MMMM:SS" since boot when it is not.
+// clock is set and the stamp is from today, "9/13" when it is from another
+// day, and the old "MMMM:SS" since boot when the clock is not set.
 void formatStamp(uint32_t ms, char* out, size_t n);
+
+// ---- the calendar, once the clock is set ----------------------------
+// Local hour 0..23, weekday 0..6 (Sunday first), and the local day as a
+// count of days since the epoch -- the thing to compare to know whether it
+// is still the same day. All 0 when unset.
+uint8_t  hour();
+uint8_t  minute();
+uint8_t  weekday();
+uint32_t localDay();
+bool     weekend();
+// Eleven at night to five in the morning. What "at night" means on the
+// alert card.
+bool     night();
+// "SUN SEP 14" and "14:32" / "2:32" with the half of the day, for the desk.
+void formatDate(char* out, size_t n);
+void formatTime(char* out, size_t n, bool twelveHour, bool* pm = nullptr);
+
+// ---- the zone ---------------------------------------------------------
+uint8_t     zoneCount();
+const char* zoneName(uint8_t i);
+void        applyZone(uint8_t i);   // Settings calls this at boot and on change
+
+// ---- network time -----------------------------------------------------
+// Around a WiFi join that is happening anyway. start() kicks SNTP off in
+// the background; wait() blocks up to ms for the first answer and returns
+// whether the clock is set; stop() takes SNTP down with the radio.
+void syncStart();
+bool syncWait(uint32_t ms);
+void syncStop();
+// True once this boot has heard a time from the network, as opposed to
+// carrying one across a soft reset or being told over serial.
+bool synced();
+
+// ---- the board's own history ------------------------------------------
+// The first day this board ever knew the date, remembered in NVS the first
+// time the clock is set. 0 until then. daysTogether() counts from it.
+uint32_t bornEpoch();
+uint32_t daysTogether();
+// Small persisted markers for once-a-day and once-ever lines. Both are the
+// value last stored; the caller decides what to compare it to.
+uint32_t greetedDay();            void setGreetedDay(uint32_t day);
+uint32_t milestoneSaid();         void setMilestoneSaid(uint32_t days);
+
+void begin();   // once in setup(), after Settings -- loads the NVS bits
 
 // Polled from loop(). Reads a line and understands one command:
 //

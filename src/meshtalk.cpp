@@ -4,6 +4,7 @@
 #if SQUACH_MESH
 #include "meshcrypto.h"
 #include "settings.h"
+#include "clock.h"
 #include "ota_core.h"
 #include "detection.h"      // Mesh::peerLook, for the roster
 #include <Arduino.h>
@@ -318,8 +319,19 @@ void deliver(const Slot& s, uint32_t now) {
 
     if (kind == MeshMsg::KIND_HELLO) {
         uint8_t ver[3];
-        if (MeshMsg::openHello(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, ver) == MeshMsg::Open::OK) {
+        uint32_t theirEpoch = 0; uint8_t theirZone = 0;
+        if (MeshMsg::openHello(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, ver, theirEpoch, theirZone) == MeshMsg::Open::OK) {
             squadNote(s.mac, now);
+            // A member's clock, for a board that has none: the squad is in
+            // the same room, so its zone too when none was ever chosen here.
+            // Never over a clock this board already has; a hello is a
+            // second-hand answer and the network is the first-hand one.
+            if (theirEpoch && !Clock::isSet() && Clock::setEpoch(theirEpoch))
+                Serial.printf("[clock] set from %s's hello\n", s.name[0] ? s.name : "a member");
+            if (theirZone && !Settings::timeZoneChosen()) {
+                Settings::setTimeZone((uint8_t)(theirZone - 1));
+                Serial.printf("[zone] %s, from %s's hello\n", Settings::timeZoneName(), s.name[0] ? s.name : "a member");
+            }
             // A member on something newer is the field's update check: no
             // WiFi, no site, just somebody nearby who already has it.
             uint8_t mine[3];
@@ -944,7 +956,9 @@ void tick(uint32_t now) {
         if (takeCounters(1, c)) {
             uint8_t ver[3] = { 0, 0, 0 };
             MeshMsg::parseVersion(OtaCore::runningVersion(), ver);
-            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, ver, s_out[0], sizeof s_out[0]);
+            const uint8_t zone = Settings::timeZoneChosen() ? (uint8_t)(Settings::timeZone() + 1) : 0;
+            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, ver, Clock::nowEpoch(), zone,
+                                                s_out[0], sizeof s_out[0]);
             if (n) { s_outLen[0] = (uint8_t)n; onAir(1, now, HELLO_MS); }
         }
     }

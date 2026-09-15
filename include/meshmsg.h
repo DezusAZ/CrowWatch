@@ -286,9 +286,14 @@ size_t sealWifiPart(const Crypto& c, const uint8_t mac[6], uint32_t counter,
                     uint8_t* out, size_t cap);
 size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
                    const uint8_t ver[3], uint8_t* out, size_t cap);
-// The hello carries the sender's version from v1.7.8 on: [1][maj][min][pat].
-// openHello takes the older one-byte form too, and reports 0.0.0 for it.
+// The hello carries the sender's version from v1.7.8 on: [1][maj][min][pat],
+// and from v1.9.0 its clock too: [epoch, 4 bytes LE, 0 when unset][zone + 1,
+// 0 when none was ever chosen]. A board with no clock takes a member's, and
+// a board with no zone takes a member's: the squad is in the same room.
+// openHello takes both older forms and reports 0.0.0 and no clock for them.
 size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const uint8_t ver[3], uint8_t* out, size_t cap);
+size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const uint8_t ver[3],
+                 uint32_t epoch, uint8_t zonePlusOne, uint8_t* out, size_t cap);
 size_t sealRead(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint32_t msgCounter, uint8_t* out, size_t cap);
 // The setup byte, per emote. RPS: the sender's throw times three, plus the
 // receiver's -- each 0 rock, 1 paper, 2 scissors. The rest are described with
@@ -327,6 +332,8 @@ Open openTextPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size
 Open openEmote(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t& emote, uint8_t& setup);
 Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3]);
+Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3],
+               uint32_t& epoch, uint8_t& zonePlusOne);
 Open   openRead(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint32_t& msgCounter);
 Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t ver[3], uint8_t& wifiParts);

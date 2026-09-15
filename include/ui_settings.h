@@ -39,6 +39,8 @@ enum class SettingsRow : uint8_t {
     UPDATE_FIRMWARE, // on the SYSTEM page: Bluetooth update, or switch slots
     UPDATE_CHECK,    // on the SYSTEM page: ask the site at boot, over saved WiFi
     STATUS_LIGHT,    // on the APPEARANCE page: opens the RGB LED's screen
+    TIME_ZONE,       // on the SYSTEM page: which zone the real clock shows
+    DESK_MODE,       // opens desk mode: the clock, the date, the focus timer
     BACK,
     COUNT,
     NONE = 255

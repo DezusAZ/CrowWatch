@@ -9,6 +9,9 @@ class DetectionEngine;
 void uiAlertInit(TFT_eSPI& t, const Detection& d);
 // The first of this type this board has ever caught: the card says so.
 void uiAlertSetFirst(bool first);
+// Caught between eleven at night and five in the morning, by the real
+// clock: the card says so. False whenever the clock is not set.
+void uiAlertSetNight(bool night);
 // SNOOZE 1H, bottom centre between HUNT and MORE INFO.
 bool uiAlertHitSnooze(int x, int y, int screenW, int screenH);
 // While the device is locked with ALERTS WHEN LOCKED at TYPE ONLY: the type

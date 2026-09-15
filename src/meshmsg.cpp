@@ -454,6 +454,13 @@ size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const 
     const uint8_t pt[4] = { 1, ver[0], ver[1], ver[2] };
     return sealBytes(c, mac, counter, KIND_HELLO, pt, sizeof pt, out, cap);
 }
+size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const uint8_t ver[3],
+                 uint32_t epoch, uint8_t zonePlusOne, uint8_t* out, size_t cap) {
+    const uint8_t pt[9] = { 1, ver[0], ver[1], ver[2],
+                            (uint8_t)epoch, (uint8_t)(epoch >> 8), (uint8_t)(epoch >> 16), (uint8_t)(epoch >> 24),
+                            zonePlusOne };
+    return sealBytes(c, mac, counter, KIND_HELLO, pt, sizeof pt, out, cap);
+}
 
 size_t sealRead(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint32_t msgCounter, uint8_t* out, size_t cap) {
     const uint8_t pt[4] = { (uint8_t)msgCounter, (uint8_t)(msgCounter >> 8), (uint8_t)(msgCounter >> 16), (uint8_t)(msgCounter >> 24) };
@@ -468,14 +475,30 @@ Open openRead(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t l
 }
 
 Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3]) {
+    uint32_t epoch = 0; uint8_t zone = 0;
+    return openHello(c, mac, in, len, counter, ver, epoch, zone);
+}
+Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3],
+               uint32_t& epoch, uint8_t& zonePlusOne) {
     ver[0] = ver[1] = ver[2] = 0;
+    epoch = 0; zonePlusOne = 0;
     if (len == CANNED_FRAME_LEN) {                      // v1.7.7's: one byte, no version
         uint8_t v = 0;
         return openByte(c, mac, in, len, KIND_HELLO, counter, v);
     }
-    uint8_t pt[4] = { 0, 0, 0, 0 };
+    if (len == CANNED_FRAME_LEN + 3) {                  // v1.7.8's: the version only
+        uint8_t pt[4] = { 0, 0, 0, 0 };
+        const Open r = openBytes(c, mac, in, len, KIND_HELLO, sizeof pt, counter, pt);
+        if (r == Open::OK) { ver[0] = pt[1]; ver[1] = pt[2]; ver[2] = pt[3]; }
+        return r;
+    }
+    uint8_t pt[9] = { 0 };
     const Open r = openBytes(c, mac, in, len, KIND_HELLO, sizeof pt, counter, pt);
-    if (r == Open::OK) { ver[0] = pt[1]; ver[1] = pt[2]; ver[2] = pt[3]; }
+    if (r == Open::OK) {
+        ver[0] = pt[1]; ver[1] = pt[2]; ver[2] = pt[3];
+        epoch = (uint32_t)pt[4] | ((uint32_t)pt[5] << 8) | ((uint32_t)pt[6] << 16) | ((uint32_t)pt[7] << 24);
+        zonePlusOne = pt[8];
+    }
     return r;
 }
 
