@@ -75,11 +75,14 @@ static void noteKnown() {
 
 bool setEpoch(uint32_t epoch) {
     if (epoch <= kPlausible) return false;
+#if defined(ARDUINO_ARCH_ESP32)
     struct timeval tv;
     tv.tv_sec  = (time_t)epoch;
     tv.tv_usec = 0;
     settimeofday(&tv, nullptr);
-#if !defined(ARDUINO_ARCH_ESP32)
+#else
+    // The emulator keeps its own epoch (see rawNow): the host's clock is not
+    // ours to set, and the browser build has no settimeofday to link at all.
     simInit();
     s_simEpoch = epoch; s_simMs0 = millis();
 #endif
