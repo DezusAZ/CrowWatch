@@ -359,7 +359,7 @@ Result outcome(E e, uint8_t setup) {
 }
 
 // What a detection is called out loud. Short: it has to fit a bubble.
-static const char* spokenName(uint8_t t) {
+const char* spokenName(uint8_t t) {
     switch ((DetectionType)t) {
         case DetectionType::FLOCK:       return "FLOCK";
         case DetectionType::AXON:        return "AXON";

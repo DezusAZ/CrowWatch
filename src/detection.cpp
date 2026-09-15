@@ -960,12 +960,14 @@ void DetectionEngine::postRawBle(RawBleResult r) {
     // again just refreshes its existing row instead of duplicating it.
     for (uint8_t i = 0; i < _rawBleCount; i++) {
         if (memcmp(_rawBle[i].mac, r.mac, 6) == 0) {
+            _rawBle[i].prev = _rawBle[i].rssi;   // for the NEARBY list's closer/further arrow
             _rawBle[i].rssi = r.rssi;
             if (r.name[0]) strncpy(_rawBle[i].name, r.name, sizeof(_rawBle[i].name) - 1);
             return;
         }
     }
     if (_rawBleCount < RAW_BLE_CAP) {
+        r.prev = r.rssi;
         _rawBle[_rawBleCount++] = r;
     }
     // else: full -- ignore further new devices until the next

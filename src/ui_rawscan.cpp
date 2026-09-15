@@ -341,6 +341,15 @@ switch (Settings::background()) {
             int rw = t.textWidth(rssi);
             t.setCursor(w - rw - 14, y + topPad);
             t.print(rssi);
+            // Closer or further since the last reading: an arrow beside the
+            // number, green up for nearer, red down for further, nothing for
+            // a wobble of under four dB, which is what a still device does.
+            {
+                const int d  = (int)r->rssi - (int)r->prev;
+                const int ax = w - rw - 14 - 11, ay = y + topPad + 1;
+                if (d >= 4)       t.fillTriangle(ax, ay + 6, ax + 6, ay + 6, ax + 3, ay, Theme::GREEN);
+                else if (d <= -4) t.fillTriangle(ax, ay, ax + 6, ay, ax + 3, ay + 6, Theme::RED);
+            }
         } else {
             t.setTextSize(2);
             t.setTextColor(Theme::CYAN, Theme::BG);

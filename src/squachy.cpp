@@ -4,6 +4,9 @@
 #include "signatures.h"
 #include "settings.h"
 #include "void_eye.h"
+#if SQUACH_MESH
+#include "emote_script.h"   // spokenName, for the banter
+#endif
 #include <Arduino.h>
 #include <Preferences.h>
 
@@ -2163,6 +2166,145 @@ static const Exchange HANG_EXCHANGES[] = {
 static const uint8_t HANG_EXCHANGES_N =
     sizeof(HANG_EXCHANGES) / sizeof(HANG_EXCHANGES[0]);
 
+// ---- banter about something ---------------------------------------------
+//
+// The pairs above are about nothing in particular, which is most of what
+// standing around is. These are about the thing on screen: the snow, the
+// other one's hat, what was caught earlier, how many times this visitor
+// has turned up. Every other exchange, if anything applies, one of these
+// goes instead. %s is the one word the situation supplies.
+enum class Ctx : uint8_t { BG, CAUGHT, GUEST_OUTFIT, HOST_OUTFIT, RETURNING, REGULAR, SQUAD, NAME, QUIET, BUSY, LONG_UP };
+struct CtxExchange { Ctx ctx; uint8_t bg; const char* host; const char* guest; const char* topper; };
+static const CtxExchange CTX_EXCHANGES[] = {
+    // the weather, by Settings::Background value
+    { Ctx::BG, 7,  "Cold enough for you?",        "I'm mostly fur.",              "Show-off." },
+    { Ctx::BG, 7,  "Snow's settling.",            "On you, mostly.",              nullptr },
+    { Ctx::BG, 7,  "Ever eat it?",                "The snow? Constantly.",        "Respect." },
+    { Ctx::BG, 10, "That sun ever set?",          "Not once. I've watched.",      "Grim." },
+    { Ctx::BG, 10, "Nice grid.",                  "Don't look down.",             nullptr },
+    { Ctx::BG, 10, "Very eighties.",              "You were there?",              "I'm timeless." },
+    { Ctx::BG, 1,  "Ever count them?",            "Lost it at four hundred.",     "Rookie." },
+    { Ctx::BG, 1,  "Make a wish.",                "Did. You showed up.",          "Cheap wish." },
+    { Ctx::BG, 1,  "Which one's home?",           "The dim one.",                 "Same." },
+    { Ctx::BG, 0,  "Can you read that?",          "Blonde, brunette, redhead.",   "Stop it." },
+    { Ctx::BG, 0,  "Rain's heavy tonight.",       "It's code. It's always code.", nullptr },
+    { Ctx::BG, 2,  "Why toasters?",               "Why anything?",                "Deep." },
+    { Ctx::BG, 2,  "One's coming in low.",        "Duck.",                        nullptr },
+    { Ctx::BG, 3,  "What do they think about?",   "Bubbles, mostly.",             "Relatable." },
+    { Ctx::BG, 3,  "The fish are watching.",      "Let them.",                    nullptr },
+    { Ctx::BG, 4,  "You type all that?",          "It types itself.",             "Show-off." },
+    { Ctx::BG, 5,  "Catch one?",                  "Tried. Bit me.",               "Fireflies don't bite." },
+    { Ctx::BG, 5,  "Pretty out here.",            "Don't tell anyone.",           nullptr },
+    { Ctx::BG, 6,  "Warm enough?",                "Toasty.",                      nullptr },
+    { Ctx::BG, 6,  "Who lit that?",               "Not saying.",                  "Arsonist." },
+    { Ctx::BG, 8,  "Music's good.",               "It's the airwaves.",           "Still good." },
+    { Ctx::BG, 9,  "Where's it go?",              "Further.",                     "Helpful." },
+    { Ctx::BG, 9,  "Ever reach the end?",         "There's an end?",              nullptr },
+    // what was caught earlier
+    { Ctx::CAUGHT, 0, "Saw a %s earlier.",         "Course you did.",              nullptr },
+    { Ctx::CAUGHT, 0, "%s, not long ago.",         "They're everywhere now.",      "Aren't they." },
+    { Ctx::CAUGHT, 0, "Anything good today?",      "You had a %s. I felt it.",     "Big one." },
+    { Ctx::CAUGHT, 0, "That %s still about?",      "Gone quiet.",                  "They do that." },
+    // the other one's outfit, and mine
+    { Ctx::GUEST_OUTFIT, 0, "Nice %s.",             "This old thing.",              nullptr },
+    { Ctx::GUEST_OUTFIT, 0, "Where'd you get the %s?", "Earned it.",                "Sure you did." },
+    { Ctx::GUEST_OUTFIT, 0, "Is that a %s?",        "You know it is.",              "Bold." },
+    { Ctx::HOST_OUTFIT,  0, "Too much, the %s?",    "Never.",                       "Good answer." },
+    { Ctx::HOST_OUTFIT,  0, "You like the %s?",     "It's a look.",                 "It's MY look." },
+    // a regular
+    { Ctx::RETURNING, 0, "You again.",              "Me again.",                    "Good." },
+    { Ctx::RETURNING, 0, "Back so soon?",           "Missed the spot.",             "It missed you." },
+    { Ctx::REGULAR,   0, "That's %s times now.",    "Who's counting?",              "Me. It's my job." },
+    { Ctx::REGULAR,   0, "%s visits. We need a table.", "And a tab.",               nullptr },
+    // the squad
+    { Ctx::SQUAD, 0, "Squad's up to %s.",           "Getting crowded.",             "Good crowded." },
+    { Ctx::SQUAD, 0, "%s of us now.",               "Better odds.",                 nullptr },
+    // their name
+    { Ctx::NAME, 0, "%s. Good name.",               "Picked it myself.",            "Suits you." },
+    { Ctx::NAME, 0, "%s, right?",                   "Since you ask.",               nullptr },
+    // the day
+    { Ctx::QUIET, 0, "Nothing all day.",            "Nothing's good.",              "Nothing's boring." },
+    { Ctx::QUIET, 0, "Quiet one.",                  "Suspiciously.",                "Now you've said it." },
+    { Ctx::BUSY,  0, "%s hits today.",              "Busy patch.",                  "Too busy." },
+    { Ctx::BUSY,  0, "Counted %s already.",         "Somebody's popular.",          "Not us." },
+    { Ctx::LONG_UP, 0, "Been up %s hours.",         "Sleep's for the weak.",        "I'm very weak." },
+    { Ctx::LONG_UP, 0, "%s hours and counting.",    "You blink, I'll watch.",       nullptr },
+};
+static const uint8_t CTX_EXCHANGES_N = sizeof(CTX_EXCHANGES) / sizeof(CTX_EXCHANGES[0]);
+
+static VisitContext s_vctx = {};
+void setVisitContext(const VisitContext& c) { s_vctx = c; }
+
+static bool ctxApplies(const CtxExchange& e) {
+    switch (e.ctx) {
+        case Ctx::BG:           return s_vctx.background == e.bg;
+        case Ctx::CAUGHT:       return s_vctx.caught != (uint8_t)DetectionType::UNKNOWN && s_vctx.caught < (uint8_t)DetectionType::COUNT;
+        case Ctx::GUEST_OUTFIT: return s_vctx.guestOutfit != 0;
+        case Ctx::HOST_OUTFIT:  return s_vctx.hostOutfit != 0;
+        case Ctx::RETURNING:    return s_vctx.met >= 2 && s_vctx.met < 5;
+        case Ctx::REGULAR:      return s_vctx.met >= 5;
+        case Ctx::SQUAD:        return s_vctx.squad >= 3;
+        case Ctx::NAME:         return s_vctx.guestName[0] != 0;
+        case Ctx::QUIET:        return s_vctx.hits == 0 && s_vctx.upHours >= 1;
+        case Ctx::BUSY:         return s_vctx.hits >= 20;
+        case Ctx::LONG_UP:      return s_vctx.upHours >= 3;
+    }
+    return false;
+}
+
+// The one word the situation supplies for %s.
+static const char* ctxArg(Ctx c, char* num, size_t cap) {
+    switch (c) {
+        case Ctx::CAUGHT:       return EmoteScript::spokenName(s_vctx.caught);
+        case Ctx::GUEST_OUTFIT: return outfitNameAt(s_vctx.guestOutfit);
+        case Ctx::HOST_OUTFIT:  return outfitNameAt(s_vctx.hostOutfit);
+        case Ctx::NAME:         return s_vctx.guestName;
+        case Ctx::REGULAR:      snprintf(num, cap, "%u", (unsigned)s_vctx.met);     return num;
+        case Ctx::SQUAD:        snprintf(num, cap, "%u", (unsigned)s_vctx.squad);   return num;
+        case Ctx::BUSY:         snprintf(num, cap, "%u", (unsigned)s_vctx.hits);    return num;
+        case Ctx::LONG_UP:      snprintf(num, cap, "%u", (unsigned)s_vctx.upHours); return num;
+        default:                return "";
+    }
+}
+
+static void ctxFill(char* out, size_t cap, const char* tmpl, const char* arg) {
+    if (!tmpl) { out[0] = '\0'; return; }
+    if (strstr(tmpl, "%s")) snprintf(out, cap, tmpl, arg);
+    else                     snprintf(out, cap, "%s", tmpl);
+}
+
+// The exchange chosen for a seed, kept so the three beats agree. The host
+// line is always asked for first, which is what fills it.
+static uint32_t s_ctxSeed = 0xFFFFFFFFu;
+static bool     s_ctxOn   = false;
+static char     s_ctxHost[40], s_ctxGuest[40], s_ctxTop[40];
+
+static bool ctxPick(uint32_t seed) {
+    s_ctxSeed = seed;
+    s_ctxOn   = false;
+    if (seed % 3) return false;                 // two in three exchanges are about nothing
+    uint8_t cands[CTX_EXCHANGES_N];
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < CTX_EXCHANGES_N; i++) if (ctxApplies(CTX_EXCHANGES[i])) cands[n++] = i;
+    if (!n) return false;
+    // Not the same one twice running, and a stride through the list rather
+    // than a walk, so with three candidates the weather is not the only
+    // subject three times in a row.
+    static uint8_t last = 0xFF;
+    uint8_t k = (uint8_t)((seed / 3 * 7) % n);
+    if (n > 1 && cands[k] == last) k = (uint8_t)((k + 1) % n);
+    last = cands[k];
+    const CtxExchange& e = CTX_EXCHANGES[last];
+    char num[8];
+    const char* arg = ctxArg(e.ctx, num, sizeof num);
+    ctxFill(s_ctxHost,  sizeof s_ctxHost,  e.host,   arg);
+    ctxFill(s_ctxGuest, sizeof s_ctxGuest, e.guest,  arg);
+    ctxFill(s_ctxTop,   sizeof s_ctxTop,   e.topper, arg);
+    s_ctxOn = true;
+    Serial.printf("[visit] banter: %s / %s / %s\n", s_ctxHost, s_ctxGuest, s_ctxTop[0] ? s_ctxTop : "-");
+    return true;
+}
+
 // The standalone HANGOUT pools that used to sit here are gone. Both sides
 // drawing from their own bank independently is precisely the thing the
 // paired table above replaced, and leaving the old pools in as a fallback
@@ -2323,12 +2465,15 @@ uint32_t    visitSnowCall(uint32_t seed)  { return visitSay(SNOW_CALLS[seed % 4]
 const char* visitSnowReply(uint32_t seed) { return SNOW_REPLIES[seed % 4]; }
 
 uint32_t visitHangHost(uint32_t seed) {
+    if (ctxPick(seed)) return visitSay(s_ctxHost);
     return visitSay(HANG_EXCHANGES[seed % HANG_EXCHANGES_N].host);
 }
 const char* visitHangGuest(uint32_t seed) {
+    if (s_ctxOn && seed == s_ctxSeed) return s_ctxGuest;
     return HANG_EXCHANGES[seed % HANG_EXCHANGES_N].guest;
 }
 const char* visitHangTopper(uint32_t seed) {
+    if (s_ctxOn && seed == s_ctxSeed) return s_ctxTop[0] ? s_ctxTop : nullptr;
     return HANG_EXCHANGES[seed % HANG_EXCHANGES_N].topper;
 }
 

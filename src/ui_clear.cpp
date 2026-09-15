@@ -81,6 +81,7 @@ static const char*  s_visitGuestLine = nullptr;
 static bool         s_crowdDrawn = false;
 static uint32_t     s_beatMs   = 2400;       // how long THIS line stays up
 static uint8_t      s_hangStep = 0;          // 0 ask, 1 answer, 2 topper
+static uint8_t      s_hitsThisBoot = 0;      // the log's size, for the banter
 static uint32_t     s_guestLaughUntil = 0;   // the guest's half of the laugh
 
 static const uint32_t WALK_MS  = 1800;       // across the gap, either way
@@ -265,12 +266,28 @@ static void visitBeat(uint32_t now, Squachy::VisitMoment m) {
         // last word. The strict two-beat alternation was correct dialogue
         // and still read as correspondence rather than company.
         switch (s_hangStep) {
-            case 0:                                 // the host asks
+            case 0: {                               // the host asks
                 s_guestTurn      = false;
                 s_visitGuestLine = nullptr;
+                // What there is to talk about, gathered fresh: the weather
+                // can change mid-visit and the hit count only goes up.
+                Squachy::VisitContext vc = {};
+                vc.background = (uint8_t)Settings::background();
+                vc.caught     = (uint8_t)Squachy::lastCaught();
+                vc.hostOutfit = Squachy::outfitIndex();
+                if (const SquachMesh::Peer* g = uiClearGuest()) {
+                    vc.guestOutfit = g->outfit;
+                    if (g->custom && g->name[0]) snprintf(vc.guestName, sizeof vc.guestName, "%s", g->name);
+                    if (Mesh::peer()) vc.met = MeshTalk::rosterMet(Mesh::peerMac());
+                }
+                vc.squad   = MeshTalk::rosterCount();
+                vc.hits    = s_hitsThisBoot;
+                vc.upHours = (uint16_t)(now / 3600000u);
+                Squachy::setVisitContext(vc);
                 s_beatMs         = Squachy::visitHangHost(s_exchange);
                 s_hangStep       = 1;
                 break;
+            }
             case 1:                                 // the guest answers
                 s_guestTurn      = true;
                 s_visitGuestLine = Squachy::visitHangGuest(s_exchange);
@@ -2416,6 +2433,7 @@ static void drawCounterLine(TFT_eSPI& t, int w, int y, const DetectionEngine& en
 void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance, bool scanMenu) {
     int w = t.width();
     int h = t.height();
+    s_hitsThisBoot = eng.logCount();
     // Recomputed every tick, not cached per-board: rotating the screen
     // changes w/h live, and the counter layout should follow it rather
     // than staying stuck at whatever orientation was active at boot.

@@ -70,6 +70,7 @@ struct Message {
     char     from[13];
     uint8_t  mac[6];
     uint32_t at;            // millis() when it arrived
+    uint32_t ctr;           // the sender's counter, for the read receipt
 };
 const Message& inbox();
 // The last few messages, newest first -- the SQUAD screen's inbox. RAM only:
@@ -78,6 +79,9 @@ constexpr uint8_t INBOX_N = 8;
 uint8_t        inboxCount();
 const Message& inboxAt(uint8_t i);        // 0 is the newest
 void           markRead();
+// A read receipt came back for the last message this board sent: who
+// opened it. Consumes.
+bool           takeRead(char* who, size_t cap);
 const char*    lineText(const Message& m);
 
 // The last emote to arrive, handed over once. Not in the inbox: it is not
@@ -139,6 +143,7 @@ struct Member {
     uint16_t         met;
 };
 uint8_t       rosterCount();
+uint16_t      rosterMet(const uint8_t mac[6]);   // 0 for a stranger
 const Member& rosterAt(uint8_t i);
 void          rosterForget(const uint8_t mac[6]);
 

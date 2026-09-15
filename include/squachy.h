@@ -281,6 +281,22 @@ namespace Squachy {
     // sides produced two Squachys talking past each other -- each line was
     // fine and none of them were answers. Same seed, same exchange, so the
     // reply actually replies.
+    // What the banter can be about, filled by the CLEAR screen at the start
+    // of each exchange. Anything it does not know stays at zero and the
+    // lines that need it stay in the drawer.
+    struct VisitContext {
+        uint8_t  background;      // Settings::Background
+        uint8_t  caught;          // DetectionType of the last catch, or UNKNOWN
+        uint8_t  guestOutfit;     // 0 for none
+        uint8_t  hostOutfit;
+        char     guestName[13];
+        uint16_t met;             // times this visitor has been met, from the roster
+        uint8_t  squad;           // roster size
+        uint8_t  hits;            // detections in the log this boot
+        uint16_t upHours;
+    };
+    void setVisitContext(const VisitContext& c);
+
     uint32_t    visitHangHost(uint32_t seed);      // host says it himself
     const char* visitHangGuest(uint32_t seed);     // the matching reply
 

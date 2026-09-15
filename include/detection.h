@@ -16,6 +16,7 @@
 struct RawBleResult {
     uint8_t mac[6];
     int8_t  rssi;
+    int8_t  prev;       // the reading before this one; equal to rssi until there is one
     char    name[24];   // empty if the device didn't advertise one
 };
 

@@ -139,8 +139,12 @@ static uint8_t glitchStepLevel(uint8_t step) {
     return (uint8_t)(lv > 4 ? 4 : lv);
 }
 
+static bool s_first = false;
+void uiAlertSetFirst(bool first) { s_first = first; }
+
 void uiAlertInit(TFT_eSPI& t, const Detection& d) {
     s_last = d;
+    s_first = false;
     s_touched = false;
     s_alertStart = millis();
     s_glitchStep = 0;
@@ -250,6 +254,22 @@ bool uiAlertHitIgnore(int x, int y, int screenW, int screenH) {
     const int SLOP = 6;
     return x >= bx - SLOP && x <= bx + bw + SLOP &&
            y >= by - SLOP && y <= by + bh + SLOP;
+}
+
+// SNOOZE, bottom centre. The corners are taken and the plate ends well
+// above the bottom row, so between HUNT and MORE INFO is the one strip
+// left clear on every rotation: 92 px on the narrow one, 84 used.
+static void snoozeBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, int& bh) {
+    bw = 84;
+    bh = 28;
+    bx = (screenW - bw) / 2;
+    by = screenH - bh - 4;
+}
+
+bool uiAlertHitSnooze(int x, int y, int screenW, int screenH) {
+    int bx, by, bw, bh;
+    snoozeBtnRect(screenW, screenH, bx, by, bw, bh);
+    return x >= bx && x <= bx + bw && y >= by && y <= by + bh;
 }
 
 bool uiAlertHitHunt(int x, int y, int screenW, int screenH) {
@@ -458,6 +478,15 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     t.setTextColor(confColor, Theme::BG);
     t.setCursor(PLATE_X + (PLATE_W - t.textWidth(info)) / 2, PLATE_Y + PLATE_H - 11);
     t.print(info);
+    // The first one of its kind, ever, on this board: a line in the gap
+    // between the strip and the plate, in the strip's own colour.
+    if (s_first) {
+        const char* fl = "* FIRST OF ITS KIND *";
+        t.setTextSize(1);
+        t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
+        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, STRIP_H + 2);
+        t.print(fl);
+    }
 
     // ---- the gauge -----------------------------------------------------
     // The detected thing, drawn large with the instrument grid over the top
@@ -571,6 +600,12 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         int hw = t.textWidth("HUNT");
         t.setCursor(bx + (bw - hw) / 2, by + (bh - t.fontHeight()) / 2);
         t.print("HUNT");
+    }
+    // SNOOZE 1H between the two: the type, not the device, off for an hour.
+    {
+        int bx, by, bw, bh;
+        snoozeBtnRect(w, h, bx, by, bw, bh);
+        Theme::drawButton(t, bx, by, bw, bh, "SNOOZE 1H", false);
     }
 
     // TV-static snow over the whole screen during the same random burst

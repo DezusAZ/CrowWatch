@@ -1178,8 +1178,25 @@ static bool maybeEnterOutfitUnlock() {
 // was still down, and the first frame read that as a tap and closed it.
 static bool s_alertArmed = true;
 
+// Squachy's line for a first-of-its-kind catch, said once he is back on the
+// main screen: his bubble lives there, not on the card.
+static char s_firstLine[64] = "";
+
 static void enterAlert(const Detection& d) {
     state = AppState::ALERT;
+    // The lifetime count for the type includes this one, so one means first.
+    {
+        const bool first = engine.lifetimeTypeCount(d.type) == 1;
+        uiAlertSetFirst(first);
+        if (first) {
+            static const char* const FIRST_LINES[] = {
+                "A %s! Never had one of those.", "First %s ever. Mark the date.",
+                "New one for the book: %s.",     "A %s. So that's what they look like.",
+            };
+            snprintf(s_firstLine, sizeof s_firstLine, FIRST_LINES[random(0, 4)],
+                     detectionTypeName(d.type));
+        }
+    }
     s_alertArmed = false;
     alertStart = millis();
     transitionStart = alertStart;
@@ -2185,6 +2202,14 @@ void loop() {
     Mesh::tick(now);
     MeshTalk::tick(now);
     {
+        char who[13];
+        if (MeshTalk::takeRead(who, sizeof who)) {
+            static char sub[40];
+            snprintf(sub, sizeof sub, "%s opened your message", who);
+            Theme::showToast("READ", sub, Theme::GREEN);
+        }
+    }
+    {
         MeshTalk::NudgeIn n;
         if (MeshTalk::takeNudge(n)) {
             uint8_t mine[3] = { 0, 0, 0 };
@@ -2431,6 +2456,11 @@ void loop() {
             if (now - transitionStart > 7000 && !Squachy::visiting()) {
                 const char* n = OtaCore::takeAvailableNotice();
                 if (n) Squachy::announce(n);
+            }
+            // And the first-of-its-kind line, straight after the card.
+            if (s_firstLine[0] && now - transitionStart > 1200) {
+                Squachy::announce(s_firstLine);
+                s_firstLine[0] = '\0';
             }
             // Checked before drawing so the celebration takes over on the
             // same frame it becomes due, rather than after one frame of
@@ -2904,6 +2934,20 @@ void loop() {
                     lastTouch = now;
                     if (IgnoreList::contains(s_alertMac)) IgnoreList::remove(s_alertMac);
                     else                                  IgnoreList::add(s_alertMac, lastAlertType);
+                    Squachy::trigger(Squachy::Event::DETECTION, lastAlertType,
+                                     engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                    enterClear();
+                } else if (uiAlertHitSnooze(tp.x, tp.y, tft.width(), tft.height())) {
+                    // An hour off for the whole type, not the device: the
+                    // filter row shows the minutes left, and it comes back
+                    // on its own. Acknowledges the alert like IGNORE does.
+                    lastTouch = now;
+                    Settings::snoozeType(lastAlertType, 3600000u);
+                    {
+                        static char sub[40];
+                        snprintf(sub, sizeof sub, "%s muted for an hour", detectionTypeName(lastAlertType));
+                        Theme::showToast("SNOOZED", sub, Theme::AMBER);
+                    }
                     Squachy::trigger(Squachy::Event::DETECTION, lastAlertType,
                                      engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterClear();

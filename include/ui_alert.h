@@ -7,6 +7,10 @@
 class DetectionEngine;
 
 void uiAlertInit(TFT_eSPI& t, const Detection& d);
+// The first of this type this board has ever caught: the card says so.
+void uiAlertSetFirst(bool first);
+// SNOOZE 1H, bottom centre between HUNT and MORE INFO.
+bool uiAlertHitSnooze(int x, int y, int screenW, int screenH);
 // While the device is locked with ALERTS WHEN LOCKED at TYPE ONLY: the type
 // and the signal still show, the device's name, label and address do not.
 void uiAlertSetRedacted(bool redacted);

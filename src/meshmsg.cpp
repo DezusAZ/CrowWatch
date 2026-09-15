@@ -455,6 +455,18 @@ size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const 
     return sealBytes(c, mac, counter, KIND_HELLO, pt, sizeof pt, out, cap);
 }
 
+size_t sealRead(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint32_t msgCounter, uint8_t* out, size_t cap) {
+    const uint8_t pt[4] = { (uint8_t)msgCounter, (uint8_t)(msgCounter >> 8), (uint8_t)(msgCounter >> 16), (uint8_t)(msgCounter >> 24) };
+    return sealBytes(c, mac, counter, KIND_READ, pt, sizeof pt, out, cap);
+}
+
+Open openRead(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint32_t& msgCounter) {
+    uint8_t pt[4] = { 0, 0, 0, 0 };
+    const Open r = openBytes(c, mac, in, len, KIND_READ, sizeof pt, counter, pt);
+    msgCounter = (uint32_t)pt[0] | ((uint32_t)pt[1] << 8) | ((uint32_t)pt[2] << 16) | ((uint32_t)pt[3] << 24);
+    return r;
+}
+
 Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3]) {
     ver[0] = ver[1] = ver[2] = 0;
     if (len == CANNED_FRAME_LEN) {                      // v1.7.7's: one byte, no version

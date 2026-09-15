@@ -225,6 +225,10 @@ namespace Settings {
     // included -- it's the "matched a signature but not a specific
     // brand" fallback, not a type someone would want to blanket-mute.
     bool     typeEnabled(DetectionType t);
+    // SNOOZE: a type off for a while, not for good. typeEnabled() reads it,
+    // so everything that filters follows. RAM only; a restart clears it.
+    void     snoozeType(DetectionType t, uint32_t ms);
+    uint32_t typeSnoozeLeft(DetectionType t);   // ms, 0 when not snoozed
 
     // How big Squachy is drawn, as a percentage of the size the layout
     // would otherwise give him. SMALL 70, MEDIUM 85, LARGE 100.

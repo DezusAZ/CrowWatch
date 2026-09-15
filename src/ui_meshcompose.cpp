@@ -55,6 +55,15 @@ Rect        s_emoteBtn = { 0, 0, 0, 0 };
 Rect        s_emoteRect[EmoteScript::PER_TAB];
 Rect        s_tabRect[EmoteScript::TABS];
 Rect        s_random = { 0, 0, 0, 0 };
+// FILL: the eight canned lines swap for eight openings that end in a blank,
+// and picking one opens the keyboard with it typed. "MEET AT " and the rest
+// of the message is the part worth typing.
+Rect        s_fill = { 0, 0, 0, 0 };
+bool        s_fillOn = false;
+const char* const FILL_LINES[8] = {
+    "MEET AT ", "I'M AT ", "BACK IN ", "CALL ME AT ",
+    "HEADING TO ", "LOOK FOR THE ", "BRING THE ", "SAW A ",
+};
 // Kept across visits to this screen, not across a reboot: whoever sends a lot
 // of pranks should find the pranks where they left them.
 uint8_t     s_tab = 0;
@@ -356,6 +365,7 @@ void uiMeshComposeInit(TFT_eSPI& t) {
     s_status  = nullptr;
     s_sel     = -1;
     s_typedOn = false;
+    s_fillOn  = false;
     s_typed[0] = '\0';
     s_emoteOn = false;
     // Opening this screen is reading the message, so the bubble on the main
@@ -488,6 +498,26 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
                 t.print(sub);
             }
         }
+    } else if (s_fillOn) {
+        const int LTH = 18;
+        t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
+        const char* hd = "PICK A START, TYPE THE REST";
+        t.setCursor((w - t.textWidth(hd)) / 2, y0 + (LTH - 8) / 2);
+        t.print(hd);
+        const int ly0 = y0 + LTH + 5;
+        for (int i = 0; i < 8; i++) {
+            const int x = 4 + (i % cols) * (cw + 6), y = ly0 + (i / cols) * (ch + 3);
+            s_lineRect[s_lineN] = { (int16_t)x, (int16_t)y, (int16_t)cw, (int16_t)ch };
+            s_lineIdx[s_lineN]  = (uint8_t)i;
+            s_lineN++;
+            t.fillRect(x, y, cw, ch, Theme::BG);
+            t.drawRect(x, y, cw, ch, Theme::VAPOR_YELLOW);
+            t.setTextColor(Theme::WHITE, Theme::BG);
+            t.setCursor(x + 6, y + (ch - 8) / 2);
+            t.print(FILL_LINES[i]);
+            t.setTextColor(Theme::W95_SHADOW, Theme::BG);
+            t.print("___");
+        }
     } else {
         // The same tab row the emote half draws, in the same place, so the two
         // pickers read as one control with two halves.
@@ -566,6 +596,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     s_type = { 0, 0, 0, 0 };
     s_emoteBtn = { 0, 0, 0, 0 };
     s_random   = { 0, 0, 0, 0 };
+    s_fill     = { 0, 0, 0, 0 };
     if (s_typedOn || s_sel >= 0) {
         s_send = { (int16_t)(w - 4 - BW), (int16_t)(h - BH - 6), BW, BH };
         Theme::drawButton(t, s_back.x, s_back.y, s_back.w, s_back.h,
@@ -581,6 +612,9 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         Theme::drawButton(t, s_emoteBtn.x, s_emoteBtn.y, s_emoteBtn.w, s_emoteBtn.h, "[ EMOTE ]", true);
     } else {
         Theme::drawButton(t, s_back.x, s_back.y, s_back.w, s_back.h, "[ BACK ]", false);
+        // FILL, where the emote half keeps RANDOM: the openings with a blank.
+        s_fill = { (int16_t)(w - 4 - BW - 8), (int16_t)(h - BH - 6), (int16_t)(BW + 8), BH };
+        Theme::drawButton(t, s_fill.x, s_fill.y, s_fill.w, s_fill.h, s_fillOn ? "[ LINES ]" : "[ FILL ]", s_fillOn);
         // No page arrows any more: the lines are on labelled tabs, and the
         // emote half never had arrows either.
         int right = w - 4;
@@ -691,8 +725,16 @@ ComposeHit uiMeshComposeTouch(int x, int y, uint32_t now) {
             return ComposeHit::NONE;
         }
     }
+    if (s_fill.w && inRect(s_fill, x, y)) { s_fillOn = !s_fillOn; s_sel = -1; s_status = nullptr; return ComposeHit::NONE; }
     for (uint8_t i = 0; i < s_lineN; i++) {
         if (!inRect(s_lineRect[i], x, y)) continue;
+        if (s_fillOn) {
+            // An opening: to the keyboard with it typed, blank at the end.
+            if (const char* why = cannotSend()) { s_status = why; s_statusCol = Theme::AMBER; return ComposeHit::NONE; }
+            uiMeshComposeSetTyped(FILL_LINES[s_lineIdx[i]]);
+            s_fillOn = false;
+            return ComposeHit::TYPE;
+        }
         if (const char* why = cannotSend()) { s_sel = -1; s_status = why; s_statusCol = Theme::AMBER; }
         else                                { s_sel = (int8_t)s_lineIdx[i]; s_status = nullptr; }
         return ComposeHit::NONE;

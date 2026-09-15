@@ -275,6 +275,25 @@ something newer knows without touching WiFi. Either way Squachy says it once
 on the main screen, the SYSTEM row reads UPDATE, and UPDATE FIRMWARE names
 the version until you install it.
 
+### Smaller things
+
+- **Arrows on NEARBY.** Each device shows a green up-arrow when it has come
+  closer since its last reading and a red down-arrow when it has moved away;
+  under four dB of change shows nothing, which is what a still device does.
+- **First of its kind.** The first time this board ever catches a type, the
+  card says so and Squachy marks the occasion when you get back to him.
+- **FILL on the message screen.** Eight openings that end in a blank, MEET AT,
+  I'M AT, BACK IN and the rest; pick one and the keyboard opens with it typed.
+- **Read receipts.** When a squad member opens your message their board says
+  so, and yours shows a READ toast with their name. A reader with TRANSMIT off
+  can't send one, so you see sent and never read, which is the truth.
+- **SNOOZE 1H on an alert.** Mutes the type, not the device, for an hour. The
+  type filter shows the minutes left, and it comes back on its own.
+- **Banter about something.** Two Squachys now talk about the weather on
+  screen, what was caught earlier, each other's outfits, how many times
+  they've met, the squad's size, and the length of the day, one exchange in
+  three, when there's something to say.
+
 ### Updating the squad
 
 **Settings → SYSTEM → UPDATE FIRMWARE → UPDATE SQUAD** tells every board in

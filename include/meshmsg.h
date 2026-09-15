@@ -242,6 +242,9 @@ constexpr uint8_t KIND_INVITE_KEY = 8;
 // it is a fact about the sender, not something to act on -- so it costs
 // nothing but a counter every couple of minutes.
 constexpr uint8_t KIND_HELLO      = 9;
+// READ: "I opened your message", carrying the message's counter. Sealed;
+// not replay-recorded, like HELLO -- nothing acts on it but a tick mark.
+constexpr uint8_t KIND_READ       = 10;
 constexpr uint8_t INVITE_PART_BYTES = 12;
 constexpr uint8_t INVITE_PARTS      = 4;
 constexpr size_t  INVITE_BLOB       = INVITE_PART_BYTES * INVITE_PARTS;   // 48
@@ -286,6 +289,7 @@ size_t sealUpdated(const Crypto& c, const uint8_t mac[6], uint32_t counter,
 // The hello carries the sender's version from v1.7.8 on: [1][maj][min][pat].
 // openHello takes the older one-byte form too, and reports 0.0.0 for it.
 size_t sealHello(const Crypto& c, const uint8_t mac[6], uint32_t counter, const uint8_t ver[3], uint8_t* out, size_t cap);
+size_t sealRead(const Crypto& c, const uint8_t mac[6], uint32_t counter, uint32_t msgCounter, uint8_t* out, size_t cap);
 // The setup byte, per emote. RPS: the sender's throw times three, plus the
 // receiver's -- each 0 rock, 1 paper, 2 scissors. The rest are described with
 // the scripts (EmoteScript::roll); an emote with nothing to agree on sends 0.
@@ -323,6 +327,7 @@ Open openTextPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size
 Open openEmote(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t& emote, uint8_t& setup);
 Open openHello(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint8_t ver[3]);
+Open   openRead(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len, uint32_t& counter, uint32_t& msgCounter);
 Open openNudge(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,
                uint32_t& counter, uint8_t ver[3], uint8_t& wifiParts);
 Open openWifiPart(const Crypto& c, const uint8_t mac[6], const uint8_t* in, size_t len,

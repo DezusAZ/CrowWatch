@@ -69,6 +69,14 @@ struct SquadSeen { uint8_t mac[6]; uint32_t at; bool live; };
 SquadSeen s_squad[SQUAD_N] = {};
 uint32_t  s_lastHello = 0;
 
+// Read receipts. Ours to send, once, for the message just opened; theirs
+// to take, for the last one we sent.
+bool     s_readDue   = false;
+uint32_t s_readCtr   = 0;
+uint32_t s_sentCtr   = 0xFFFFFFFFu;   // the last message this board sent
+bool     s_readHave  = false;
+char     s_readBy[13] = "";
+
 // The roster (see meshtalk.h), and its shape on disk: 25 bytes a member,
 // packed by hand so a different compiler's padding cannot scramble it.
 Member  s_roster[ROSTER_N] = {};
@@ -295,6 +303,19 @@ void deliver(const Slot& s, uint32_t now) {
     if (kind == MeshMsg::KIND_INVITE_PUB || kind == MeshMsg::KIND_INVITE_KEY) { deliverInvite(s, now, ctr, kind); return; }
     if (!ready()) return;
 
+    if (kind == MeshMsg::KIND_READ) {
+        uint32_t mc = 0;
+        if (MeshMsg::openRead(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, mc) == MeshMsg::Open::OK) {
+            squadNote(s.mac, now);
+            if (mc == s_sentCtr) {
+                s_readHave = true;
+                snprintf(s_readBy, sizeof s_readBy, "%s", s.name[0] ? s.name : "SOMEONE");
+                Serial.printf("[meshtalk] %s read #%lu\n", s_readBy, (unsigned long)mc);
+            }
+        }
+        return;
+    }
+
     if (kind == MeshMsg::KIND_HELLO) {
         uint8_t ver[3];
         if (MeshMsg::openHello(MeshCrypto::impl(), s.mac, s.data, s.len, ctr, ver) == MeshMsg::Open::OK) {
@@ -327,6 +348,7 @@ void deliver(const Slot& s, uint32_t now) {
         s_inbox.text        = false;
         s_inbox.unknownLine = (r == MeshMsg::Open::UNKNOWN_LINE);
         s_inbox.canned      = line;
+        s_inbox.ctr         = ctr;
         arrived(s, now);
         return;
     }
@@ -347,6 +369,7 @@ void deliver(const Slot& s, uint32_t now) {
         squadNote(s.mac, now);
         s_inbox.text        = true;
         s_inbox.unknownLine = false;
+        s_inbox.ctr         = base;
         memcpy(s_inbox.body, body, sizeof s_inbox.body);
         arrived(s, now);
         return;
@@ -553,6 +576,7 @@ Send send(uint8_t canned, uint32_t now) {
     if (ok != Send::OK) return ok;
     uint32_t c = 0;
     if (!takeCounters(1, c)) return Send::FAILED;
+    s_sentCtr = c;
     const size_t n = MeshMsg::sealCanned(MeshCrypto::impl(), s_ownMac, c, canned,
                                          s_out[0], sizeof s_out[0]);
     if (n == 0) return Send::FAILED;
@@ -569,6 +593,7 @@ Send sendText(const char* text, uint32_t now) {
     if (total == 0) return Send::FAILED;
     uint32_t base = 0;
     if (!takeCounters(total, base)) return Send::FAILED;
+    s_sentCtr = base;
     for (uint8_t p = 0; p < total; p++) {
         const size_t n = MeshMsg::sealTextPart(MeshCrypto::impl(), s_ownMac, base + p, text,
                                                p, total, s_out[p], sizeof s_out[p]);
@@ -641,6 +666,11 @@ void markNudged() { s_prefs.putBool("nudged", true); }
 const uint8_t* ownMac() { return s_ownMac; }
 
 uint8_t       rosterCount()        { return s_rosterN; }
+uint16_t rosterMet(const uint8_t mac[6]) {
+    for (uint8_t i = 0; i < s_rosterN; i++)
+        if (memcmp(s_roster[i].mac, mac, 6) == 0) return s_roster[i].met;
+    return 0;
+}
 const Member& rosterAt(uint8_t i)  { return s_roster[i < s_rosterN ? i : 0]; }
 void rosterForget(const uint8_t mac[6]) {
     for (uint8_t i = 0; i < s_rosterN; i++) {
@@ -896,6 +926,15 @@ void tick(uint32_t now) {
         s_ackPending = false;
         sendUpdated(now);
     }
+    // The read receipt, when one is owed and the air is free.
+    if (s_readDue && ready() && s_macSet && Settings::meshTransmit() && !sending(now)) {
+        s_readDue = false;
+        uint32_t c = 0;
+        if (takeCounters(1, c)) {
+            const size_t n = MeshMsg::sealRead(MeshCrypto::impl(), s_ownMac, c, s_readCtr, s_out[0], sizeof s_out[0]);
+            if (n) { s_outLen[0] = (uint8_t)n; onAir(1, now, EMOTE_MS, true); }
+        }
+    }
     // The hello: a few seconds every couple of minutes, only when nothing
     // else wants the air, and only from a board that is transmitting anyway.
     if (now > 15000 && ready() && s_macSet && Settings::meshTransmit() && !sending(now) &&
@@ -944,7 +983,19 @@ const Message& inboxAt(uint8_t i) {
     if (i >= s_histN) return s_inbox;
     return s_hist[(s_histHead + INBOX_N - 1 - i) % INBOX_N];
 }
-void markRead() { s_inbox.unread = false; }
+void markRead() {
+    // Opening a message is the moment to say so: once, on the next tick,
+    // if this board transmits at all. A reader with TRANSMIT off leaves the
+    // sender seeing "sent" and never "read", which is the truth.
+    if (s_inbox.have && s_inbox.unread) { s_readDue = true; s_readCtr = s_inbox.ctr; }
+    s_inbox.unread = false;
+}
+bool takeRead(char* who, size_t cap) {
+    if (!s_readHave) return false;
+    s_readHave = false;
+    snprintf(who, cap, "%s", s_readBy);
+    return true;
+}
 
 const char* lineText(const Message& m) {
     if (m.text) return m.body;
