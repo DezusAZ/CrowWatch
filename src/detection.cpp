@@ -73,8 +73,11 @@ uint32_t advertsDropped() { return s_advertsDropped; }
 void setScanSafe(bool safe) { s_scanSafe = safe; }
 bool scanSafe() { return s_scanSafe; }
 
+static volatile uint32_t s_advRaw = 0;   // every advert the radio handed over, seatbelt or not
+
 class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* adv) override {
+        s_advRaw++;
         // The seatbelt. Everything below asks NimBLE for strings, and a
         // string on a heap of scraps throws, and a throw on the host task
         // is the abort a user photographed at 28 seconds up. With nothing
@@ -453,8 +456,12 @@ bool DetectionEngine::init() {
     Serial.flush();
     NimBLEDevice::init("");
     NimBLEScan* scan = NimBLEDevice::getScan();
-    scan->setActiveScan(!s_scanSafe);
-    if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning from the start (three short boots in a row)");
+    // Passive to start, whatever the room: the first second of an active
+    // scan in a crowded building is what killed a user's board. Active
+    // comes once the rate of adverts says the room can afford it -- see
+    // scanModeTick() below.
+    scan->setActiveScan(false);
+    if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning for good (three short boots in a row)");
     scan->setInterval(100);
     scan->setWindow(99);
     scan->setDuplicateFilter(false);
@@ -739,11 +746,24 @@ static const uint32_t SCAN_FLUSH_SETTLE_MS = 1000;
 // Two minutes of that, then active again, and again if it comes to it.
 static const uint32_t SCAN_PASSIVE_MS     = 120000;
 static const uint8_t  SCAN_PRESSED_LIMIT  = 3;       // pressed flushes inside a minute
+// And the rate itself decides, before the heap ever has to: an active scan
+// keeps a record for every device it has asked and not yet heard back from,
+// and at 184 adverts a second (a college IT floor, measured on a user's
+// board) those records ate a 14 KB block in under a second. So the scan is
+// passive until the room has been quiet for a while, active while it stays
+// quiet, and passive again the moment it gets loud. A passive scan misses
+// only what a device says when asked: some names, and a squad message.
+static const uint32_t SCAN_ACTIVE_BELOW   = 50;      // adverts/s: quiet enough to ask
+static const uint32_t SCAN_PASSIVE_ABOVE  = 90;      // adverts/s: too loud to keep asking
+static const uint32_t SCAN_MODE_SETTLE_MS = 5000;    // listen this long before the first change
+static const uint32_t SCAN_MODE_DWELL_MS  = 30000;   // and this long between changes
+static volatile bool  s_wantPassive = true;          // the loop task's decision, read on the host task
+static uint32_t       s_advRate     = 0;             // adverts/s over the last second
 static uint32_t       s_lastFlush   = 0;
 static uint32_t       s_pressedAt[SCAN_PRESSED_LIMIT] = { 0, 0, 0 };
 static uint8_t        s_pressedIx   = 0;
 static volatile uint32_t s_passiveUntil = 0;        // read on the host task
-static bool           s_passiveNow  = false;         // what the host task last set
+static bool           s_passiveNow  = true;          // what the host task last set: passive from init()
 bool scanPassiveNow() { return s_scanSafe || s_passiveNow; }
 static ScanFlushStats s_flush       = { 0, 0, 0 };   // written on the host task
 static uint32_t       s_flushLogged = 0;
@@ -766,7 +786,8 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     // Active or passive, as the loop task decided; the mode only takes at
     // a start, which is why the decision is carried in here.
     const uint32_t nowMs = millis();
-    const bool passive = s_scanSafe || (s_passiveUntil && (int32_t)(s_passiveUntil - nowMs) > 0);
+    (void)nowMs;
+    const bool passive = s_scanSafe || s_wantPassive;
     if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }
     scan->start(0, nullptr, false);
     const uint32_t freed = (after > before) ? after - before : 0;
@@ -774,6 +795,32 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     s_flush.totalFreed += freed;
     s_flush.count++;
 }
+
+// Once a second: the advert rate, and whether the scan should be asking.
+// Returns true when the mode changed and the scan wants a restart.
+static bool scanModeTick(uint32_t now, uint32_t largest) {
+    static uint32_t lastAt = 0, lastRaw = 0, modeSince = 0;
+    if (now - lastAt < 1000) return false;
+    const uint32_t raw = s_advRaw;
+    s_advRate = (raw - lastRaw) * 1000UL / (now - lastAt);
+    lastRaw = raw;
+    lastAt  = now;
+    const bool pressedWindow = s_passiveUntil && (int32_t)(s_passiveUntil - now) > 0;
+    bool want = s_wantPassive;
+    if (s_scanSafe || pressedWindow) want = true;
+    else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
+    else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
+             s_advRate < SCAN_ACTIVE_BELOW && largest >= SCAN_FLUSH_BLOCK_B) want = false;
+    if (want == s_wantPassive) return false;
+    s_wantPassive = want;
+    modeSince = now;
+    Serial.printf("[scan] %s: %lu adverts/s, largest block %lu\n",
+                  want ? "passive, the room is loud" : "active, the room is quiet",
+                  (unsigned long)s_advRate, (unsigned long)largest);
+    return true;
+}
+
+uint32_t advertRate() { return s_advRate; }
 
 static void scanFlushTick() {
     // Printed from here rather than the host task, which should never be kept
@@ -789,9 +836,12 @@ static void scanFlushTick() {
     const uint32_t now = millis();
     const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     s_heapLow = largest < 1536;
-    const bool pressed = largest < SCAN_FLUSH_BLOCK_B && now > SCAN_FLUSH_SETTLE_MS &&
+    const bool modeChanged = scanModeTick(now, largest);
+    // A passive scan holds nothing between flushes, so heap pressure there
+    // is somebody else's and a restart would not help.
+    const bool pressed = !s_passiveNow && largest < SCAN_FLUSH_BLOCK_B && now > SCAN_FLUSH_SETTLE_MS &&
                          now - s_lastFlush >= SCAN_FLUSH_MIN_MS;
-    if (!pressed && now - s_lastFlush < SCAN_FLUSH_MS) return;
+    if (!pressed && !modeChanged && now - s_lastFlush < SCAN_FLUSH_MS) return;
     if (pressed) {
         Serial.printf("[scan] heap pressed: largest block %lu, flushing early\n", (unsigned long)largest);
         // Three pressed flushes inside a minute: flushing is losing, go passive.
@@ -806,8 +856,6 @@ static void scanFlushTick() {
             Serial.printf("[scan] passive for %lu s: too many devices for the heap here\n",
                           (unsigned long)(SCAN_PASSIVE_MS / 1000));
         }
-    } else if (s_passiveNow && !(s_passiveUntil && (int32_t)(s_passiveUntil - now) > 0)) {
-        Serial.println("[scan] back to active scanning");
     }
     s_lastFlush = now;
     NimBLEScan* scan = NimBLEDevice::getScan();

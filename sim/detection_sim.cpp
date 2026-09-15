@@ -51,6 +51,7 @@ bool     scanPassiveNow()       { return false; }
 bool     scanSafe()             { return false; }
 void     setScanSafe(bool)      {}
 uint32_t advertsDropped()       { return 0; }
+uint32_t advertRate()           { return 0; }
 
 void DetectionEngine::clearLog() {
     _logCount = 0;

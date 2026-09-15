@@ -114,6 +114,10 @@ static void crashReportInit() {
     }
     const bool panicked = (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
                            r == ESP_RST_TASK_WDT || r == ESP_RST_WDT);
+    // A magic that survived with garbage behind it -- 31 days up and 20 MB
+    // free, on a photo -- is RTC RAM that half-survived a power dip.
+    if (g_crumb.magic == CRUMB_MAGIC &&
+        (g_crumb.uptimeMs > 30UL * 24 * 3600 * 1000 || g_crumb.heapFree > 400000)) g_crumb.magic = 0;
     if (panicked && g_crumb.magic == CRUMB_MAGIC) {
         if (g_crumb.shortCrashes > 10) g_crumb.shortCrashes = 0;   // RTC RAM from an older firmware
         if (g_crumb.uptimeMs < 60000) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;

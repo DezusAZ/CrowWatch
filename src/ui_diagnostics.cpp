@@ -164,7 +164,7 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
         y = drawLine(t, y, ms.advOn ? Theme::GREEN : Theme::CYAN, "BLE SEEN:", "%u.%u /s, %s%s",
                      (unsigned)(ms.offRate / 10), (unsigned)(ms.offRate % 10),
                      ms.advOn ? "advertising" : "not advertising",
-                     scanSafe() ? ", SAFE" : (scanPassiveNow() ? ", passive" : ""));
+                     scanSafe() ? ", SAFE" : (scanPassiveNow() ? ", passive" : ", active"));
         // The seatbelt's count: adverts refused because the largest free
         // block was under 1.5 KB when they came in. A big number here with
         // a small HEAP line is a board that is only alive because it is

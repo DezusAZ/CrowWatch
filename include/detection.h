@@ -128,7 +128,8 @@ struct BootHeap {
     uint32_t bleFree,  bleLargest;    // the Bluetooth scan just started
 };
 BootHeap bootHeap();
-bool     scanPassiveNow();   // the scan is passive right now (pressed, or safe mode)
+bool     scanPassiveNow();   // the scan is passive right now (the room, pressure, or safe mode)
+uint32_t advertRate();       // adverts/s the radio handed over in the last second
 uint32_t advertsDropped();   // adverts the seatbelt refused for want of heap
 
 class DetectionEngine {
