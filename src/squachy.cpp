@@ -716,7 +716,13 @@ static const char* pick(const char* const* arr, int n) {
     return arr[random(0, n)];
 }
 
+// True while the idle roll below is choosing a line. BANTER's IMPORTANT
+// setting drops what it says and keeps what it does: the moods, the walks
+// and the naps go on, only the bubble stays empty.
+static bool s_idleRoll = false;
+
 static void say(const char* line, uint32_t ms) {
+    if (s_idleRoll && Settings::banter() == 0) return;
     bubbleText  = line;
     bubbleStart = millis();
     bubbleUntil = bubbleStart + ms;
@@ -5204,11 +5210,19 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         if (nextIdleAt < now + 8000) nextIdleAt = now + 8000;
     }
 
+    // BANTER scales the gap the roll set for itself: LESS waits two and a
+    // half times as long, MORE half. Measured from the last roll, so a gap
+    // set by something else (a catch, the watch line) scales the same way.
+    static uint32_t s_idleRolledAt = 0;
+    const uint32_t  idleGap  = nextIdleAt > s_idleRolledAt ? nextIdleAt - s_idleRolledAt : 0;
+    const uint32_t  idleDue  = s_idleRolledAt + (uint32_t)(idleGap * Settings::banterScale());
     if (!s_onboardActive && !s_showOff && mood == Mood::IDLE &&
 #if SQUACH_MESH
         !s_visiting &&
 #endif
-        now >= nextIdleAt) {
+        now >= idleDue) {
+        s_idleRolledAt = now;
+        s_idleRoll = true;
         uint32_t idleFor = now - lastInteraction;
         bool longIdle  = idleFor > 90000;
         // idleFor only ever grows while nothing happens, so without the
@@ -5347,6 +5361,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             moodUntil = now + 1200;
             nextIdleAt = now + 9000 + random(0, 13000);
         }
+        s_idleRoll = false;
     }
     } // if (advance)
 

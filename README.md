@@ -157,6 +157,11 @@ once a day with the date in it, knows whether it's Monday, lunch, the three
 o'clock slump or two in the morning, and counts the days since the board
 first knew the date: a week, a month, a hundred days, a year.
 
+**BANTER** on the APPEARANCE page sets how much he talks when nothing is
+happening: IMPORTANT (idle chatter off; he still speaks for a catch, a
+message, a newer release and the daily hello), LESS, NORMAL or MORE. The
+set pieces two Squachys act out follow the same setting.
+
 ### Desk mode
 
 <p align="center">

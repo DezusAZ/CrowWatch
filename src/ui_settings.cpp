@@ -81,7 +81,7 @@ static const SettingsRow APPEARANCE_ROWS[] = {
     // change, and they were a scroll away on the main list. TOP HAT only
     // appears once it has been earned; see buildDisplayList().
     SettingsRow::SQUACHY_SIZE, SettingsRow::OUTFIT, SettingsRow::PET,
-    SettingsRow::SHADES_COLOR, SettingsRow::TOP_HAT,
+    SettingsRow::SHADES_COLOR, SettingsRow::BANTER, SettingsRow::TOP_HAT,
     // Then how the SCREEN looks.
     SettingsRow::THEME, SettingsRow::BACKGROUND, SettingsRow::BACKGROUND_LOCK, SettingsRow::BRIGHTNESS,
     SettingsRow::INVERT, SettingsRow::RGB_SWAP, SettingsRow::ROTATION_LOCK,
@@ -154,6 +154,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::SQUACHY_SIZE:
         case SettingsRow::OUTFIT:
         case SettingsRow::PET:
+        case SettingsRow::BANTER:
             return RowGroupId::APPEARANCE;
         case SettingsRow::BORING_MODE:
         case SettingsRow::CONFIDENCE:
@@ -749,6 +750,10 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
         case SettingsRow::PET:
             label = "PET";
             value = Squachy::petEnabled() ? "VAPOR SHAGGY" : "OFF";
+            break;
+        case SettingsRow::BANTER:
+            label = "BANTER";
+            value = Settings::banterName();
             break;
         case SettingsRow::VIEW_DIARY:
             label = "SQUACHY'S DIARY";

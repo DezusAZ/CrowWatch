@@ -481,6 +481,8 @@ static uint32_t pieceGap() {
     // The follower's own clock runs slow: it is there for the case where the
     // leader has wandered off into a menu, not to race him.
     if (idleFollower(millis())) g *= 2;
+    // BANTER: the set pieces come as often as the idle lines do.
+    g = (uint32_t)(g * Settings::banterScale());
     return g;
 }
 

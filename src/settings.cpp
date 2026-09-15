@@ -99,6 +99,9 @@ static bool    s_updateCheck  = true;
 static uint8_t s_timeZone     = 10;   // UTC in Clock's table
 static bool    s_tzChosen     = false;
 static const char* const LIGHT_IDLE_NAMES[]  = { "OFF", "BREATHE", "SOLID" };
+static const char* const BANTER_NAMES[]      = { "IMPORTANT", "LESS", "NORMAL", "MORE" };
+static const float       BANTER_SCALE[]      = { 2.5f, 2.5f, 1.0f, 0.5f };
+static uint8_t s_banter = 2;   // NORMAL: what every board did before the row existed
 // BACKGROUND is stored as 10, after the fixed colours, so the indices saved
 // by the first build stay what they were; the cycle below still visits it
 // second, next to THEME, which is where it belongs on the screen.
@@ -232,6 +235,8 @@ void load() {
     s_lightAlerts  = s_prefs.getBool("ltAlert", true);
     s_lightMsgs    = s_prefs.getBool("ltMsg", true);
     s_lightIdle    = s_prefs.getUChar("ltIdle", 1);
+    s_banter       = s_prefs.getUChar("banter", 2);
+    if (s_banter > 3) s_banter = 2;
     s_lightColor   = s_prefs.getUChar("ltColor", 0);
     s_lightBright  = s_prefs.getUChar("ltBright", 2);
     // On by default since v1.7.7: a squad member can only ever make this board
@@ -412,6 +417,11 @@ void toggleLight()         { s_lightOn = !s_lightOn;         s_prefs.putBool("lt
 void toggleLightAlerts()   { s_lightAlerts = !s_lightAlerts; s_prefs.putBool("ltAlert", s_lightAlerts); }
 void toggleLightMessages() { s_lightMsgs = !s_lightMsgs;     s_prefs.putBool("ltMsg", s_lightMsgs); }
 void cycleLightIdle()      { s_lightIdle = (uint8_t)((s_lightIdle + 1) % 3);            s_prefs.putUChar("ltIdle", s_lightIdle); }
+uint8_t     banter()       { return s_banter; }
+const char* banterName()   { return BANTER_NAMES[s_banter > 3 ? 2 : s_banter]; }
+float       banterScale()  { return BANTER_SCALE[s_banter > 3 ? 2 : s_banter]; }
+// Quiet to loud: IMPORTANT, LESS, NORMAL, MORE, round again.
+void cycleBanter()         { s_banter = (uint8_t)((s_banter + 1) % 4);                 s_prefs.putUChar("banter", s_banter); }
 void cycleLightColor() {
     // THEME -> BACKGROUND -> RED ... WHITE -> THEME.
     if      (s_lightColor == 0)  s_lightColor = 10;

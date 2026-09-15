@@ -184,6 +184,15 @@ namespace Settings {
     void        toggleLightMessages();
     uint8_t     lightIdle();             // 0 OFF, 1 BREATHE, 2 SOLID
     void        cycleLightIdle();
+
+    // BANTER, on the APPEARANCE page: how much Squachy talks when nothing is
+    // happening. 0 IMPORTANT (idle chatter off; he still speaks for a catch,
+    // a message, a release, the daily hello), 1 LESS, 2 NORMAL, 3 MORE.
+    // banterScale() is the multiplier on the idle roll's gaps.
+    uint8_t     banter();
+    const char* banterName();
+    void        cycleBanter();
+    float       banterScale();
     const char* lightIdleName();
     uint8_t     lightColor();            // 0 THEME, 1..9 fixed colours, 10 BACKGROUND
     void        cycleLightColor();
