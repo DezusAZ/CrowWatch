@@ -1418,18 +1418,18 @@
         // actually deployed, so a site built without one silently leaves the
         // picker alone rather than offering a button that 404s.
         //
-        // Empty right now: the RL Phantom graduated to the public picker and
-        // the SquachMesh build became the normal firmware. To offer a new lab
-        // board, list its manifest here AND copy it in the release workflow's
-        // lab branch.
-        [].forEach(function (path) {
+        // One per board the release workflow's lab branch publishes. A
+        // named lab run (the "label" input) puts its name in each one.
+        ['./manifest-lab-cyd.json', './manifest-lab-cyd-fast.json',
+         './manifest-lab-cyd-ili9341.json', './manifest-lab-cyd-ili9341-fast.json',
+         './manifest-lab-rlphantom-r.json'].forEach(function (path) {
           fetch(path, { cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (m) {
               if (!m) return;
               var o = document.createElement('option');
               o.value = path;
-              o.textContent = 'LAB — ' + (m.name || 'development build');
+              o.textContent = (m.name || 'LAB — development build') + (m.version ? '  (' + m.version + ')' : '');
               select.appendChild(o);
             })
             .catch(function () { /* not deployed; nothing to add */ });

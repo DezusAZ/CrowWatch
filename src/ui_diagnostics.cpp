@@ -95,7 +95,7 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
         char clk[32];
         Clock::formatClock(clk, sizeof(clk));
         y = drawLine(t, y, Theme::CYAN, "CLOCK:", "%s%s", clk,
-                     Clock::isSet() ? "" : "  (TIME <epoch> over serial)");
+                     Clock::trusted() ? "" : "  (TIME <epoch> over serial)");
     }
     y = drawLine(t, y, Theme::CYAN, "HEAP:", "%lu free / %lu largest",
                  (unsigned long)info.freeHeap, (unsigned long)info.largestBlock);

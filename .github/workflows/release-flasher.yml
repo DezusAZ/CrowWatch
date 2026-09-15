@@ -40,6 +40,10 @@ on:
         description: "Lab build: publish any unlisted lab boards, skip notes and Release"
         type: boolean
         default: false
+      label:
+        description: "Lab build name, e.g. Anubis: what the flasher's ?lab=1 picker calls it (blank: the commit)"
+        type: string
+        default: ""
 
 permissions:
   contents: write   # create the GitHub Release
@@ -99,7 +103,14 @@ jobs:
             # the manifests "master" would put that in the flasher's version
             # line, so lab builds are stamped with the commit they came from,
             # which is the only thing that identifies one.
-            echo "version=lab-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            LABEL="$(echo "${{ inputs.label }}" | tr -cd 'A-Za-z0-9-' | tr 'A-Z' 'a-z')"
+            if [ -n "$LABEL" ]; then
+              echo "version=lab-$LABEL" >> "$GITHUB_OUTPUT"
+              echo "label=${{ inputs.label }}" >> "$GITHUB_OUTPUT"
+            else
+              echo "version=lab-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+              echo "label=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           fi
@@ -408,22 +419,47 @@ jobs:
             echo "Restoring root site from $LATEST"
             gh release download "$LATEST" -D _site --clobber \
               -p '*-firmware.bin' -p 'manifest-*.json' -p 'esp32-*.bin' -p '*-firmware.sig' || true
-            # Lab boards get copied in here, after the restore. None right
-            # now -- see the lab list in web-flasher/index.html.
-            echo "root site restored from $LATEST; no lab boards to add"
+            # This run's build, under lab- names beside the release, with a
+            # manifest each that points at them. web-flasher/index.html's
+            # ?lab=1 list is what offers them.
+            python - <<'PY'
+          import json, shutil, os
+          label = "${{ steps.ver.outputs.label }}"
+          ver   = "${{ steps.ver.outputs.version }}"
+          for board in ("cyd", "cyd-ili9341", "cyd-fast", "cyd-ili9341-fast", "rlphantom-r"):
+              shutil.copy(board + "-firmware.bin", "_site/lab-" + board + "-firmware.bin")
+              if os.path.exists(board + "-firmware.sig"):
+                  shutil.copy(board + "-firmware.sig", "_site/lab-" + board + "-firmware.sig")
+              m = json.load(open("web-flasher/manifest-" + board + ".json"))
+              m["name"] = "LAB " + label + " -- " + m["name"]
+              m["version"] = ver
+              for b in m["builds"]:
+                  for part in b["parts"]:
+                      if part["path"] == board + "-firmware.bin":
+                          part["path"] = "lab-" + board + "-firmware.bin"
+              json.dump(m, open("_site/manifest-lab-" + board + ".json", "w"), indent=2)
+          print("lab boards added:", label, ver)
+          PY
+            echo "root site restored from $LATEST; lab build $LATEST + ${{ steps.ver.outputs.version }}"
           fi
           # One shared bootloader and partition table (see the build step
           # for why that is safe and how it is enforced), then one app per
           # variant. Every manifest points at the same two shared files.
-          cp esp32-bootloader.bin _site/esp32-bootloader.bin
-          cp esp32-partitions.bin _site/esp32-partitions.bin
-          cp esp32-otadata.bin    _site/esp32-otadata.bin
-          for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
-            cp "$board-firmware.bin" "_site/$board-firmware.bin"
-            # The Bluetooth update page fetches the image and its signature
-            # side by side from the site root.
-            if [ -f "$board-firmware.sig" ]; then cp "$board-firmware.sig" "_site/$board-firmware.sig"; fi
-          done
+          # On a lab run these stay what the restore put there: this loop
+          # used to run regardless and put master's binaries under the
+          # release's manifests, which is the exact thing the restore above
+          # was written to prevent.
+          if [ "${{ steps.ver.outputs.is_lab }}" != "true" ]; then
+            cp esp32-bootloader.bin _site/esp32-bootloader.bin
+            cp esp32-partitions.bin _site/esp32-partitions.bin
+            cp esp32-otadata.bin    _site/esp32-otadata.bin
+            for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
+              cp "$board-firmware.bin" "_site/$board-firmware.bin"
+              # The Bluetooth update page fetches the image and its signature
+              # side by side from the site root.
+              if [ -f "$board-firmware.sig" ]; then cp "$board-firmware.sig" "_site/$board-firmware.sig"; fi
+            done
+          fi
           mkdir -p _site/update
           cp web-flasher/update/index.html _site/update/index.html
           # The browser emulator: this firmware compiled to WebAssembly,

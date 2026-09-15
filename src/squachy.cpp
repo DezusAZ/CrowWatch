@@ -1949,7 +1949,9 @@ const char* takeDayLine() {
     if (!Clock::isSet()) return nullptr;
     static char buf[96];
     const uint32_t day = Clock::localDay();
-    if (day && day != Clock::greetedDay()) {
+    // The greeting wants the real day and hour; the day count below is
+    // happy with a floor, which is what a guessed clock is.
+    if (Clock::trusted() && day && day != Clock::greetedDay()) {
         Clock::setGreetedDay(day);
         char date[20];
         Clock::formatDate(date, sizeof date);
@@ -5323,7 +5325,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
                 say(pick(ALERT_MOOD_LINES, 4), MIN_BUBBLE_MS);
             } else if (s_activityHeat < 15.0f && longIdle && random(0, 2) == 0) {
                 say(pick(RELAXED_MOOD_LINES, 4), MIN_BUBBLE_MS);
-            } else if (Clock::isSet() && random(0, 3) == 0) {
+            } else if (Clock::trusted() && random(0, 3) == 0) {
                 // The hour, the day of the week: what a clock is for.
                 say(pickTimeLine(), MIN_BUBBLE_MS);
             } else if (haveHistory && random(0, 6) == 0) {

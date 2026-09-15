@@ -326,7 +326,7 @@ void deliver(const Slot& s, uint32_t now) {
             // the same room, so its zone too when none was ever chosen here.
             // Never over a clock this board already has; a hello is a
             // second-hand answer and the network is the first-hand one.
-            if (theirEpoch && !Clock::isSet() && Clock::setEpoch(theirEpoch))
+            if (theirEpoch && !Clock::trusted() && Clock::setEpoch(theirEpoch))
                 Serial.printf("[clock] set from %s's hello\n", s.name[0] ? s.name : "a member");
             if (theirZone && !Settings::timeZoneChosen()) {
                 Settings::setTimeZone((uint8_t)(theirZone - 1));
@@ -957,7 +957,8 @@ void tick(uint32_t now) {
             uint8_t ver[3] = { 0, 0, 0 };
             MeshMsg::parseVersion(OtaCore::runningVersion(), ver);
             const uint8_t zone = Settings::timeZoneChosen() ? (uint8_t)(Settings::timeZone() + 1) : 0;
-            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, ver, Clock::nowEpoch(), zone,
+            // Only a real time goes on the air; a guess would spread.
+            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), s_ownMac, c, ver, Clock::trusted() ? Clock::nowEpoch() : 0, zone,
                                                 s_out[0], sizeof s_out[0]);
             if (n) { s_outLen[0] = (uint8_t)n; onAir(1, now, HELLO_MS); }
         }

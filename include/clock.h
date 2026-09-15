@@ -32,6 +32,18 @@ namespace Clock {
 // degrades to uptime when this is false rather than inventing a date.
 bool isSet();
 
+// The note to self. Every ten minutes the time is written to flash, and
+// a cold boot with no clock starts from that note: not the right time,
+// since nobody knows how long the power was off, but not earlier than
+// the note, which keeps the day count and the anniversaries honest. Such
+// a clock is set but not trusted: the calendar helpers use it, the hour
+// helpers (night, the LOG stamps, the hour lines, the desk digits) wait
+// for a real answer. Any real set replaces the guess.
+bool trusted();
+bool guessed();
+// From loop(): writes the note when it is due.
+void tick(uint32_t now);
+
 // Seconds since the Unix epoch, or 0 when unset.
 uint32_t nowEpoch();
 

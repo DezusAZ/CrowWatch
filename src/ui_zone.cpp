@@ -25,7 +25,7 @@ void buttonRects(int cx0, int cy0, int& px, int& okx, int& okw, int& nx, int& by
 }
 }  // namespace
 
-bool uiZoneCardWanted() { return Clock::isSet() && !Settings::timeZoneChosen(); }
+bool uiZoneCardWanted() { return Clock::trusted() && !Settings::timeZoneChosen(); }
 
 void uiZoneCardDraw(TFT_eSPI& t, uint32_t now) {
     (void)now;

@@ -201,7 +201,7 @@ static void drawMessageBox(TFT_eSPI& t, int restTop, float p, uint32_t now) {
     const int cy0 = by + XP_TITLE;
     t.fillRect(bx + 2, cy0, bw - 4, bh - XP_TITLE - 2, XP_BODY);
     char stamp[24];
-    if (Clock::isSet()) {
+    if (Clock::trusted()) {
         char tm[8], date[20];
         Clock::formatStamp(m.at, tm, sizeof tm);
         Clock::formatDate(date, sizeof date);
@@ -354,7 +354,7 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     bool pm = false;
     char tm[8];
     Clock::formatTime(tm, sizeof tm, true, &pm);
-    const bool set = Clock::isSet();
+    const bool set = Clock::trusted();
     const int dh = 42, dw = 30, th = 7, gap = 6, colonW = 10;
     // "H:MM" or "HH:MM": lay the digits out from the string so the leading
     // hour digit is simply absent, not a dark ghost.
@@ -421,7 +421,8 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     t.print(set ? (pm ? "PM" : "AM") : "--");
 
     if (!set) {
-        const char* m = "SET BY WIFI AT BOOT, OR TIME <EPOCH> ON SERIAL";
+        const char* m = Clock::guessed() ? "NOT SINCE THE POWER WENT. WIFI AT BOOT SETS IT"
+                                         : "SET BY WIFI AT BOOT, OR TIME <EPOCH> ON SERIAL";
         t.setTextColor(Theme::W95_SHADOW, Theme::BG);
         t.setCursor((w - t.textWidth(m)) / 2, y + dh + 4);
         t.print(m);

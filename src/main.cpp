@@ -2186,6 +2186,7 @@ void loop() {
     uint32_t frameStartUs = micros();
     s_pushAccumUs = 0;
     uint32_t now = millis();
+    Clock::tick(now);   // the note to self, when it is due
 
     TouchPoint tp = pollTouch();
     // True only on the exact frame a touch begins/ends -- unlike

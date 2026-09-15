@@ -143,7 +143,12 @@ line at 2,000,000 baud, and `ZONE US EASTERN` sets the zone the same way.
 And every squad hello carries the sender's clock and zone, so a board with
 neither takes them from the first member it hears: update one board by USB
 and the rest of the squad know the time within a minute of meeting it.
-Until the clock is set, timestamps count from boot.
+Until the clock is set, timestamps count from boot. The board keeps a
+note of the time in flash every ten minutes, and a cold boot with no clock
+starts from that note: not the right time, since nobody knows how long the
+power was off, but never earlier than the note, which keeps the day count
+honest. Such a clock is used for the date only; the LOG times, the night
+tag, the hour lines and the desk digits wait for a real answer.
 
 Once it is set, the LOG shows the real time of each catch (or the date, for
 one from another day); the alert card says **AT NIGHT** for anything caught

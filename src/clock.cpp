@@ -29,6 +29,9 @@ static bool        s_synced   = false;
 static uint32_t    s_born     = 0;
 static uint32_t    s_greeted  = 0;
 static uint32_t    s_mileSaid = 0;
+static bool        s_guess    = false;   // running from the note to self
+static uint32_t    s_lastNote = 0;       // millis() of the last note written
+static const uint32_t NOTE_EVERY_MS = 10u * 60u * 1000u;
 
 #if !defined(ARDUINO_ARCH_ESP32)
 // The emulator: SQUACH_EPOCH in the environment pins the clock to a moment
@@ -59,6 +62,8 @@ static uint32_t rawNow() {
 bool isSet() {
     return rawNow() > kPlausible;
 }
+bool trusted() { return isSet() && !s_guess; }
+bool guessed() { return isSet() && s_guess; }
 
 uint32_t nowEpoch() {
     const uint32_t t = rawNow();
@@ -73,8 +78,7 @@ static void noteKnown() {
     if (s_born) s_prefs.putUInt("born", s_born);
 }
 
-bool setEpoch(uint32_t epoch) {
-    if (epoch <= kPlausible) return false;
+static void writeSystemClock(uint32_t epoch) {
 #if defined(ARDUINO_ARCH_ESP32)
     struct timeval tv;
     tv.tv_sec  = (time_t)epoch;
@@ -86,7 +90,16 @@ bool setEpoch(uint32_t epoch) {
     simInit();
     s_simEpoch = epoch; s_simMs0 = millis();
 #endif
+}
+
+bool setEpoch(uint32_t epoch) {
+    if (epoch <= kPlausible) return false;
+    // A real answer, from wherever: the guess is over, and the note is
+    // brought up to date at once rather than ten minutes from now.
+    s_guess = false;
+    writeSystemClock(epoch);
     noteKnown();
+    if (s_begun) { s_prefs.putUInt("last", epoch); s_lastNote = millis(); }
     return true;
 }
 
@@ -115,13 +128,13 @@ static bool localNow(struct tm& tmv, uint32_t epoch = 0) {
 void formatClock(char* out, size_t n) {
     struct tm tmv;
     if (!localNow(tmv)) { snprintf(out, n, "not set"); return; }
-    snprintf(out, n, "%04d-%02d-%02d %02d:%02d",
+    snprintf(out, n, "%04d-%02d-%02d %02d:%02d%s",
              tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
-             tmv.tm_hour, tmv.tm_min);
+             tmv.tm_hour, tmv.tm_min, s_guess ? " at least" : "");
 }
 
 void formatStamp(uint32_t ms, char* out, size_t n) {
-    if (isSet()) {
+    if (trusted()) {
         // Wind the wall clock back by however long ago the stamp was
         // taken. The stamp itself is a millis() value, so the arithmetic
         // has to happen in uptime and only then convert.
@@ -149,8 +162,8 @@ void formatStamp(uint32_t ms, char* out, size_t n) {
 uint8_t  hour()    { struct tm t; return localNow(t) ? (uint8_t)t.tm_hour : 0; }
 uint8_t  minute()  { struct tm t; return localNow(t) ? (uint8_t)t.tm_min  : 0; }
 uint8_t  weekday() { struct tm t; return localNow(t) ? (uint8_t)t.tm_wday : 0; }
-bool     weekend() { const uint8_t d = weekday(); return isSet() && (d == 0 || d == 6); }
-bool     night()   { const uint8_t h = hour(); return isSet() && (h >= 23 || h < 5); }
+bool     weekend() { const uint8_t d = weekday(); return trusted() && (d == 0 || d == 6); }
+bool     night()   { const uint8_t h = hour(); return trusted() && (h >= 23 || h < 5); }
 
 uint32_t localDay() {
     struct tm t;
@@ -302,7 +315,26 @@ void begin() {
     s_mileSaid = s_prefs.getUInt("mile", 0);
     // Carried across a soft reset with the date already known: the first
     // such boot is still the first day.
-    if (isSet()) noteKnown();
+    if (isSet()) { noteKnown(); return; }
+    // A cold boot: the note to self, if there is one, as a floor.
+    const uint32_t last = s_prefs.getUInt("last", 0);
+    if (last > kPlausible) {
+        writeSystemClock(last);
+        s_guess = true;
+        char buf[40];
+        formatClock(buf, sizeof buf);
+        Serial.printf("[clock] no clock; starting from the last note: %s\n", buf);
+    }
+}
+
+void tick(uint32_t now) {
+    // The note: only a real time is worth writing, and not too often --
+    // flash has a life, and ten minutes of doubt is nothing next to a
+    // night with the power off.
+    if (!s_begun || !trusted()) return;
+    if (now - s_lastNote < NOTE_EVERY_MS) return;
+    s_lastNote = now;
+    s_prefs.putUInt("last", nowEpoch());
 }
 
 void pollSerial() {
