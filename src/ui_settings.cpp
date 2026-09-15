@@ -547,10 +547,12 @@ static void drawHeader(TFT_eSPI& t, int w, int y, int hgt, RowGroupId g) {
 // right inset clears the scrollbar at w-4, which draws later and would
 // otherwise sit on top of the border.
 static void rowPanel(TFT_eSPI& t, int w, int y, int hgt) {
-    const int x0 = 3, ww = w - 10, hh = hgt - 2;
+    // The same tile Theme::drawListRowPanel draws: four rows of backdrop
+    // between neighbours, inset a row from the top so the text stays centred.
+    const int x0 = 3, ww = w - 10, hh = hgt - 4;
     if (ww <= 0 || hh <= 0) return;
-    t.fillRect(x0, y, ww, hh, Theme::BG);
-    t.drawRect(x0, y, ww, hh, Theme::PURPLE);
+    t.fillRect(x0, y + 1, ww, hh, Theme::BG);
+    t.drawRect(x0, y + 1, ww, hh, Theme::PURPLE);
 }
 static void drawTwoLineRow(TFT_eSPI& t, int w, int y, int hgt, const char* label,
                            const char* value, uint16_t labelColor, bool cycles) {

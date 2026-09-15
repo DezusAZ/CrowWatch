@@ -127,9 +127,12 @@ static void rowLayout(TFT_eSPI& t, int bodyTop, int& detailY, int& rowH) {
     int nameH = t.fontHeight();
     t.setTextSize(1);
     int detailH = t.fontHeight();
-    const int topPad = 1;
+    // Each row is a card now, the same panel Settings draws: two pixels of
+    // air above the type label, three below the detail line, and the card's
+    // own two-pixel gap under that.
+    const int topPad = 3;
     detailY = topPad + nameH;
-    rowH = topPad + nameH + detailH + 2;
+    rowH = topPad + nameH + detailH + 3 + 2;
     (void)bodyTop;
 }
 
@@ -234,9 +237,9 @@ switch (Settings::background()) {
     int nameH = t.fontHeight();
     t.setTextSize(1);
     int detailH = t.fontHeight();
-    const int topPad = 1;
-    int detailY = topPad + nameH;
-    int rowH = topPad + nameH + detailH + 2;
+    int detailY, rowH;
+    rowLayout(t, bodyTop, detailY, rowH);     // the hit test's numbers, exactly
+    const int topPad = detailY - nameH;
 
     int y = bodyTop;
     int idx = g_scroll;
@@ -245,15 +248,17 @@ switch (Settings::background()) {
     for (int i = 0; i < max && idx < count; i++, idx++) {
         const Detection* d = eng.logAt(idx);
         if (!d) break;
-        // Row separator
-        t.drawFastHLine(0, y + rowH - 1, w, Theme::PURPLE);
+        // The card: Settings' row panel, so the two screens are one family.
+        // It also puts a solid ground under the text, which the synthwave
+        // sun used to shine through.
+        Theme::drawListRowPanel(t, w, y, rowH);
 
         // Type label (colored)
         t.setTextSize(2);
         t.setTextColor(Theme::colorFor(d->type), Theme::BG);
-        t.setCursor(4, y + topPad);
+        t.setCursor(8, y + topPad);
         t.print(detectionTypeName(d->type));
-        const int labelEnd = 4 + t.textWidth(detectionTypeName(d->type));
+        const int labelEnd = 8 + t.textWidth(detectionTypeName(d->type));
 
         // MAC + RSSI line
         t.setTextSize(1);
@@ -262,19 +267,19 @@ switch (Settings::background()) {
         snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
                  d->mac[0], d->mac[1], d->mac[2],
                  d->mac[3], d->mac[4], d->mac[5]);
-        t.setCursor(4, y + detailY);
+        t.setCursor(8, y + detailY);
         t.print(mac);
 
         // RSSI — MAC above runs "XX:XX:XX:XX:XX:XX" (17 chars, 102px
-        // at this font size) starting from x=4, so this column can't
-        // start before ~110 without drawing on top of it.
+        // at this font size) starting from x=8, so this column can't
+        // start before ~114 without drawing on top of it.
         t.setTextColor(Theme::CYAN, Theme::BG);
-        t.setCursor(112, y + detailY);
+        t.setCursor(116, y + detailY);
         t.printf("%ddBm", d->rssi);
 
         // Hits
         t.setTextColor(Theme::VAPOR_PURPLE, Theme::BG);
-        t.setCursor(164, y + detailY);
+        t.setCursor(168, y + detailY);
         t.printf("x%u", d->hits);
 
         // Timestamp (right edge)

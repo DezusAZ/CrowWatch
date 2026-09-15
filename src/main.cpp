@@ -2206,7 +2206,11 @@ void loop() {
         if (MeshTalk::takeRead(who, sizeof who)) {
             static char sub[40];
             snprintf(sub, sizeof sub, "%s opened your message", who);
-            Theme::showToast("READ", sub, Theme::GREEN);
+            Theme::showToast("READ", sub, Theme::GREEN, 3000);   // a solid three seconds: it is the whole reply
+            // And from the messenger himself, when he is on screen to say it.
+            static char line[32];
+            snprintf(line, sizeof line, "%s read it.", who);
+            if (state == AppState::CLEAR) Squachy::announce(line);
         }
     }
     {
@@ -2490,6 +2494,10 @@ void loop() {
 #else
             uiClearTick(*canvas, now, engine, true, s_scanPickerOpen);
 #endif
+            // Toasts on the main screen too. They were only drawn on LOG and
+            // NEARBY, so SNOOZED and READ, both raised on the way here or while
+            // here, went unseen.
+            Theme::drawToast(*canvas, now);
 #if CROWD_BENCH
             // The crowd benchmark (a test build): its numbers or its table go
             // over everything, a tap moves it on, and nothing else on this

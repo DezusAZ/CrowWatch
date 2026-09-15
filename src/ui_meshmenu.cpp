@@ -31,8 +31,7 @@ void row(TFT_eSPI& t, int w, int y, int hgt, const char* label,
     // A solid panel under the row, as the settings screen has. Without it
     // the labels sat straight on the dimmed backdrop, and the synthwave sun
     // came through the gaps in every word.
-    t.fillRect(3, y, w - 6, hgt - 2, Theme::BG);
-    t.drawRect(3, y, w - 6, hgt - 2, Theme::PURPLE);
+    Theme::drawListRowPanel(t, w, y, hgt);
     t.setTextSize(2);
     t.setTextWrap(false);
     t.setTextColor(Theme::VAPOR_PINK, Theme::BG);

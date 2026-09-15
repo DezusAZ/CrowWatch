@@ -731,8 +731,12 @@ ComposeHit uiMeshComposeTouch(int x, int y, uint32_t now) {
         if (s_fillOn) {
             // An opening: to the keyboard with it typed, blank at the end.
             if (const char* why = cannotSend()) { s_status = why; s_statusCol = Theme::AMBER; return ComposeHit::NONE; }
-            uiMeshComposeSetTyped(FILL_LINES[s_lineIdx[i]]);
-            s_fillOn = false;
+            // Straight into the buffer, not through uiMeshComposeSetTyped():
+            // that trims trailing spaces, and the space after "MEET AT" is
+            // the whole point of an opening.
+            snprintf(s_typed, sizeof s_typed, "%s", FILL_LINES[s_lineIdx[i]]);
+            s_typedOn = false;
+            s_fillOn  = false;
             return ComposeHit::TYPE;
         }
         if (const char* why = cannotSend()) { s_sel = -1; s_status = why; s_statusCol = Theme::AMBER; }

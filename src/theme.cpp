@@ -340,10 +340,13 @@ void drawListHeading(TFT_eSPI& t, const char* text, uint16_t color) {
 }
 
 void drawListRowPanel(TFT_eSPI& t, int w, int y, int hgt) {
-    const int x0 = 3, ww = w - 10, hh = hgt - 2;
+    // Four rows of backdrop between tiles, not two, so they read as tiles
+    // on the scene rather than as a ruled list. Inset a row from the top
+    // as well so the text, centred on the row, stays centred on the tile.
+    const int x0 = 3, ww = w - 10, hh = hgt - 4;
     if (ww <= 0 || hh <= 0) return;
-    t.fillRect(x0, y, ww, hh, BG);
-    t.drawRect(x0, y, ww, hh, PURPLE);
+    t.fillRect(x0, y + 1, ww, hh, BG);
+    t.drawRect(x0, y + 1, ww, hh, PURPLE);
 }
 
 void drawPinnedBack(TFT_eSPI& t, const char* label) {
@@ -4009,13 +4012,13 @@ static char     s_toastSub[22]  = {0};
 static uint16_t s_toastAccent   = 0;
 static uint32_t s_toastUntil    = 0;
 
-void showToast(const char* head, const char* sub, uint16_t accent) {
+void showToast(const char* head, const char* sub, uint16_t accent, uint32_t ms) {
     strncpy(s_toastHead, head ? head : "", sizeof(s_toastHead) - 1);
     s_toastHead[sizeof(s_toastHead) - 1] = 0;
     strncpy(s_toastSub, sub ? sub : "", sizeof(s_toastSub) - 1);
     s_toastSub[sizeof(s_toastSub) - 1] = 0;
     s_toastAccent = accent;
-    s_toastUntil  = millis() + 1500u;
+    s_toastUntil  = millis() + ms;
 }
 
 void drawToast(TFT_eSPI& t, uint32_t now) {
