@@ -155,6 +155,10 @@ static void crashReportInit() {
 #endif
     if (g_crumb.magic != CRUMB_MAGIC) g_crumb.shortCrashes = 0;   // a cold boot: nothing to count
     g_crumb.magic = CRUMB_MAGIC;
+    // The flash count too: on a supply that drops during the crash dump
+    // the breadcrumb never survives to be counted, and a board that dies
+    // three boots running deserves the passive scan whatever killed it.
+    if (g_powerSafe) g_safeBoot = true;
     if (g_safeBoot) setScanSafe(true);
 }
 
