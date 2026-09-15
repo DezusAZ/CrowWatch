@@ -21,6 +21,7 @@
 #endif
 #include <esp_bt.h>
 #include <esp_gap_bt_api.h>
+#include <esp_heap_caps.h>
 #include <string.h>
 #include <SD.h>
 
@@ -59,8 +60,19 @@ static void formatMac(char* dst, size_t dstSize, const uint8_t* mac) {
 // continuous scanning is setAdvertisedDeviceCallbacks(), which fires
 // onResult() in real time for every advertisement seen, live, with no
 // restart needed.
+static uint32_t s_advertsDropped = 0;   // adverts refused for want of heap; reported with the flush
+
 class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* adv) override {
+        // The seatbelt. Everything below asks NimBLE for strings, and a
+        // string on a heap of scraps throws, and a throw on the host task
+        // is the abort a user photographed at 28 seconds up. With nothing
+        // to allocate into, the advert is dropped instead: the next flush
+        // (see scanFlushTick) is what makes room, not this callback.
+        if (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 1536) {
+            s_advertsDropped++;
+            return;
+        }
 #if SQUACH_MESH
         // Counted before anything can return early. The measurement is of
         // what the RADIO heard, not of what the signature tables liked.
@@ -687,6 +699,14 @@ void stopAdvertisingForUpdate() { setAdvertising(false, 0); }
 // transport (ble_hs_hci_rx_evt in ble_hs_hci.c), never queued behind this
 // event, so its HCI commands cannot end up waiting on themselves.
 static const uint32_t SCAN_FLUSH_MS = 60000;
+// The minute was sized at a workplace where the list grew 480 bytes a
+// minute. A user's board in a denser place -- 129 adverts a second, and a
+// screen photo of DIAGNOSTICS to prove it -- ate the heap in 28 seconds and
+// aborted in the host task before the first flush ever came round. So the
+// heap is watched too: a flush also goes out the moment the largest free
+// block falls under this, no more than once every few seconds.
+static const uint32_t SCAN_FLUSH_MIN_MS   = 4000;
+static const uint32_t SCAN_FLUSH_BLOCK_B  = 20000;
 static uint32_t       s_lastFlush   = 0;
 static ScanFlushStats s_flush       = { 0, 0, 0 };   // written on the host task
 static uint32_t       s_flushLogged = 0;
@@ -718,12 +738,18 @@ static void scanFlushTick() {
     // waiting on the UART.
     if (s_flush.count != s_flushLogged) {
         s_flushLogged = s_flush.count;
-        Serial.printf("[scan] restart %lu freed %lu B (%lu total), heap %lu\n",
+        Serial.printf("[scan] restart %lu freed %lu B (%lu total), heap %lu, largest %lu, dropped %lu\n",
                       (unsigned long)s_flush.count, (unsigned long)s_flush.lastFreed,
-                      (unsigned long)s_flush.totalFreed, (unsigned long)ESP.getFreeHeap());
+                      (unsigned long)s_flush.totalFreed, (unsigned long)ESP.getFreeHeap(),
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                      (unsigned long)s_advertsDropped);
     }
     const uint32_t now = millis();
-    if (now - s_lastFlush < SCAN_FLUSH_MS) return;
+    const bool pressed = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < SCAN_FLUSH_BLOCK_B &&
+                         now - s_lastFlush >= SCAN_FLUSH_MIN_MS;
+    if (!pressed && now - s_lastFlush < SCAN_FLUSH_MS) return;
+    if (pressed) Serial.printf("[scan] heap pressed: largest block %lu, flushing early\n",
+                               (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     s_lastFlush = now;
     NimBLEScan* scan = NimBLEDevice::getScan();
     // Never restart a scan that is not running: that would be switching
