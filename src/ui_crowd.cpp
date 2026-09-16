@@ -62,13 +62,11 @@ void uiCrowdTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const bool many = Settings::meshCrowd() > 1;
     drawRow(t, w, top, rowH, "HOW MANY", Settings::meshCrowdLabel(),
             many ? Theme::GREEN : Theme::W95_SHADOW, false);
-    // A crowd is what the desk would be showing, so with ONE chosen there
-    // is nothing for this switch to do. It stays tappable: setting it
-    // before there is a crowd to see is a reasonable order to work in,
-    // exactly as the STATUS LIGHT page treats the rows under its master.
+    // Never greyed: ONE puts a visitor on the desk as well, the same as on
+    // the main screen, so the switch means something at every count.
     drawRow(t, w, top + rowH, rowH, "ON DESK",
             Settings::meshCrowdDesk() ? "ON" : "OFF",
-            Settings::meshCrowdDesk() ? Theme::GREEN : Theme::W95_SHADOW, !many);
+            Settings::meshCrowdDesk() ? Theme::GREEN : Theme::W95_SHADOW, false);
 
     int y = top + 2 * rowH + 6;
     if (many) note(t, y, bodyBottom, "They roam, and shrink to fit.");

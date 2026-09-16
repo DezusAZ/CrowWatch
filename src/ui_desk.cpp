@@ -480,9 +480,15 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // desk has no squad badge and no counters under its band.
     uint8_t crowdN = 0;
     Mesh::SquadMember crowd[8];
-    if (!running && Settings::meshCrowdDesk() && Settings::meshCrowd() > 1) {
-        const uint8_t want = Settings::meshCrowd() > 8 ? 8 : Settings::meshCrowd();
-        crowdN = Mesh::squadList(now, crowd, (uint8_t)(want - 1));
+    // HOW MANY means what it means on the main screen. ONE there is Squachy
+    // and one visitor, so ONE here is Squachy and one member too; UP TO N
+    // is up to N bodies, ours among them. The desk used to require more
+    // than ONE, so a board set to ONE showed Squachy alone under the clock
+    // while the main screen beside it showed him with company.
+    if (!running && Settings::meshCrowdDesk()) {
+        const uint8_t bodies = Settings::meshCrowd() > 8 ? 8 : Settings::meshCrowd();
+        const uint8_t peers  = bodies > 1 ? (uint8_t)(bodies - 1) : 1;
+        crowdN = Mesh::squadList(now, crowd, peers);
     }
     // From ONE member up. The main screen waits for two because a single
     // visitor gets the ordinary visit there, with its set pieces; the desk
