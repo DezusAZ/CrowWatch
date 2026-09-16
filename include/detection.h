@@ -63,14 +63,6 @@ namespace MeshProbe {
 // never become a Detection -- the HACKER work kept bare Espressif out of the
 // signature tables precisely so SquachWatches would not flag each other, and
 // this would reintroduce that from the other side.
-// Passive Bluetooth scanning from the start, for a board that has crashed
-// out of three boots in a row (see main.cpp's boot-loop guard). A passive
-// scan asks nothing of any device, so NimBLE's list of devices that owe a
-// scan response never grows: it is the one mode a board in a very crowded
-// place is known to survive in. Called before DetectionEngine::init().
-void setScanSafe(bool safe);
-bool scanSafe();
-
 namespace Mesh {
     void begin();
     void tick(uint32_t now);

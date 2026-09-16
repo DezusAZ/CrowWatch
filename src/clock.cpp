@@ -365,20 +365,6 @@ void pollSerial() {
             continue;
         }
 
-        if (strncasecmp(line, "GUARD ", 6) == 0) {
-            // GUARD OFF / GUARD ON: whether short boots are counted toward
-            // safe mode. A bench board that is flashed five times in an
-            // evening looks like a boot loop otherwise. Zeroes the count too.
-            const bool on = strcasecmp(line + 6, "ON") == 0;
-            Preferences bp;
-            if (bp.begin("boot", false)) {
-                bp.putUChar("guard", on ? 1 : 0);
-                bp.putUChar("short", 0);
-                bp.end();
-            }
-            Serial.printf("[boot] guard %s from the next boot; the short-boot count is zero\n", on ? "ON" : "OFF");
-            continue;
-        }
         if (strncasecmp(line, "FLOOD ", 6) == 0) {
             floodSet((uint16_t)atoi(line + 6));
             continue;

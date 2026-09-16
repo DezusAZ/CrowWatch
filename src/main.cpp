@@ -47,26 +47,17 @@ RTC_NOINIT_ATTR static struct {
     uint32_t heapBlock;
     uint32_t lifetime;
     uint8_t  screen;
-    // Boots in a row that died inside 90 seconds. Kept across the resets
-    // themselves, cleared by a boot that lives. Four in a row is a boot
-    // loop, and the fifth boot comes up in safe mode -- see
-    // crashReportInit() and setScanSafe().
-    uint8_t  shortCrashes;
 } g_crumb;
-static bool g_safeBoot = false;
 // The breadcrumb dies with the power, and a board on a supply that sags
 // comes back saying "power-on" every time, which reads as a clean start.
-// So a second count lives in flash: boots in a row that never reached 90
-// seconds up, whatever the reset reason (a restart the firmware asked for
-// is not counted). Written once a boot and cleared once at 90 seconds.
-// Five in a row caps the backlight for that boot: if the loop is the
-// supply, that is the one load worth taking off it, and the card says so.
+// So a count lives in flash: boots in a row that never reached 90 seconds
+// up, whatever the reset reason (a restart the firmware asked for is not
+// counted). Written once a boot and cleared once at 90 seconds. It exists
+// for one line on the crash card -- "N boots in a row, check the power" --
+// and nothing else: the safe mode that once hung off it (a passive scan
+// and a capped backlight on the fifth boot) was a crutch for a crash that
+// has since been fixed at the root, and it retired with the fix.
 static uint8_t           g_shortBoots  = 0;
-// GUARD OFF on the console turns the counting off, for a bench board that
-// gets flashed five times in an evening and would otherwise come up in
-// safe mode for it. Kept in flash next to the count; GUARD ON restores it.
-static bool              g_bootGuard   = true;
-static bool              g_powerSafe   = false;
 static esp_reset_reason_t g_resetReason = ESP_RST_UNKNOWN;
 
 // Snapshotted at boot, before the live breadcrumb starts overwriting it.
@@ -108,13 +99,11 @@ static void crashReportInit() {
     {
         Preferences bp;
         if (bp.begin("boot", false)) {
-            g_bootGuard = bp.getUChar("guard", 1) != 0;
             uint8_t n = bp.getUChar("short", 0);
-            n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP || !g_bootGuard) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
+            n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
             bp.putUChar("short", n);
             bp.end();
             g_shortBoots = n;             // counts this boot: 1 is an ordinary plug-in
-            g_powerSafe  = n >= 5;
         }
     }
     const bool panicked = (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
@@ -124,9 +113,6 @@ static void crashReportInit() {
     if (g_crumb.magic == CRUMB_MAGIC &&
         (g_crumb.uptimeMs > 30UL * 24 * 3600 * 1000 || g_crumb.heapFree > 400000)) g_crumb.magic = 0;
     if (panicked && g_crumb.magic == CRUMB_MAGIC) {
-        if (g_crumb.shortCrashes > 10) g_crumb.shortCrashes = 0;   // RTC RAM from an older firmware
-        if (g_crumb.uptimeMs < 90000 && g_bootGuard) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;
-        g_safeBoot = g_crumb.shortCrashes >= 4;
         g_lastCrash.valid     = true;
         g_lastCrash.uptimeMs  = g_crumb.uptimeMs;
         g_lastCrash.heapFree  = g_crumb.heapFree;
@@ -162,13 +148,7 @@ static void crashReportInit() {
         }
     }
 #endif
-    if (g_crumb.magic != CRUMB_MAGIC) g_crumb.shortCrashes = 0;   // a cold boot: nothing to count
     g_crumb.magic = CRUMB_MAGIC;
-    // The flash count too: on a supply that drops during the crash dump
-    // the breadcrumb never survives to be counted, and a board that dies
-    // three boots running deserves the passive scan whatever killed it.
-    if (g_powerSafe) g_safeBoot = true;
-    if (g_safeBoot) setScanSafe(true);
 }
 
 // Once a second is plenty: this is for telling a slow heap death from a
@@ -184,7 +164,6 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
     g_crumb.screen    = screen;
     // Ninety seconds up is a boot that lived: the loop, if there was one, is over.
     if (now > 90000) {
-        g_crumb.shortCrashes = 0;
         static bool cleared = false;
         if (!cleared) {
             cleared = true;
@@ -199,12 +178,11 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 // dies before the menu. So on a boot after a panic the splash holds for
 // nine seconds with the same lines in a box at the bottom, and a photo of
 // the splash is the bug report.
-static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || g_safeBoot || g_shortBoots >= 2; }
+static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || g_shortBoots >= 2; }
 static const char* resetReasonName();
 static void drawCrashCard(TFT_eSPI& t) {
     const int w = t.width(), h = t.height();
-    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (g_safeBoot ? 1 : 0) +
-                      (g_shortBoots >= 2 ? 1 : 0) + (g_powerSafe ? 1 : 0);
+    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (g_shortBoots >= 2 ? 1 : 0);
     const int bh = 8 + lines * 11;
     const int y0 = h - bh - 4;
     t.fillRoundRect(4, y0, w - 8, bh, 4, Theme::BG);
@@ -238,14 +216,6 @@ static void drawCrashCard(TFT_eSPI& t) {
         snprintf(line, sizeof line, "%u BOOTS IN A ROW UNDER 90 S%s", (unsigned)g_shortBoots,
                  (g_resetReason == ESP_RST_POWERON || g_resetReason == ESP_RST_BROWNOUT) ? ": CHECK THE POWER" : "");
         t.setCursor(10, y); t.print(line); y += 11;
-    }
-    if (g_powerSafe) {
-        t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
-        t.setCursor(10, y); t.print("SCREEN DIMMED THIS BOOT TO SPARE THE SUPPLY"); y += 11;
-    }
-    if (g_safeBoot) {
-        t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
-        t.setCursor(10, y); t.print("SAFE MODE: 5 short boots, Bluetooth scan is passive");
     }
 }
 #include "state.h"
@@ -1057,7 +1027,6 @@ static bool s_screenDimmed = false;
 
 static void applyBrightness() {
     uint8_t duty = s_screenDimmed ? Settings::dimLevel() : Settings::brightness();
-    if (g_powerSafe && duty > 64) duty = 64;   // five short boots in a row: see g_shortBoots
     ledcWrite(BL_CH_ORIG, duty);
     ledcWrite(BL_CH_CAP,  duty);
     ledcWrite(BL_CH_AWOK, duty);
@@ -1895,11 +1864,7 @@ static void printBootBanner() {
         case ESP_RST_WDT:
         case ESP_RST_BROWNOUT:
             Serial.println("*** That was not a clean boot.");
-            Serial.printf("*** Short boots in a row: %u%s\n", (unsigned)g_crumb.shortCrashes,
-                          g_safeBoot ? " -- SAFE MODE, passive Bluetooth scan" : "");
-            if (!g_bootGuard) Serial.println("*** Boot guard is OFF (GUARD ON restores it)");
-            Serial.printf("*** Boots in a row under 90 s, any reason: %u%s\n", (unsigned)g_shortBoots,
-                          g_powerSafe ? " -- backlight capped this boot" : "");
+            Serial.printf("*** Boots in a row under 90 s, any reason: %u\n", (unsigned)g_shortBoots);
             Serial.println("*** The crash is saved in flash. To read it out:");
             Serial.println("***   esptool read_flash 0x3F0000 0x10000 core.bin");
             Serial.println("***   espcoredump.py info_corefile -c core.bin firmware.elf");

@@ -68,12 +68,9 @@ static uint32_t s_advertsDropped = 0;   // adverts refused for want of heap; rep
 // hundred microseconds, and at 130 adverts a second that is not a thing to
 // do per advert on the task that also has to receive them.
 static volatile bool s_heapLow = false;
-static bool s_scanSafe = false;
 static BootHeap s_bootHeap = { 0, 0, 0, 0 };
 BootHeap bootHeap()       { return s_bootHeap; }
 uint32_t advertsDropped() { return s_advertsDropped; }
-void setScanSafe(bool safe) { s_scanSafe = safe; }
-bool scanSafe() { return s_scanSafe; }
 
 static volatile uint32_t s_advRaw = 0;   // every advert the radio handed over, seatbelt or not
 // ...and by kind: 0 ADV_IND (connectable, scannable), 1 DIRECT, 2 SCAN_IND
@@ -527,7 +524,6 @@ bool DetectionEngine::init() {
     // comes once the rate of adverts says the room can afford it -- see
     // scanModeTick() below.
     scan->setActiveScan(false);
-    if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning for good (five short boots in a row)");
     scan->setInterval(100);
     // The Bluetooth scan and the WiFi sniffer share one radio, and the scan
     // window is the share. Measured on the bench 2026-09-15, four minutes each
@@ -856,7 +852,7 @@ static uint32_t       s_pressedAt[SCAN_PRESSED_LIMIT] = { 0, 0, 0 };
 static uint8_t        s_pressedIx   = 0;
 static volatile uint32_t s_passiveUntil = 0;        // read on the host task
 static bool           s_passiveNow  = true;          // what the host task last set: passive from init()
-bool scanPassiveNow() { return s_scanSafe || s_passiveNow; }
+bool scanPassiveNow() { return s_passiveNow; }
 static ScanFlushStats s_flush       = { 0, 0, 0 };   // written on the host task
 static uint32_t       s_flushLogged = 0;
 static struct ble_npl_event s_flushEv;
@@ -880,7 +876,7 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     const uint32_t nowMs = millis();
     (void)nowMs;
     if (s_windowReq) { scan->setWindow(s_windowReq); s_windowReq = 0; }
-    const bool passive = s_scanSafe || s_wantPassive;
+    const bool passive = s_wantPassive;
     if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }
     scan->start(0, false, true);
     const uint32_t freed = (after > before) ? after - before : 0;
@@ -902,7 +898,7 @@ static bool scanModeTick(uint32_t now, uint32_t largest) {
     bool want = s_wantPassive;
     if (s_scanPin == 1)      want = false;   // pinned active: the bench wants to see it suffer
     else if (s_scanPin == 2) want = true;
-    else if (s_scanSafe || pressedWindow) want = true;
+    else if (pressedWindow) want = true;
     else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
     else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
              s_advRate < SCAN_ACTIVE_BELOW && largest >= SCAN_ACTIVE_BLOCK_B) want = false;

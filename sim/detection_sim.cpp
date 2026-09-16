@@ -48,8 +48,6 @@ void DetectionEngine::loop() {}
 ScanFlushStats scanFlushStats() { return ScanFlushStats{ 0, 0, 0 }; }
 BootHeap bootHeap()             { return BootHeap{ 0, 0, 0, 0 }; }
 bool     scanPassiveNow()       { return false; }
-bool     scanSafe()             { return false; }
-void     setScanSafe(bool)      {}
 uint32_t advertsDropped()       { return 0; }
 uint32_t advertRate()           { return 0; }
 uint32_t wifiFramesSeen()       { return 0; }
