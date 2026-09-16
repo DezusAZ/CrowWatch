@@ -289,22 +289,27 @@ static void drawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int
     t.drawRoundRect(x, y, cw, CARD_H, 4, lit ? c : Theme::W95_SHADOW);
     Theme::drawTypeIcon(t, d.type, x + (compact ? 10 : 12), y + CARD_H / 2, compact ? 7 : 8);
     t.setTextSize(1);
-    t.setTextColor(c, Theme::BG);
-    t.setCursor(tx, y + 4);
-    // Eight characters fit the compact card; the full one takes twelve.
+    // The three lines sit against the card's right edge, so whatever their
+    // length the icon on the left keeps its own room; the caps below keep
+    // the longest line clear of it. Seven characters on the compact card,
+    // eleven on the full one.
+    const int right = x + cw - 4;
+    (void)tx;
     char ty[13];
-    snprintf(ty, sizeof ty, compact ? "%.8s" : "%.12s", detectionTypeName(d.type));
+    snprintf(ty, sizeof ty, compact ? "%.7s" : "%.11s", detectionTypeName(d.type));
+    t.setTextColor(c, Theme::BG);
+    t.setCursor(right - t.textWidth(ty), y + 4);
     t.print(ty);
     // The device's own name where it has one, else the vendor; what fits.
     char who[13];
-    snprintf(who, sizeof who, compact ? "%.8s" : "%.12s", d.name[0] ? d.name : d.vendor);
+    snprintf(who, sizeof who, compact ? "%.7s" : "%.11s", d.name[0] ? d.name : d.vendor);
     t.setTextColor(Theme::WHITE, Theme::BG);
-    t.setCursor(tx, y + 15);
+    t.setCursor(right - t.textWidth(who), y + 15);
     t.print(who);
     char sig[16];
     snprintf(sig, sizeof sig, "%d dBm", d.rssi);
     t.setTextColor(Theme::CYAN, Theme::BG);
-    t.setCursor(tx, y + 26);
+    t.setCursor(right - t.textWidth(sig), y + 26);
     t.print(sig);
 }
 
@@ -365,7 +370,11 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     }
     int totalW = n * dw + (n - 1) * gap + colonW + 30;
     int x = (w - totalW) / 2;
-    const int y = 40;
+    // The plate sits high -- 3 px under the top edge, digits from 26 -- so
+    // the room under it is Squachy's, with a little air between his bubble
+    // and the clock's foot rather than the overlap the first cut had.
+    const int plateTop = 3;
+    const int y = 26;
     const uint16_t on  = set ? Theme::VAPOR_PINK : Theme::W95_SHADOW;
     const uint16_t off = Theme::blend(Theme::BG, Theme::VAPOR_PURPLE, 40);
 
@@ -393,12 +402,12 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const int pw = (dateW > totalW ? dateW : totalW) + 20;
     const int px = (w - pw) / 2;
     if (!running) {
-        t.fillRoundRect(px, 17, pw, y + dh + 5 - 17, 5, Theme::BG);
-        t.drawRoundRect(px, 17, pw, y + dh + 5 - 17, 5, Theme::VAPOR_PURPLE);
+        t.fillRoundRect(px, plateTop, pw, y + dh + 5 - plateTop, 5, Theme::BG);
+        t.drawRoundRect(px, plateTop, pw, y + dh + 5 - plateTop, 5, Theme::VAPOR_PURPLE);
     }
-    if (running) t.fillRect(px, 17, pw, y + dh + 5 - 17, Theme::BG);   // over the box, on a plain ground
+    if (running) t.fillRect(px, plateTop, pw, y + dh + 5 - plateTop, Theme::BG);   // over the box, on a plain ground
     t.setTextColor(Theme::CYAN, Theme::BG);
-    t.setCursor((w - dateW) / 2, 20);
+    t.setCursor((w - dateW) / 2, plateTop + 3);
     t.print(date);
     t.setTextSize(1);
     Theme::drawTitleBar(t, ">> DESK <<");
@@ -448,7 +457,9 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // rests, not where it is mid-drop, so he does not jitter.
     const bool msgOn = msgP > 0.0f;
     const bool side  = msgOn && (w - (XP_LEFT + XP_W)) >= 80;
-    const int  top   = (msgOn && !side) ? plateBottom + 4 + boxH + 18 : y + dh + 18;
+    // 25 under the plate's foot: his bubble rises 16 above his top, which
+    // leaves 4 px of air between bubble and plate.
+    const int  top   = (msgOn && !side) ? plateBottom + 4 + boxH + 18 : y + dh + 25;
     const int  cx    = side ? XP_LEFT + XP_W + (w - XP_LEFT - XP_W) / 2 : w / 2;
     const int  feet  = bar.y - 2;
     // Beside the box his bubble would lie across it, so it waits.

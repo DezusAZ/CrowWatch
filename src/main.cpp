@@ -33,6 +33,7 @@
 #include <esp_heap_caps.h>
 #include "ui_diagnostics.h"   // CrashReport, used by the breadcrumb below
 #include "theme.h"            // the crash card on the splash
+#include "clock.h"            // ...and the ten-minute IGNORE on it
 
 // Written every second, read once on the next boot. RTC_NOINIT_ATTR is the
 // point: it survives a software reset WITHOUT being zeroed on the way back
@@ -59,6 +60,11 @@ RTC_NOINIT_ATTR static struct {
 // has since been fixed at the root, and it retired with the fix.
 static uint8_t           g_shortBoots  = 0;
 static esp_reset_reason_t g_resetReason = ESP_RST_UNKNOWN;
+// IGNORE on that card: the power line stays off the splash until this
+// clock time, ten minutes from the tap, for a bench that reflashes or a
+// desk where the cable got knocked twice. The count itself goes on.
+static uint32_t          g_shortIgnoreUntil = 0;
+static int               s_ignX = 0, s_ignY = 0, s_ignW = 0, s_ignH = 0;   // the button, for the tap
 
 // Snapshotted at boot, before the live breadcrumb starts overwriting it.
 static CrashReport g_lastCrash = {};
@@ -99,6 +105,7 @@ static void crashReportInit() {
     {
         Preferences bp;
         if (bp.begin("boot", false)) {
+            g_shortIgnoreUntil = bp.getUInt("ign", 0);
             uint8_t n = bp.getUChar("short", 0);
             n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
             bp.putUChar("short", n);
@@ -178,12 +185,26 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 // dies before the menu. So on a boot after a panic the splash holds for
 // nine seconds with the same lines in a box at the bottom, and a photo of
 // the splash is the bug report.
-static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || g_shortBoots >= 2; }
+// The power line, unless IGNORE put it off for a while. The clock is the
+// note-to-self one when nothing better is known, which is what makes ten
+// minutes mean ten minutes across the reboots this card is about.
+static bool shortBootsShown() {
+    return g_shortBoots >= 2 && !(g_shortIgnoreUntil && Clock::nowEpoch() < g_shortIgnoreUntil);
+}
+static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || shortBootsShown(); }
+static void ignoreShortBoots() {
+    g_shortIgnoreUntil = Clock::nowEpoch() + 600;
+    Preferences bp;
+    if (bp.begin("boot", false)) { bp.putUInt("ign", g_shortIgnoreUntil); bp.end(); }
+    Serial.println("[boot] the short-boot line is off the splash for ten minutes");
+}
 static const char* resetReasonName();
 static void drawCrashCard(TFT_eSPI& t) {
     const int w = t.width(), h = t.height();
-    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (g_shortBoots >= 2 ? 1 : 0);
-    const int bh = 8 + lines * 11;
+    const bool power = shortBootsShown() && !g_lastCrash.valid && !g_lastCrash.haveDump;   // the loop, not a crash
+    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (shortBootsShown() ? 1 : 0);
+    const int bh = 8 + lines * 11 + (power ? 24 : 0);
+    s_ignW = 0;
     const int y0 = h - bh - 4;
     t.fillRoundRect(4, y0, w - 8, bh, 4, Theme::BG);
     t.drawRoundRect(4, y0, w - 8, bh, 4, Theme::RED);
@@ -212,10 +233,16 @@ static void drawCrashCard(TFT_eSPI& t) {
                  (unsigned long)g_lastCrash.lifetime);
         t.setCursor(10, y); t.print(line); y += 11;
     }
-    if (g_shortBoots >= 2) {
+    if (shortBootsShown()) {
         snprintf(line, sizeof line, "%u BOOTS IN A ROW UNDER 90 S%s", (unsigned)g_shortBoots,
                  (g_resetReason == ESP_RST_POWERON || g_resetReason == ESP_RST_BROWNOUT) ? ": CHECK THE POWER" : "");
         t.setCursor(10, y); t.print(line); y += 11;
+    }
+    if (power) {
+        // IGNORE: off the splash for ten minutes, and on with the boot now.
+        s_ignW = 64; s_ignH = 18;
+        s_ignX = w - 8 - s_ignW; s_ignY = y0 + bh - s_ignH - 3;
+        Theme::drawWin95Button(t, s_ignX, s_ignY, s_ignW, s_ignH, "IGNORE", false);
     }
 }
 #include "state.h"
@@ -2587,7 +2614,13 @@ void loop() {
             uiBootTick(*canvas, now);
             if (crashCardWanted()) drawCrashCard(*canvas);
 #endif
-            if (uiBootDone(bootStart, crashCardWanted() ? 9000 : 3000)) {
+            bool leave = uiBootDone(bootStart, crashCardWanted() ? 9000 : 3000);
+            if (!leave && s_ignW && touchJustDown && tp.x >= s_ignX - 6 && tp.x < s_ignX + s_ignW + 6 &&
+                tp.y >= s_ignY - 6 && tp.y < s_ignY + s_ignH + 6) {
+                ignoreShortBoots();
+                leave = true;
+            }
+            if (leave) {
                 // First-ever boot only -- goes straight into the normal
                 // onboarding overlay once this screen's own DONE button
                 // reaches enterClear(), same as it always did before
