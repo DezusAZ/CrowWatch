@@ -151,9 +151,12 @@ enum class AppState : uint8_t {
     DESK             = 32, // desk mode: the clock, the date, the focus timer
     WIFI_NETS        = 33, // WIFI NETWORKS, from the SYSTEM page: the saved list
     WIFI_ADD         = 34, // ...and the scan to add one from
-    SYS_PROPS        = 35  // SYSTEM PROPERTIES: the window that says an update
+    SYS_PROPS        = 35, // SYSTEM PROPERTIES: the window that says an update
                             // is out, in front of the main screen on the first
                             // frame after the intro. See ui_sysprops.h.
+    CROWD            = 36  // how many SquachWatches share the screen and which
+                            // screens they share, from the SquachMesh menu's
+                            // CROWD row. See ui_crowd.h.
 };
 
 enum class ButtonId : uint8_t {

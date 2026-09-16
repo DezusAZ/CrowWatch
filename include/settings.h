@@ -308,6 +308,12 @@ namespace Settings {
     // Up to four share one row; past four they take two or three, because
     // five across reads as a queue and four across still reads as a group.
     uint8_t     meshCrowd();
+    // ...and whether the desk clock gets them too. Off by default: the
+    // desk is a clock, and somebody who wants a crowd on the main screen
+    // does not necessarily want one under the time. Set on the CROWD
+    // page (see ui_crowd.h), which is where meshCrowd() is set as well.
+    bool        meshCrowdDesk();
+    void        toggleMeshCrowdDesk();
     const char* meshCrowdLabel();
     void        cycleMeshCrowd();
     void        cycleMeshDetect();

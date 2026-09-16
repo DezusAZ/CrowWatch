@@ -43,6 +43,18 @@ bool uiClearNearbyHit(int x, int y);
 // who one of them is. Takes `now` rather than reading the clock itself so the
 // hit test stays a pure function of what the caller already knows.
 bool uiClearCrowdTap(int x, int y, uint32_t now);
+
+#if SQUACH_MESH
+// The roaming crowd, drawn into a band. The desk borrows it (see
+// ui_desk.cpp) rather than growing a second copy: the shrink-to-fit rule,
+// the seat ours holds in the middle, the nameplates and the drift all
+// live here. `bottomInset` is what the caller keeps clear under the band
+// -- 22 on the main screen for the squad badge and the counters, 0 on the
+// desk, which has neither.
+void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
+                      uint8_t n, int top, int floorY, bool advance, bool msgFresh,
+                      int bottomInset);
+#endif
 // An emote (MeshMsg::Emote) and its setup: one this board just sent, or one from the
 // visitor's board (fromGuest). The two of them act it out at the next free
 // moment of the visit -- whoever sent it going first -- or not at all if none

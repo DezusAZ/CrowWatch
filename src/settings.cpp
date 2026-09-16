@@ -31,6 +31,7 @@ static bool        s_topHat = true;
 // the screen would still show eight.
 static const uint8_t CROWD_MAX = 8;
 static uint8_t     s_meshCrowd = 1;   // how many on screen at once, 1..CROWD_MAX
+static bool        s_meshCrowdDesk = false;   // ...and on the desk clock as well
 static uint8_t     s_rotation = 1;
 static bool        s_backgroundLocked = false;
 static uint8_t     s_deskBg     = 255;     // 255: not picked yet, follow s_background
@@ -198,6 +199,7 @@ void load() {
     // could not have stored it, but a hand-edited NVS can, and a setting that
     // does nothing is worse than one that moved.
     if (s_meshCrowd == 2) s_meshCrowd = 3;
+    s_meshCrowdDesk = s_prefs.getBool("crwdesk", false);
     s_meshTransmit = s_prefs.getBool("meshtx", false);
     s_meshConsent  = s_prefs.getBool("meshok", false);
     s_phoneQwerty  = s_prefs.getBool("qwerty", false);
@@ -521,6 +523,11 @@ const char* meshDetectLabel()   { return s_meshDetect   ? "ON" : "OFF"; }
 // nothing is going out.
 const char* meshTransmitLabel() { return meshTransmit() ? "ON" : "OFF"; }
 uint8_t meshCrowd() { return s_meshCrowd; }
+bool    meshCrowdDesk() { return s_meshCrowdDesk; }
+void    toggleMeshCrowdDesk() {
+    s_meshCrowdDesk = !s_meshCrowdDesk;
+    s_prefs.putBool("crwdesk", s_meshCrowdDesk);
+}
 
 const char* meshCrowdLabel() {
     // ONE is a different thing, not a count of one: it is the ordinary visit,

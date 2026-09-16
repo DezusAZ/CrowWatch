@@ -36,6 +36,7 @@
 #include "ui_phone.h"
 #include "qwerty.h"
 #include "ui_meshmenu.h"
+#include "ui_crowd.h"
 #include "ui_meshwarn.h"
 #include "ui_meshphrase.h"
 #include "ui_meshcompose.h"
@@ -223,6 +224,7 @@ int main(int argc, char** argv) {
     int crowdN = 0;
     int tabIdx = 0;
     bool beacons = false;
+    bool onDesk  = false;
     std::string heardFrom;
     std::string inboxText;
     // --type feeds the payphone a tap sequence: digits are key presses,
@@ -255,6 +257,7 @@ int main(int argc, char** argv) {
         else if (a == "--crowd" && i + 1 < argc) crowdN = atoi(argv[++i]);
         else if (a == "--tab" && i + 1 < argc) tabIdx = atoi(argv[++i]);
         else if (a == "--beacons") beacons = true;
+        else if (a == "--ondesk") onDesk = true;
         else if (a == "--from" && i + 1 < argc) heardFrom = argv[++i];
         else if (a == "--inboxtext" && i + 1 < argc) inboxText = argv[++i];
         else if (a == "--type" && i + 1 < argc) typeSeq = argv[++i];
@@ -373,6 +376,8 @@ int main(int argc, char** argv) {
 
     // Off by default on the board, so the counter column only exists when
     // somebody has asked for the type.
+    // Set rather than toggled: the NVS shim may remember a previous run.
+    if (onDesk != Settings::meshCrowdDesk()) Settings::toggleMeshCrowdDesk();
     if (beacons && !Settings::typeEnabled(DetectionType::IBEACON))
         Settings::toggleType(DetectionType::IBEACON);
 
@@ -437,6 +442,7 @@ int main(int argc, char** argv) {
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
+        else if (screen == "crowd")    uiCrowdTick(frame, t, engine);
         else if (screen == "roster")   uiSquadTick(frame, t, engine);
         else if (screen == "meshwarn") uiMeshWarnTick(frame, t, engine);
         else if (screen == "phrase")   uiMeshPhraseTick(frame, t, engine);
@@ -560,6 +566,7 @@ int main(int argc, char** argv) {
     else if (screen == "wifinets")   uiWifiNetsInit(frame);
     else if (screen == "wifiadd")    uiWifiAddInit(frame);
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
+    else if (screen == "crowd")      uiCrowdInit(frame);
     else if (screen == "roster") {
         // Three members, through the real paths: an advert each so Mesh knows
         // their look, then a sealed HELLO each so MeshTalk puts them on the

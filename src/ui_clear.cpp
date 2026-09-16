@@ -1770,15 +1770,18 @@ static uint8_t  s_crowdN = 0;
 static int16_t  s_crowdX[8], s_crowdHalf[8], s_crowdTop[8], s_crowdBot[8];
 static uint8_t  s_crowdMac[8][6];
 
-static void drawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
-                      uint8_t n, int top, int floorY, bool advance, bool msgFresh) {
+void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
+                      uint8_t n, int top, int floorY, bool advance, bool msgFresh,
+                      int bottomInset) {
     const int w = t.width();
     // Ours plus theirs. squadList() reports the peers it can hear and NEVER
     // this board, so the body count is one higher than the list is long.
     // Sizing the screen for `n` and then spending slot zero on ourselves is
     // what quietly dropped a visitor: with four in range you saw three.
     const uint8_t total = (uint8_t)(n + 1);
-    const int bottom = floorY - 22;   // clear of the squad badge and the counters
+    // Clear of the squad badge and the counters on the main screen. The desk
+    // has neither under its band, so it asks for none.
+    const int bottom = floorY - bottomInset;
 
     // The shape is a RULE, not a search. Up to four stand in one row; past
     // four they take two, the back row full and the front row holding
@@ -2679,7 +2682,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         if (crowdMax > 1) crowdN = Mesh::squadList(now, crowd, peerCap);
         if (crowdMax > 1 && crowdN >= 2) {
             s_crowdDrawn = true;
-            drawCrowd(t, now, crowd, crowdN, titleBottom, squachyBottom, advance, msgFresh);
+            uiClearDrawCrowd(t, now, crowd, crowdN, titleBottom, squachyBottom, advance, msgFresh, 22);
         } else if (guest) {
             const int SMALL_PCT = 70;
             const int gap  = w / 4;

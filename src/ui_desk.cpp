@@ -9,6 +9,8 @@
 #if SQUACH_MESH
 #include "meshtalk.h"
 #include "squachmesh.h"
+#include "settings.h"
+#include "ui_clear.h"   // the crowd is drawn by the main screen's renderer
 #endif
 
 namespace {
@@ -468,6 +470,25 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const int  feet  = bar.y - 2;
     // Beside the box his bubble would lie across it, so it waits.
     Squachy::holdBubble(side);
+#if SQUACH_MESH
+    // The squad under the clock, when the CROWD page says so. It is the band
+    // Squachy would have had to himself, and he is in it -- the layout keeps
+    // the most central seat for him, which is what makes him findable in a
+    // crowd where everything else is drifting. Never over a focus block:
+    // that clears the scene on purpose, so the timer is the only thing
+    // moving. Zero inset at the bottom, unlike the main screen, because the
+    // desk has no squad badge and no counters under its band.
+    uint8_t crowdN = 0;
+    Mesh::SquadMember crowd[8];
+    if (!running && Settings::meshCrowdDesk() && Settings::meshCrowd() > 1) {
+        const uint8_t want = Settings::meshCrowd() > 8 ? 8 : Settings::meshCrowd();
+        crowdN = Mesh::squadList(now, crowd, (uint8_t)(want - 1));
+    }
+    if (crowdN >= 2) {
+        uiClearDrawCrowd(t, now, crowd, crowdN, top, feet, true, false, 0);
+        Theme::drawBackgroundOverlay(t, now);
+    } else
+#endif
     if (!running) {
         Squachy::tick(t, cx, top, feet - top, now, true, 0.5f);
         Theme::drawBackgroundOverlay(t, now);

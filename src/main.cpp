@@ -334,6 +334,9 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_update.h"
 #include "ui_wifipass.h"
 #include "ui_sysprops.h"
+#if SQUACH_MESH
+#include "ui_crowd.h"
+#endif
 #include "status_light.h"
 #include "ui_light.h"
 
@@ -1475,6 +1478,14 @@ static void enterNudge() {
     if (s_screenDimmed) { s_screenDimmed = false; applyBrightness(); }
     uiNudgeInit(*canvas, s_nudge.from, s_nudge.ver, NUDGE_COUNT_S, transitionStart);
 }
+
+#if SQUACH_MESH
+static void enterCrowd() {
+    state = AppState::CROWD;
+    transitionStart = millis();
+    uiCrowdInit(*canvas);
+}
+#endif
 
 static void enterSquadUpdate() {
     state = AppState::SQUAD_UPDATE;
@@ -2695,6 +2706,21 @@ void loop() {
             }
             break;
         }
+#if SQUACH_MESH
+        case AppState::CROWD: {
+            uiCrowdTick(*canvas, now, engine);
+            if (touchJustDown) {
+                switch (uiCrowdHitTest(*canvas, tp.x, tp.y, tft.width(), tft.height())) {
+                    case CrowdRow::HOW_MANY: Settings::cycleMeshCrowd();      break;
+                    case CrowdRow::ON_DESK:  Settings::toggleMeshCrowdDesk(); break;
+                    default: break;
+                }
+                if (Theme::pinnedBackHit(tp.x, tp.y, tft.width(), tft.height())) enterMeshMenu();
+                lastTouch = now;
+            }
+            break;
+        }
+#endif
         case AppState::SYS_PROPS: {
             uiSysPropsTick(*canvas, now, engine);
             if (touchJustDown) {
@@ -3941,7 +3967,7 @@ void loop() {
                             enterClear();
                         }
                         break;
-                    case MeshMenuRow::CROWD:    Settings::cycleMeshCrowd();    break;
+                    case MeshMenuRow::CROWD:    enterCrowd();                  break;
                     case MeshMenuRow::SQUAD:    enterSquad(true);              break;
                     case MeshMenuRow::PHRASE:   enterMeshPhrase();             break;
                     case MeshMenuRow::NAME:     enterPhone();                  break;
