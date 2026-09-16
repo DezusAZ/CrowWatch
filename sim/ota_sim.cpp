@@ -48,6 +48,17 @@ void noteAvailable(const char* v, const char* who) {
     else                snprintf(s_availLine, sizeof s_availLine, "v%s is out. SYSTEM > UPDATE.", s_avail);
     s_availSaid = false;
 }
+static char    s_relName[20] = "";
+static char    s_news[NEWS_MAX][40];
+static uint8_t s_newsN = 0;
+void noteRelease(const char* name, const char* const* lines, uint8_t n) {
+    snprintf(s_relName, sizeof s_relName, "%s", name ? name : "");
+    s_newsN = n > NEWS_MAX ? NEWS_MAX : n;
+    for (uint8_t i = 0; i < s_newsN; i++) snprintf(s_news[i], sizeof s_news[i], "%s", lines[i] ? lines[i] : "");
+}
+const char* releaseName()        { return s_relName; }
+uint8_t     newsCount()          { return s_newsN; }
+const char* newsAt(uint8_t i)    { return i < s_newsN ? s_news[i] : ""; }
 const char* availableVersion()   { return s_avail; }
 const char* availableFrom()      { return s_availFrom; }
 const char* takeAvailableNotice(){ if (s_availSaid || !s_avail[0]) return nullptr; s_availSaid = true; return s_availLine; }
@@ -153,6 +164,7 @@ bool        hasSaved()  { return s_saved && s_n > 0; }
 bool        bootCheck(uint32_t) { return false; }
 const char* savedSsid() { return hasSaved() ? s_list[s_use].ssid : ""; }
 bool        savedPass(char* out, size_t cap) { if (!hasSaved() || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
+bool        savedPassAt(uint8_t i, char* out, size_t cap) { if (i >= savedCount() || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
 void        forget()    { s_saved = false; s_n = 0; }
 uint8_t     savedCount()           { return s_saved ? s_n : 0; }
 const char* savedSsidAt(uint8_t i) { return i < savedCount() ? s_list[i].ssid : ""; }

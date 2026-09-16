@@ -333,6 +333,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ota_wifi.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
+#include "ui_sysprops.h"
 #include "status_light.h"
 #include "ui_light.h"
 
@@ -1478,6 +1479,10 @@ static void enterNudge() {
 static void enterSquadUpdate() {
     state = AppState::SQUAD_UPDATE;
     transitionStart = millis();
+    // The scan behind SHARE WIFI: which saved network is in this room. Mesh
+    // keeps its radio through a WiFi scan (only an update takes that), so
+    // the nudge can still go out while this is running.
+    engine.startRawWifiScan();
     uiSquadUpdateInit(*canvas);
 }
 
@@ -1575,6 +1580,20 @@ static void enterWifiPass(const char* ssid) {
 // WIFI NETWORKS, and the scan it adds from. The password keyboard is the
 // update flow's; this flag says whose turn it is when it comes back.
 static bool s_passForNets = false;
+// Where the board was going when the update window stopped it.
+static void leaveSysProps() {
+    if (Settings::deskWanted()) enterDesk();
+    else                        enterClear();
+}
+static void enterSysProps() {
+    state = AppState::SYS_PROPS;
+    transitionStart = millis();
+    // Squachy said this line out loud until now, and two boards talking to
+    // each other painted over it. Taken here so he does not say it twice.
+    (void)OtaCore::takeAvailableNotice();
+    uiSysPropsInit(*canvas);
+}
+
 static void enterWifiNets() {
     state = AppState::WIFI_NETS;
     transitionStart = millis();
@@ -2667,8 +2686,36 @@ void loop() {
                 // reaches enterClear(), same as it always did before
                 // this existed.
                 if (!Settings::colorChecked())    enterColorCheck(false);
+                // Something newer is out: the window says so before the
+                // board gets on with its day. Not over the first-boot
+                // walkthrough, which has a screen of its own to finish.
+                else if (OtaCore::availableVersion()[0] && !Security::locked()) enterSysProps();
                 else if (Settings::deskWanted())  enterDesk();   // switched off on the desk: back to it
                 else                              enterClear();
+            }
+            break;
+        }
+        case AppState::SYS_PROPS: {
+            uiSysPropsTick(*canvas, now, engine);
+            if (touchJustDown) {
+                switch (uiSysPropsTouch(*canvas, tp.x, tp.y)) {
+                    case SysPropsHit::UPDATE_NOW:
+                        // The same start the UPDATE screen's own WiFi button
+                        // makes: the frame buffer goes back for the download's
+                        // handshake, the radio changes hands, and the update
+                        // screen carries it from there.
+                        enterUpdate();
+                        if (OtaWifi::hasSaved()) releaseFrameForDownload();
+                        engine.startUpdateRadio();
+                        if (!OtaWifi::begin()) {
+                            engine.stopUpdateRadio();
+                            Theme::showToast("CAN'T START UPDATE", "Unlock the board first", Theme::AMBER);
+                        }
+                        break;
+                    case SysPropsHit::CLOSE: leaveSysProps(); break;
+                    case SysPropsHit::NONE:  break;
+                }
+                lastTouch = now;
             }
             break;
         }
@@ -4129,9 +4176,10 @@ void loop() {
                         uint8_t ver[3] = { 0, 0, 0 };
                         MeshMsg::parseVersion(OtaCore::runningVersion(), ver);
                         char ssid[33] = "", pass[65] = "";
-                        if (uiSquadUpdateShareWifi()) {
-                            snprintf(ssid, sizeof ssid, "%s", OtaWifi::savedSsid());
-                            OtaWifi::savedPass(pass, sizeof pass);
+                        const int8_t share = uiSquadUpdateShareIndex();
+                        if (uiSquadUpdateShareWifi() && share >= 0) {
+                            snprintf(ssid, sizeof ssid, "%s", OtaWifi::savedSsidAt((uint8_t)share));
+                            OtaWifi::savedPassAt((uint8_t)share, pass, sizeof pass);
                         }
                         const MeshTalk::Send r = MeshTalk::sendNudge(ver, ssid[0] ? ssid : nullptr, pass, now);
                         memset(pass, 0, sizeof pass);
@@ -4141,7 +4189,7 @@ void loop() {
                         else if (r != MeshTalk::Send::OK)      Theme::showToast("CAN'T SEND", "WiFi password too long to share", Theme::AMBER);
                         break;
                     }
-                    case SquadUpdateHit::BACK: enterUpdate(); break;
+                    case SquadUpdateHit::BACK: engine.stopRawScan(); enterUpdate(); break;
                     default: break;
                 }
             }

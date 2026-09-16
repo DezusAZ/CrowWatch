@@ -66,6 +66,9 @@ const char* savedSsid();
 // The saved password, for the squad update nudge to share. Into the
 // caller's buffer, which the caller wipes.
 bool        savedPass(char* out, size_t cap);
+// ...and any of them by index, for the squad nudge: the one it shares is
+// whichever saved network is actually in the room, not whichever is first.
+bool        savedPassAt(uint8_t i, char* out, size_t cap);
 void        forget();
 
 // The list behind those: up to SAVED_MAX networks, managed on the WIFI

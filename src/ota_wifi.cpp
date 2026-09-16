@@ -270,6 +270,47 @@ bool parseVersion(const char* body, char* out, size_t cap) {
     return true;
 }
 
+// The two fields the flasher's manifest carries for the board itself, both
+// optional: "release_name", and "whats_new" as an array of short strings.
+// Everything else in that file is for the browser flasher, which ignores
+// what it does not know, exactly as this does.
+void parseRelease(const char* body) {
+    char name[20] = "";
+    const char* k = strstr(body, "\"release_name\"");
+    if (k) {
+        const char* q = strchr(k + 14, '"');
+        const char* e = q ? strchr(q + 1, '"') : nullptr;
+        if (q && e && e > q + 1) {
+            size_t n = (size_t)(e - (q + 1));
+            if (n >= sizeof name) n = sizeof name - 1;
+            memcpy(name, q + 1, n);
+            name[n] = '\0';
+        }
+    }
+    char lines[OtaCore::NEWS_MAX][40];
+    const char* ptr[OtaCore::NEWS_MAX];
+    uint8_t n = 0;
+    const char* a = strstr(body, "\"whats_new\"");
+    if (a) {
+        const char* p = strchr(a + 11, '[');
+        const char* end = p ? strchr(p, ']') : nullptr;
+        while (p && end && n < OtaCore::NEWS_MAX) {
+            const char* q = strchr(p + 1, '"');
+            if (!q || q > end) break;
+            const char* e = strchr(q + 1, '"');
+            if (!e || e > end) break;
+            size_t len = (size_t)(e - (q + 1));
+            if (len >= sizeof lines[0]) len = sizeof lines[0] - 1;
+            memcpy(lines[n], q + 1, len);
+            lines[n][len] = '\0';
+            ptr[n] = lines[n];
+            n++;
+            p = e + 1;
+        }
+    }
+    if (name[0] || n) OtaCore::noteRelease(name, ptr, n);
+}
+
 bool join() {
     s_state = State::CONNECTING;
     Serial.printf("[ota] joining %s\n", s_ssid);
@@ -467,6 +508,7 @@ const Net* net(uint8_t i) { return i < s_netN ? &s_nets[i] : nullptr; }
 
 bool hasSaved() { readSaved(); return s_n > 0; }
 bool savedPass(char* out, size_t cap) { readSaved(); return passAt(s_use, out, cap); }
+bool savedPassAt(uint8_t i, char* out, size_t cap) { readSaved(); return i < s_n && passAt(i, out, cap); }
 const char* savedSsid() { readSaved(); return s_saved; }
 
 void forget() {
@@ -674,6 +716,10 @@ bool bootCheck(uint32_t budgetMs) {
                 if (parseVersion((const char*)body, latest, sizeof latest)) {
                     Serial.printf("[ota] boot check: site has %s, running %s\n", latest, FIRMWARE_VERSION);
                     OtaCore::noteAvailable(latest, "");
+                    // Only once it is known to be newer: noteAvailable drops
+                    // anything that is not, and notes without an update are
+                    // notes about the version already running.
+                    if (OtaCore::availableVersion()[0]) parseRelease((const char*)body);
                     found = true;
                 }
             } else {

@@ -81,6 +81,15 @@ const char* runningVersion();
 void        noteAvailable(const char* version, const char* who);
 const char* availableVersion();   // "" when nothing newer is known
 const char* availableFrom();      // the member's name, or ""
+// What the site's manifest said about that release: its name, and the few
+// lines it wrote for a board's screen. Both empty for a version heard from a
+// squad member, whose hello carries a number and nothing else. RAM only, and
+// only ever about the version in availableVersion().
+void        noteRelease(const char* name, const char* const* lines, uint8_t n);
+const char* releaseName();        // "" when none came with it
+uint8_t     newsCount();          // 0..NEWS_MAX
+const char* newsAt(uint8_t i);
+constexpr uint8_t NEWS_MAX = 4;
 // The one-line notice for Squachy, once per version. nullptr once said.
 const char* takeAvailableNotice();
 const char* buildName();        // the PlatformIO environment, e.g. "cyd-fast"

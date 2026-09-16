@@ -284,13 +284,34 @@ jobs:
       - name: Stamp manifest versions
         run: |
           python - <<'PY'
-          import json
+          import json, os, re
+          # The release's name and its lines for a board's own screen. The
+          # name is the one the Release title already uses; the lines come
+          # from an optional
+          #     <!-- board: first line | second | third -->
+          # in the notes file, written for a 33-character panel rather than
+          # cut out of the prose. SYSTEM PROPERTIES shows them after the
+          # board finds this release; ESP Web Tools ignores keys it does not
+          # know, so the browser flasher reads the file exactly as before.
+          name, news = "", []
+          nf = os.path.join(".github", "release-notes", "${{ steps.ver.outputs.tag }}.md")
+          if os.path.exists(nf):
+              head = open(nf, encoding="utf-8").read(4096)
+              m = re.search(r"<!--\s*name:\s*(.+?)\s*-->", head)
+              if m: name = m.group(1)[:19]
+              m = re.search(r"<!--\s*board:\s*(.+?)\s*-->", head)
+              if m: news = [x.strip()[:38] for x in m.group(1).split("|") if x.strip()][:4]
+          print("manifest: name %r, %d line(s)" % (name, len(news)))
           for p in ("web-flasher/manifest-cyd.json", "web-flasher/manifest-cyd-ili9341.json",
                     "web-flasher/manifest-awok.json", "web-flasher/manifest-cyd-fast.json",
                     "web-flasher/manifest-cyd-ili9341-fast.json",
                     "web-flasher/manifest-rlphantom-r.json"):
               m = json.load(open(p))
               m["version"] = "${{ steps.ver.outputs.version }}"
+              if name: m["release_name"] = name
+              else:    m.pop("release_name", None)
+              if news: m["whats_new"] = news
+              else:    m.pop("whats_new", None)
               json.dump(m, open(p, "w"), indent=2)
           PY
           # These are attached to the release as well, and they are not

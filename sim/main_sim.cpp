@@ -60,6 +60,8 @@
 #include "ui_invite.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
+#include "ui_sysprops.h"
+#include "ota_core.h"
 #include "ui_wifinets.h"
 #include "png_writer.h"
 
@@ -172,6 +174,8 @@ static void usage() {
         "  --peer N          draw a visiting SquachMesh peer in outfit N\n"
         "  --peername NAME   give that visitor a custom name\n"
         "  --crowd N         clear screen: N squad members in range, roaming with ours\n"
+        "  --tab N           sysprops screen: 0 update, 1 notes, 2 board\n"
+        "  --from NAME       sysprops screen: heard from that squad member, not the site\n"
         "  --frames N        animation warm-up frames before capture (default 90)\n"
         "  --onboard         let Squachy's first-boot walkthrough run\n"
         "  --sequence N      capture N consecutive frames instead of one\n"
@@ -216,6 +220,8 @@ int main(int argc, char** argv) {
     // somebody else's device.
     std::string peerName;
     int crowdN = 0;
+    int tabIdx = 0;
+    std::string heardFrom;
     std::string inboxText;
     // --type feeds the payphone a tap sequence: digits are key presses,
     // "." waits past the multi-tap window. Typing is the feature; a screen
@@ -245,6 +251,8 @@ int main(int argc, char** argv) {
         else if (a == "--peer" && i + 1 < argc) peerOutfit = atoi(argv[++i]);
         else if (a == "--peername" && i + 1 < argc) peerName = argv[++i];
         else if (a == "--crowd" && i + 1 < argc) crowdN = atoi(argv[++i]);
+        else if (a == "--tab" && i + 1 < argc) tabIdx = atoi(argv[++i]);
+        else if (a == "--from" && i + 1 < argc) heardFrom = argv[++i];
         else if (a == "--inboxtext" && i + 1 < argc) inboxText = argv[++i];
         else if (a == "--type" && i + 1 < argc) typeSeq = argv[++i];
         else if (a == "--scroll" && i + 1 < argc) scrollBy = atoi(argv[++i]);
@@ -458,6 +466,7 @@ int main(int argc, char** argv) {
         else if (screen == "squadupdate") uiSquadUpdateTick(frame, t, engine);
         else if (screen == "invite")   uiInviteTick(frame, t, engine);
         else if (screen == "wifipass") uiWifiPassTick(frame, t);
+        else if (screen == "sysprops") uiSysPropsTick(frame, t, engine);
         else if (screen == "wifinets") uiWifiNetsTick(frame, t);
         else if (screen == "wifiadd")  uiWifiAddTick(frame, t, engine);
         else if (screen == "poses") {
@@ -518,6 +527,28 @@ int main(int argc, char** argv) {
         uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "BIGFOOT" : "YETI", p == 0 || p == 3 || p == 5 || p == 7);
     }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "SquachNet");
+    else if (screen == "sysprops") {
+        // The real path: a version arrives, then the release's own lines if
+        // it came from the site. --from makes it a squad member's hello,
+        // which carries a number and no notes.
+        OtaCore::noteAvailable("1.11.0", heardFrom.c_str());
+        if (heardFrom.empty()) {
+            static const char* const NEWS[3] = {
+                "The update window you are reading",
+                "Squad updates check WiFi is nearby",
+                "Desk mode remembers the timer",
+            };
+            OtaCore::noteRelease("Bramble", NEWS, 3);
+        }
+        uiSysPropsInit(frame);
+        // The tab a tap would have opened, for rendering one of them.
+        if (tabIdx > 0 && tabIdx < 3) {
+            const int tw = (((frame.width() - 16 < 280 ? frame.width() - 16 : 280)) - 8) / 3;
+            const int wx = (frame.width() - (frame.width() - 16 < 280 ? frame.width() - 16 : 280)) / 2;
+            const int wy = (frame.height() - (frame.height() - 24 < 196 ? frame.height() - 24 : 196)) / 2;
+            uiSysPropsTouch(frame, wx + 4 + tabIdx * tw + tw / 2, wy + 3 + 15 + 2 + 7);
+        }
+    }
     else if (screen == "wifinets")   uiWifiNetsInit(frame);
     else if (screen == "wifiadd")    uiWifiAddInit(frame);
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);

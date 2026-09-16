@@ -19,6 +19,12 @@ void           uiSquadUpdateTick(TFT_eSPI& t, uint32_t now, const DetectionEngin
 SquadUpdateHit uiSquadUpdateHit(TFT_eSPI& t, int x, int y);
 bool           uiSquadUpdateShareWifi();
 void           uiSquadUpdateToggleShare();
+// Which saved network to share: the index into OtaWifi's saved list of the
+// one the scan on this screen actually found in the room, or -1 while the
+// scan is running and when none of them is here. Sending credentials for the
+// network at home to a board that is not at home teaches it a password it
+// can never use, and it would sit on the air in a frame anyone can hear.
+int8_t         uiSquadUpdateShareIndex();
 // The nudge went out (or did not). Switches to the tally view when it did.
 void           uiSquadUpdateSent(bool ok, uint32_t now);
 // A board reported in. Duplicates by name are folded.

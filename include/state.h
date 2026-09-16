@@ -139,7 +139,10 @@ enum class AppState : uint8_t {
     INVITE           = 31, // ADD TO SQUAD, either side of it
     DESK             = 32, // desk mode: the clock, the date, the focus timer
     WIFI_NETS        = 33, // WIFI NETWORKS, from the SYSTEM page: the saved list
-    WIFI_ADD         = 34  // ...and the scan to add one from
+    WIFI_ADD         = 34, // ...and the scan to add one from
+    SYS_PROPS        = 35  // SYSTEM PROPERTIES: the window that says an update
+                            // is out, in front of the main screen on the first
+                            // frame after the intro. See ui_sysprops.h.
 };
 
 enum class ButtonId : uint8_t {

@@ -6,6 +6,7 @@
 #include "ota_core.h"
 #include "ota_wifi.h"
 #include "meshtalk.h"
+#include "detection.h"   // the scan behind SHARE WIFI
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +17,13 @@ const int SLOP  = 6;
 const uint8_t TALLY_N = 8;
 
 bool     s_share   = false;
+// The saved network the scan on this screen found in the room, and whether
+// that scan has answered yet. Recomputed from the scan every frame: a board
+// carried between rooms while this screen is open shares what is around it
+// now, not what was around it when it opened.
+int8_t   s_shareIdx  = -1;
+bool     s_scanDone  = false;
+bool     s_shareSet  = false;   // the person has said which way they want it
 bool     s_sent    = false;
 uint32_t s_sentAt  = 0;
 char     s_tally[TALLY_N][13];
@@ -49,14 +57,19 @@ void line(TFT_eSPI& t, int y, uint16_t c, const char* s) {
 void uiSquadUpdateInit(TFT_eSPI& t) {
     s_sent   = false;
     s_tallyN = 0;
-    // Sharing defaults to on when there is something to share: the point of
-    // the row is the six boards on one desk, and they are on one network.
-    s_share  = OtaWifi::hasSaved();
+    // Sharing defaults to on once the scan finds something to share -- the
+    // point of the row is the six boards on one desk, and they are on one
+    // network. Off until then: there is nothing to be on about yet.
+    s_share    = false;
+    s_shareSet = false;
+    s_shareIdx = -1;
+    s_scanDone = false;
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-bool uiSquadUpdateShareWifi() { return s_share && OtaWifi::hasSaved(); }
-void uiSquadUpdateToggleShare() { if (OtaWifi::hasSaved()) s_share = !s_share; }
+bool uiSquadUpdateShareWifi() { return s_share && s_shareIdx >= 0; }
+void uiSquadUpdateToggleShare() { if (s_shareIdx >= 0) { s_share = !s_share; s_shareSet = true; } }
+int8_t uiSquadUpdateShareIndex() { return s_shareIdx; }
 
 void uiSquadUpdateSent(bool ok, uint32_t now) {
     if (!ok) return;
@@ -74,7 +87,33 @@ void uiSquadUpdateReported(const char* name) {
     s_tallyN++;
 }
 
+// The strongest saved network the scan can see, preferring the one marked
+// USE when it is among them -- the same order the boot check joins in, so
+// what a board shares is what a board would use.
+static void pickShareNetwork(const DetectionEngine& eng) {
+    s_scanDone = eng.rawWifiScanDone();
+    if (!s_scanDone) { s_shareIdx = -1; return; }
+    const uint8_t saved = OtaWifi::savedCount();
+    const uint8_t use   = OtaWifi::savedUse();
+    int8_t best = -1;
+    int8_t bestRssi = -127;
+    for (uint8_t i = 0; i < eng.rawWifiCount(); i++) {
+        const char* ssid = eng.rawWifiSsid(i);
+        if (!ssid || !ssid[0]) continue;
+        for (uint8_t k = 0; k < saved; k++) {
+            if (strcmp(OtaWifi::savedSsidAt(k), ssid) != 0) continue;
+            if (k == use) { s_shareIdx = (int8_t)k; return; }
+            const int8_t r = eng.rawWifiRssi(i);
+            if (best < 0 || r > bestRssi) { best = (int8_t)k; bestRssi = r; }
+        }
+    }
+    s_shareIdx = best;
+}
+
 void uiSquadUpdateTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+    pickShareNetwork(eng);
+    if (s_shareIdx < 0)        s_share = false;   // nothing to share: the row cannot be on
+    else if (!s_shareSet)      s_share = true;    // the scan found one: on, until said otherwise
     (void)eng;
     const int w = t.width(), h = t.height();
     t.fillRect(0, 0, w, h, Theme::BG);
@@ -95,7 +134,7 @@ void uiSquadUpdateTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         // The SHARE WIFI row, a settings row in shape.
         Theme::drawListRowPanel(t, w, g.shareY, g.shareH);
         t.setTextSize(2);
-        const bool can = OtaWifi::hasSaved();
+        const bool can = s_shareIdx >= 0;
         t.setTextColor(can ? Theme::VAPOR_PINK : Theme::blend(Theme::BG, Theme::VAPOR_PINK, 110), Theme::BG);
         t.setCursor(8, g.shareY + (g.shareH - t.fontHeight()) / 2);
         t.print("SHARE WIFI");
@@ -105,8 +144,18 @@ void uiSquadUpdateTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         t.print(v);
         t.setTextSize(1);
         y = g.shareY + g.shareH + 4;
-        if (can) snprintf(buf, sizeof buf, "%s, used once and forgotten.", OtaWifi::savedSsid());
-        else     snprintf(buf, sizeof buf, "No network saved here to share.");
+        if (can)
+            snprintf(buf, sizeof buf, "%s, used once and forgotten.",
+                     OtaWifi::savedSsidAt((uint8_t)s_shareIdx));
+        else if (!s_scanDone)
+            snprintf(buf, sizeof buf, "Looking for a network to share...");
+        else if (!OtaWifi::hasSaved())
+            snprintf(buf, sizeof buf, "No network saved here to share.");
+        else
+            // The whole point of the scan: a board away from home would
+            // otherwise hand out the password to a network nobody here can
+            // see, and the boards it told could never act on it.
+            snprintf(buf, sizeof buf, "None of your networks are in range.");
         line(t, y, Theme::W95_LIGHT, buf);
         y += 12;
         line(t, y, Theme::W95_LIGHT, "Boards with their own WiFi use that.");

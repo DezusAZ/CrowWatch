@@ -100,6 +100,12 @@ static char     s_avail[16]  = "";
 static char     s_availFrom[13] = "";
 static char     s_availLine[48] = "";
 static bool     s_availSaid = true;
+// The release's own words, from the manifest. Sized for the window that
+// shows them: thirty-six characters is what the NOTES tab fits in portrait,
+// and a line written longer than that was written for the wrong screen.
+static char     s_relName[20] = "";
+static char     s_news[NEWS_MAX][40];
+static uint8_t  s_newsN = 0;
 
 // "1.7.8" or "v1.7.8" into three numbers; false for anything else.
 static bool verParts(const char* s, unsigned v[3]) {
@@ -118,6 +124,9 @@ void noteAvailable(const char* version, const char* who) {
     if (!verNewer(version, runningVersion())) return;
     if (s_avail[0] && !verNewer(version, s_avail)) return;   // already know one as new
     if (*version == 'v' || *version == 'V') version++;
+    // A different version from the one the lines were about: drop them
+    // rather than show one release's notes under another's number.
+    if (strcmp(s_avail, version) != 0) { s_relName[0] = '\0'; s_newsN = 0; }
     snprintf(s_avail, sizeof s_avail, "%s", version);
     snprintf(s_availFrom, sizeof s_availFrom, "%s", who ? who : "");
     if (s_availFrom[0]) snprintf(s_availLine, sizeof s_availLine, "%s is on %s. SYSTEM > UPDATE.", s_availFrom, s_avail);
@@ -126,6 +135,14 @@ void noteAvailable(const char* version, const char* who) {
     Serial.printf("[ota] newer release known: %s%s%s\n", s_avail, s_availFrom[0] ? " via " : "", s_availFrom);
 }
 const char* availableVersion() { return s_avail; }
+void noteRelease(const char* name, const char* const* lines, uint8_t n) {
+    snprintf(s_relName, sizeof s_relName, "%s", name ? name : "");
+    s_newsN = n > NEWS_MAX ? NEWS_MAX : n;
+    for (uint8_t i = 0; i < s_newsN; i++) snprintf(s_news[i], sizeof s_news[i], "%s", lines[i] ? lines[i] : "");
+}
+const char* releaseName() { return s_relName; }
+uint8_t     newsCount()   { return s_newsN; }
+const char* newsAt(uint8_t i) { return i < s_newsN ? s_news[i] : ""; }
 const char* availableFrom()    { return s_availFrom; }
 const char* takeAvailableNotice() {
     if (s_availSaid || !s_avail[0]) return nullptr;
