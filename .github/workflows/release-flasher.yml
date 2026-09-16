@@ -319,8 +319,13 @@ jobs:
           # Existence was already checked before the build, so there is
           # no fallback here -- the fallback is what let two releases
           # ship with an empty body.
+          # A release can carry a name: the notes file's first line, as an
+          # HTML comment GitHub does not render, e.g. <!-- name: Anubis -->.
+          NAME="$(sed -n '1s/^<!-- name: \(.*\) -->$/\1/p' ".github/release-notes/${{ steps.ver.outputs.tag }}.md")"
+          TITLE="SquachWatch-CYD ${{ steps.ver.outputs.tag }}"
+          if [ -n "$NAME" ]; then TITLE="$TITLE \"$NAME\""; fi
           gh release create "${{ steps.ver.outputs.tag }}" \
-            --title "SquachWatch-CYD ${{ steps.ver.outputs.tag }}" \
+            --title "$TITLE" \
             --notes-file ".github/release-notes/${{ steps.ver.outputs.tag }}.md" \
             esp32-bootloader.bin \
             esp32-partitions.bin \
