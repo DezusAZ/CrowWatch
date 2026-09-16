@@ -52,6 +52,9 @@ bool     scanSafe()             { return false; }
 void     setScanSafe(bool)      {}
 uint32_t advertsDropped()       { return 0; }
 uint32_t advertRate()           { return 0; }
+uint32_t wifiFramesSeen()       { return 0; }
+uint32_t advertsSeen()          { return 0; }
+void     setScanWindow(uint8_t) {}
 
 void DetectionEngine::clearLog() {
     _logCount = 0;

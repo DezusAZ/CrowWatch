@@ -5,6 +5,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <esp_netif.h>
+#include <esp_wifi_netif.h>
 #include <NimBLEDevice.h>
 #include <NimBLEAdvertisedDevice.h>
 #include <NimBLEScan.h>
@@ -74,6 +76,12 @@ void setScanSafe(bool safe) { s_scanSafe = safe; }
 bool scanSafe() { return s_scanSafe; }
 
 static volatile uint32_t s_advRaw = 0;   // every advert the radio handed over, seatbelt or not
+static volatile uint32_t s_wifiRaw = 0;  // every frame the sniffer was handed
+uint32_t wifiFramesSeen() { return s_wifiRaw; }
+uint32_t advertsSeen()    { return s_advRaw; }
+static volatile uint8_t s_windowReq = 0;   // a WINDOW command waiting for the next restart
+static bool             s_windowPending = false;
+void setScanWindow(uint8_t w) { if (w >= 1 && w <= 100) { s_windowReq = w; s_windowPending = true; } }
 
 class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* adv) override {
@@ -366,16 +374,55 @@ bool DetectionEngine::init() {
     // the step that might brown the board out -- because a brownout leaves no
     // crash dump and the reset reason alone does not say which of the two it
     // was. A board that boot-loops prints the last one it reached.
+    static const bool SLIM_WIFI = true;    // A/B on the bench: 45 frames/40 s slim, 20/45 s stock
     Serial.println("[boot] starting WiFi");
     Serial.flush();
+    Serial.printf("[boot] heap before WiFi: %lu free, %lu largest\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     delay(50);
+    // The driver again, on a sniffer's budget. The Arduino core starts WiFi
+    // sized for a laptop-style connection: four DMA receive buffers, a
+    // cache of transmit buffers, packet aggregation both ways. A board that
+    // listens and only ever transmits for an update needs the minimum of
+    // each, and the difference is heap nothing else can reach. The core's
+    // network interface stays; it is re-attached to the new driver so an
+    // update over WiFi still gets an address.
+    if (SLIM_WIFI) {
+        esp_wifi_stop();
+        esp_wifi_deinit();
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        cfg.static_rx_buf_num  = 2;    // the DMA landing zone; 2 is the floor
+        cfg.dynamic_rx_buf_num = 16;
+        cfg.static_tx_buf_num  = 0;
+        cfg.dynamic_tx_buf_num = 8;
+        cfg.tx_buf_type        = 1;
+        cfg.cache_tx_buf_num   = 1;    // cannot be zero with dynamic TX
+        cfg.ampdu_rx_enable    = 0;
+        cfg.ampdu_tx_enable    = 0;
+        cfg.amsdu_tx_enable    = 0;
+        cfg.csi_enable         = 0;
+        cfg.mgmt_sbuf_num      = 6;    // the floor
+        cfg.nvs_enable         = 0;
+        const esp_err_t rc = esp_wifi_init(&cfg);
+        if (rc == ESP_OK) {
+            esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+            if (sta) esp_netif_attach_wifi_station(sta);
+            esp_wifi_set_mode(WIFI_MODE_STA);
+            esp_wifi_start();
+        } else {
+            Serial.printf("[boot] slim WiFi init failed (%d), back to the core's\n", (int)rc);
+            WiFi.mode(WIFI_OFF);
+            WiFi.mode(WIFI_STA);
+        }
+    }
+    Serial.printf("[boot] heap with WiFi started: %lu free, %lu largest\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     esp_wifi_set_promiscuous(true);
     wifi_promiscuous_filter_t filter;
     filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA;
     esp_wifi_set_promiscuous_filter(&filter);
     esp_wifi_set_promiscuous_rx_cb([](void* buf, wifi_promiscuous_pkt_type_t) {
+        s_wifiRaw++;
         if (!g_engine) return;
         const wifi_promiscuous_pkt_t* pkt = (const wifi_promiscuous_pkt_t*)buf;
         if (pkt->rx_ctrl.sig_len < 24) return;
@@ -463,7 +510,14 @@ bool DetectionEngine::init() {
     scan->setActiveScan(false);
     if (s_scanSafe) Serial.println("[scan] SAFE: passive scanning for good (five short boots in a row)");
     scan->setInterval(100);
-    scan->setWindow(99);
+    // The Bluetooth scan and the WiFi sniffer share one radio, and the scan
+    // window is the share. Measured on the bench 2026-09-15, four minutes each
+    // at the same spot: window 99 gave 44 WiFi frames and 2641 adverts, 75 gave
+    // 866 frames and 2458 adverts, 50 gave 1851 frames and 1485 adverts. At 99
+    // the sniffer was deaf -- one frame a second in a house with a router
+    // beaconing ten times a second -- and 75 buys it twenty times that for a
+    // dip in adverts inside run-to-run noise. 50 costs half the adverts.
+    scan->setWindow(75);
     scan->setDuplicateFilter(false);
     // wantDuplicates=true: we want onResult() called on every sighting
     // of a device, not just the first, so lastSeen/RSSI keep updating
@@ -733,7 +787,10 @@ static const uint32_t SCAN_FLUSH_MS = 60000;
 // heap is watched too: a flush also goes out the moment the largest free
 // block falls under this, no more than once every few seconds.
 static const uint32_t SCAN_FLUSH_MIN_MS   = 4000;
-static const uint32_t SCAN_FLUSH_BLOCK_B  = 20000;
+// Measured on the bench: a healthy 2.8" board has 12 KB in a piece with
+// Bluetooth up, and a board under real pressure sat at 5 KB and below, so
+// the bar goes between them. At 20 KB it fired every four seconds at rest.
+static const uint32_t SCAN_FLUSH_BLOCK_B  = 8192;
 // A breath after the radios come up, no more: the same user's board, with
 // fifteen seconds here, was dead at two seconds up.
 static const uint32_t SCAN_FLUSH_SETTLE_MS = 1000;
@@ -755,6 +812,10 @@ static const uint8_t  SCAN_PRESSED_LIMIT  = 3;       // pressed flushes inside a
 // only what a device says when asked: some names, and a squad message.
 static const uint32_t SCAN_ACTIVE_BELOW   = 50;      // adverts/s: quiet enough to ask
 static const uint32_t SCAN_PASSIVE_ABOVE  = 90;      // adverts/s: too loud to keep asking
+// The block an active scan needs to spare before it starts. Measured on the
+// bench: a 2.8" board has 12 KB in a piece once Bluetooth is up, and ran
+// active scans on that for a year, so the bar sits under it.
+static const uint32_t SCAN_ACTIVE_BLOCK_B = 8192;
 static const uint32_t SCAN_MODE_SETTLE_MS = 5000;    // listen this long before the first change
 static const uint32_t SCAN_MODE_DWELL_MS  = 30000;   // and this long between changes
 static volatile bool  s_wantPassive = true;          // the loop task's decision, read on the host task
@@ -787,6 +848,7 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     // a start, which is why the decision is carried in here.
     const uint32_t nowMs = millis();
     (void)nowMs;
+    if (s_windowReq) { scan->setWindow(s_windowReq); s_windowReq = 0; }
     const bool passive = s_scanSafe || s_wantPassive;
     if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }
     scan->start(0, nullptr, false);
@@ -810,7 +872,7 @@ static bool scanModeTick(uint32_t now, uint32_t largest) {
     if (s_scanSafe || pressedWindow) want = true;
     else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
     else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
-             s_advRate < SCAN_ACTIVE_BELOW && largest >= SCAN_FLUSH_BLOCK_B) want = false;
+             s_advRate < SCAN_ACTIVE_BELOW && largest >= SCAN_ACTIVE_BLOCK_B) want = false;
     if (want == s_wantPassive) return false;
     s_wantPassive = want;
     modeSince = now;
@@ -836,7 +898,8 @@ static void scanFlushTick() {
     const uint32_t now = millis();
     const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     s_heapLow = largest < 1536;
-    const bool modeChanged = scanModeTick(now, largest);
+    bool modeChanged = scanModeTick(now, largest);
+    if (s_windowPending) { s_windowPending = false; modeChanged = true; Serial.printf("[scan] window %u from the next restart\n", (unsigned)s_windowReq); }
     // A passive scan holds nothing between flushes, so heap pressure there
     // is somebody else's and a restart would not help.
     const bool pressed = !s_passiveNow && largest < SCAN_FLUSH_BLOCK_B && now > SCAN_FLUSH_SETTLE_MS &&

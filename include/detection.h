@@ -130,6 +130,11 @@ struct BootHeap {
 BootHeap bootHeap();
 bool     scanPassiveNow();   // the scan is passive right now (the room, pressure, or safe mode)
 uint32_t advertRate();       // adverts/s the radio handed over in the last second
+uint32_t wifiFramesSeen();   // frames the WiFi sniffer has been handed since boot
+uint32_t advertsSeen();      // adverts the radio has handed over since boot, seatbelt or not
+// The scan window, 1..100 of the 100 ms interval, changed live: WINDOW N on
+// the console. For pricing the WiFi/Bluetooth radio-time trade on the bench.
+void     setScanWindow(uint8_t w);
 uint32_t advertsDropped();   // adverts the seatbelt refused for want of heap
 
 class DetectionEngine {
