@@ -63,15 +63,16 @@ bool in(int x, int y, int bx, int by, int bw, int bh) {
 
 // The buttons are sized to their words in font 2, so drawing and hit-testing
 // both come through here and cannot disagree about where a button is.
+int boldWidth(TFT_eSPI& t, const char* s);   // below, with bold()
 struct Buttons { int updX, updW, laterX, laterW, closeX, closeW; };
 Buttons buttons(TFT_eSPI& t, const Geom& g) {
     Theme::bubbleFontOn(t);
     t.setTextSize(1);
     Buttons b;
     const int right = g.x + g.w - 6;
-    b.laterW = t.textWidth("Later") + 24;       if (b.laterW < 64) b.laterW = 64;
-    b.updW   = t.textWidth("Update now") + 24;
-    b.closeW = t.textWidth("Close") + 24;       if (b.closeW < 64) b.closeW = 64;
+    b.laterW = boldWidth(t, "Later") + 24;      if (b.laterW < 64) b.laterW = 64;
+    b.updW   = boldWidth(t, "Update now") + 24;
+    b.closeW = boldWidth(t, "Close") + 24;      if (b.closeW < 64) b.closeW = 64;
     b.laterX = right - b.laterW;
     b.updX   = b.laterX - 6 - b.updW;
     b.closeX = right - b.closeW;
@@ -109,6 +110,36 @@ void text(TFT_eSPI& t, int x, int y, const char* s, uint16_t c = Theme::W95_DKSH
     t.print(s);
 }
 
+// Font 2 has no bold cut, so bold is the word drawn twice a pixel apart.
+// Both passes transparent: an opaque second pass would paint its own
+// background over the first and leave the word merely shifted.
+//
+// A real bold face (FreeSans Bold, bundled with the display library) and the
+// classic blocky face doubled were both rendered against this one side by
+// side. The real one was heavier but clipped values in portrait, the blocky
+// one did not fit in portrait at all, and this one fits both rotations.
+void bold(TFT_eSPI& t, int x, int y, const char* s, uint16_t c = Theme::W95_DKSHADOW) {
+    t.setTextColor(c);
+    t.setCursor(x, y);     t.print(s);
+    t.setCursor(x + 1, y); t.print(s);
+}
+
+// How wide `s` is when drawn by bold(): the doubling adds a pixel.
+int boldWidth(TFT_eSPI& t, const char* s) { return t.textWidth(s) + 1; }
+
+// The row labels on the UPDATE tab. A darker red than the palette's: bright
+// red on this silver reads worse than the black it replaced, and a system
+// window keeps its own colours whatever theme the board wears.
+const uint16_t LABEL_RED = 0x9800;
+
+// A Win95 button whose word is bold: the bevel from Theme, the word from
+// here, centred the same way drawWin95Button centres its own.
+void boldButton(TFT_eSPI& t, int x, int y, int w, int h, const char* label) {
+    Theme::drawWin95Button(t, x, y, w, h, "", false);
+    const int tw = boldWidth(t, label);
+    bold(t, x + 2 + (w - 4 - tw) / 2, y + 2 + (h - 4 - t.fontHeight()) / 2, label);
+}
+
 // `src`, cut to what fits in `maxW` pixels of the current font. Proportional
 // type means a character count cannot say where a line ends.
 void fit(TFT_eSPI& t, const char* src, int maxW, char* out, size_t cap) {
@@ -119,12 +150,13 @@ void fit(TFT_eSPI& t, const char* src, int maxW, char* out, size_t cap) {
 
 // A label and its value, in two columns. The label column is as wide as its
 // longest label, measured, so it holds in either rotation.
-int labelCol(TFT_eSPI& t) { return t.textWidth("Heard from") + 10; }
+int labelCol(TFT_eSPI& t) { return boldWidth(t, "Heard from") + 10; }
 
 void row(TFT_eSPI& t, const Geom& g, int y, const char* name, const char* value,
-         uint16_t valueCol = Theme::W95_DKSHADOW) {
+         uint16_t valueCol = Theme::W95_DKSHADOW, bool redLabel = false) {
     const int col = labelCol(t);
-    text(t, g.px + 8, y, name);
+    if (redLabel) bold(t, g.px + 8, y, name, LABEL_RED);
+    else          text(t, g.px + 8, y, name);
     char v[48];
     fit(t, value, g.pw - 8 - col - 8, v, sizeof v);
     text(t, g.px + 8 + col, y, v, valueCol);
@@ -172,19 +204,19 @@ void drawUpdateTab(TFT_eSPI& t, const Geom& g) {
     // As the build stamped it: a release is "v1.10.1", a bench build carries
     // the commit and "-dirty" after it, and both are the truth about what is
     // running. Cut to what the panel holds rather than dressed up.
-    row(t, g, y, "Running", OtaCore::runningVersion());
+    row(t, g, y, "Running", OtaCore::runningVersion(), Theme::W95_DKSHADOW, true);
     y += LINE;
 
     const char* name = OtaCore::releaseName();
     if (name[0]) snprintf(buf, sizeof buf, "v%s  %s", OtaCore::availableVersion(), name);
     else         snprintf(buf, sizeof buf, "v%s", OtaCore::availableVersion());
-    row(t, g, y, "Available", buf, NAVY);
+    row(t, g, y, "Available", buf, NAVY, true);
     y += LINE;
 
     const char* from = OtaCore::availableFrom();
     if (from[0]) snprintf(buf, sizeof buf, "%s's board", from);
     else         snprintf(buf, sizeof buf, "squachwatch.com");
-    row(t, g, y, "Heard from", buf);
+    row(t, g, y, "Heard from", buf, Theme::W95_DKSHADOW, true);
     y += LINE + 5;
 
     const int cb = checkboxY(g);
@@ -299,9 +331,8 @@ void uiSysPropsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         const int tx = g.x + 4 + i * g.tabW;
         const bool on = (i == s_tab);
         raised(t, tx, on ? g.tabY - 2 : g.tabY, g.tabW, on ? TAB_H + 4 : TAB_H);
-        t.setTextColor(on ? NAVY : Theme::W95_DKSHADOW, Theme::W95_FACE);
-        t.setCursor(tx + (g.tabW - t.textWidth(TAB_NAME[i])) / 2, g.tabY + (on ? 1 : 3));
-        t.print(TAB_NAME[i]);
+        bold(t, tx + (g.tabW - boldWidth(t, TAB_NAME[i])) / 2, g.tabY + (on ? 1 : 3),
+             TAB_NAME[i], on ? NAVY : Theme::W95_DKSHADOW);
     }
 
     sunken(t, g.px, g.py, g.pw, g.ph);
@@ -317,12 +348,12 @@ void uiSysPropsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // the other tabs' content would be a button that means different things
     // in different places.
     if (s_tab == TAB_UPDATE) {
-        Theme::drawWin95Button(t, b.laterX, g.btnY, b.laterW, BTN_H, "Later", false);
-        Theme::drawWin95Button(t, b.updX, g.btnY, b.updW, BTN_H, "Update now", false);
+        boldButton(t, b.laterX, g.btnY, b.laterW, BTN_H, "Later");
+        boldButton(t, b.updX, g.btnY, b.updW, BTN_H, "Update now");
         // The default button, the one a keyboard would have focused.
         t.drawRect(b.updX - 2, g.btnY - 2, b.updW + 4, BTN_H + 4, Theme::W95_DKSHADOW);
     } else {
-        Theme::drawWin95Button(t, b.closeX, g.btnY, b.closeW, BTN_H, "Close", false);
+        boldButton(t, b.closeX, g.btnY, b.closeW, BTN_H, "Close");
     }
     // Every other screen assumes the small face.
     Theme::bubbleFontOff(t);
