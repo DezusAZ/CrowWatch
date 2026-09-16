@@ -60,6 +60,7 @@
 #include "ui_invite.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
+#include "ui_wifinets.h"
 #include "png_writer.h"
 
 // A few plausible log entries so screens have something real to draw --
@@ -428,6 +429,8 @@ int main(int argc, char** argv) {
         else if (screen == "squadupdate") uiSquadUpdateTick(frame, t, engine);
         else if (screen == "invite")   uiInviteTick(frame, t, engine);
         else if (screen == "wifipass") uiWifiPassTick(frame, t);
+        else if (screen == "wifinets") uiWifiNetsTick(frame, t);
+        else if (screen == "wifiadd")  uiWifiAddTick(frame, t, engine);
         else if (screen == "poses") {
             // Every arm movement he has, for the costume test in
             // sim/test_outfit_poses.py: IDLE, WAVE, then each VisitPose, each at
@@ -486,6 +489,8 @@ int main(int argc, char** argv) {
         uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "BIGFOOT" : "YETI", p == 0 || p == 3 || p == 5 || p == 7);
     }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "SquachNet");
+    else if (screen == "wifinets")   uiWifiNetsInit(frame);
+    else if (screen == "wifiadd")    uiWifiAddInit(frame);
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
     else if (screen == "roster") {
         // Three members, through the real paths: an advert each so Mesh knows

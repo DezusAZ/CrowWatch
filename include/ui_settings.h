@@ -38,6 +38,7 @@ enum class SettingsRow : uint8_t {
     HUNT_TARGET,    // "HUNTING: <name>", same deal
     UPDATE_FIRMWARE, // on the SYSTEM page: Bluetooth update, or switch slots
     UPDATE_CHECK,    // on the SYSTEM page: ask the site at boot, over saved WiFi
+    WIFI_NETWORKS,   // on the SYSTEM page: the saved networks, up to six
     STATUS_LIGHT,    // on the APPEARANCE page: opens the RGB LED's screen
     BANTER,          // on the APPEARANCE page: how much he talks when nothing is happening
     TIME_ZONE,       // on the SYSTEM page: which zone the real clock shows

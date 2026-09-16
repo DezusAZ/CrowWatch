@@ -68,6 +68,31 @@ const char* savedSsid();
 bool        savedPass(char* out, size_t cap);
 void        forget();
 
+// The list behind those: up to SAVED_MAX networks, managed on the WIFI
+// NETWORKS screen. savedSsid() and savedPass() above are the one marked USE:
+// the boot check tries it first when it is in range, and the squad update
+// nudge shares it. A network added on the board is not checked by joining --
+// joining means giving Bluetooth up until a restart -- so its password is
+// tried at the next boot check, and savedResult() says how that went.
+static const uint8_t SAVED_MAX = 6;
+enum class SavedResult : uint8_t { UNTRIED = 0, JOINED, BAD_PASSWORD, NOT_FOUND };
+uint8_t     savedCount();
+const char* savedSsidAt(uint8_t i);
+uint8_t     savedUse();
+int8_t      savedIndexOf(const char* ssid);   // -1 when it is not saved
+SavedResult savedResult(uint8_t i);
+// Add a network, or replace the password of one already saved. False when
+// the list is full.
+bool        saveNetwork(const char* ssid, const char* pass);
+void        removeSaved(uint8_t i);
+void        useSaved(uint8_t i);
+// Join saved network i. connectSaved() below joins the best saved network in
+// the last scan -- the one marked USE if it is there, else the strongest --
+// and the one marked USE blind when the scan showed none.
+void        connectSavedAt(uint8_t i);
+// The list on serial, for the bench: WIFI on the console.
+void        printSaved();
+
 // Join a network and check for the latest release. `save` keeps the password
 // if the network joins.
 void connect(const char* ssid, const char* pass, bool save);

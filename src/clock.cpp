@@ -1,6 +1,8 @@
 // SquachWatch-CYD — wall-clock time. See clock.h.
 #include "clock.h"
 #include "security.h"   // a locked device takes no console commands
+#include "ota_wifi.h"    // the WIFI command lists the saved networks
+#include "detection.h"   // WINDOW N, for the bench
 #include "settings.h"
 #include "crowd_bench.h"
 #include <Arduino.h>
@@ -362,6 +364,28 @@ void pollSerial() {
             continue;
         }
 
+        if (strncasecmp(line, "GUARD ", 6) == 0) {
+            // GUARD OFF / GUARD ON: whether short boots are counted toward
+            // safe mode. A bench board that is flashed five times in an
+            // evening looks like a boot loop otherwise. Zeroes the count too.
+            const bool on = strcasecmp(line + 6, "ON") == 0;
+            Preferences bp;
+            if (bp.begin("boot", false)) {
+                bp.putUChar("guard", on ? 1 : 0);
+                bp.putUChar("short", 0);
+                bp.end();
+            }
+            Serial.printf("[boot] guard %s from the next boot; the short-boot count is zero\n", on ? "ON" : "OFF");
+            continue;
+        }
+        if (strncasecmp(line, "WINDOW ", 7) == 0) {
+            setScanWindow((uint8_t)atoi(line + 7));
+            continue;
+        }
+        if (strcasecmp(line, "WIFI") == 0) {
+            OtaWifi::printSaved();
+            continue;
+        }
         if (strncasecmp(line, "ZONE ", 5) == 0) {
             // ZONE US EASTERN, or ZONE 4: the flasher sends the name it
             // worked out from the browser's own zone.

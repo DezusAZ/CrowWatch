@@ -142,11 +142,45 @@ void tick(uint32_t now) {
 State      state()    { return s_state; }
 uint8_t    netCount() { return sizeof NETS / sizeof NETS[0]; }
 const Net* net(uint8_t i) { return i < netCount() ? &NETS[i] : nullptr; }
-bool        hasSaved()  { return s_saved; }
+struct SimSaved { char ssid[33]; SavedResult result; };
+static SimSaved s_list[SAVED_MAX] = {
+    { "SquachNet",   SavedResult::JOINED },
+    { "NORTH GATE",  SavedResult::NOT_FOUND },
+    { "Coffee Shop", SavedResult::UNTRIED },
+};
+static uint8_t s_n = 3, s_use = 0;
+bool        hasSaved()  { return s_saved && s_n > 0; }
 bool        bootCheck(uint32_t) { return false; }
-const char* savedSsid() { return s_saved ? "SquachNet" : ""; }
-bool        savedPass(char* out, size_t cap) { if (!s_saved || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
-void        forget()    { s_saved = false; }
+const char* savedSsid() { return hasSaved() ? s_list[s_use].ssid : ""; }
+bool        savedPass(char* out, size_t cap) { if (!hasSaved() || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
+void        forget()    { s_saved = false; s_n = 0; }
+uint8_t     savedCount()           { return s_saved ? s_n : 0; }
+const char* savedSsidAt(uint8_t i) { return i < savedCount() ? s_list[i].ssid : ""; }
+uint8_t     savedUse()             { return s_use; }
+int8_t      savedIndexOf(const char* ssid) {
+    for (uint8_t i = 0; i < savedCount(); i++) if (!strcmp(s_list[i].ssid, ssid)) return (int8_t)i;
+    return -1;
+}
+SavedResult savedResult(uint8_t i) { return i < savedCount() ? s_list[i].result : SavedResult::UNTRIED; }
+bool        saveNetwork(const char* ssid, const char*) {
+    const int8_t k = savedIndexOf(ssid);
+    if (k >= 0) { s_list[k].result = SavedResult::UNTRIED; return true; }
+    if (s_n >= SAVED_MAX) return false;
+    snprintf(s_list[s_n].ssid, sizeof s_list[s_n].ssid, "%s", ssid);
+    s_list[s_n].result = SavedResult::UNTRIED;
+    s_n++;
+    s_saved = true;
+    return true;
+}
+void        removeSaved(uint8_t i) {
+    if (i >= s_n) return;
+    for (uint8_t j = i; j + 1 < s_n; j++) s_list[j] = s_list[j + 1];
+    s_n--;
+    if (s_use == i) s_use = 0; else if (s_use > i) s_use--;
+}
+void        useSaved(uint8_t i) { if (i < s_n) s_use = i; }
+void        printSaved() {}
+void        connectSavedAt(uint8_t i) { connect(i < s_n ? s_list[i].ssid : "SquachNet", "", false); }
 
 void connect(const char* ssid, const char*, bool) {
     strncpy(s_net, ssid, sizeof s_net - 1);

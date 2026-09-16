@@ -62,6 +62,10 @@ static bool g_safeBoot = false;
 // Five in a row caps the backlight for that boot: if the loop is the
 // supply, that is the one load worth taking off it, and the card says so.
 static uint8_t           g_shortBoots  = 0;
+// GUARD OFF on the console turns the counting off, for a bench board that
+// gets flashed five times in an evening and would otherwise come up in
+// safe mode for it. Kept in flash next to the count; GUARD ON restores it.
+static bool              g_bootGuard   = true;
 static bool              g_powerSafe   = false;
 static esp_reset_reason_t g_resetReason = ESP_RST_UNKNOWN;
 
@@ -104,8 +108,9 @@ static void crashReportInit() {
     {
         Preferences bp;
         if (bp.begin("boot", false)) {
+            g_bootGuard = bp.getUChar("guard", 1) != 0;
             uint8_t n = bp.getUChar("short", 0);
-            n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
+            n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP || !g_bootGuard) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
             bp.putUChar("short", n);
             bp.end();
             g_shortBoots = n;             // counts this boot: 1 is an ordinary plug-in
@@ -120,7 +125,7 @@ static void crashReportInit() {
         (g_crumb.uptimeMs > 30UL * 24 * 3600 * 1000 || g_crumb.heapFree > 400000)) g_crumb.magic = 0;
     if (panicked && g_crumb.magic == CRUMB_MAGIC) {
         if (g_crumb.shortCrashes > 10) g_crumb.shortCrashes = 0;   // RTC RAM from an older firmware
-        if (g_crumb.uptimeMs < 90000) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;
+        if (g_crumb.uptimeMs < 90000 && g_bootGuard) g_crumb.shortCrashes++; else g_crumb.shortCrashes = 0;
         g_safeBoot = g_crumb.shortCrashes >= 4;
         g_lastCrash.valid     = true;
         g_lastCrash.uptimeMs  = g_crumb.uptimeMs;
@@ -249,6 +254,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "clock.h"
 #include "ui_desk.h"
 #include "ui_zone.h"
+#include "ui_wifinets.h"
 #include "ui_boot.h"
 #include "ui_clear.h"
 #include "crowd_bench.h"
@@ -1536,6 +1542,21 @@ static void enterWifiPass(const char* ssid) {
     uiWifiPassInit(*canvas, ssid);
 }
 
+// WIFI NETWORKS, and the scan it adds from. The password keyboard is the
+// update flow's; this flag says whose turn it is when it comes back.
+static bool s_passForNets = false;
+static void enterWifiNets() {
+    state = AppState::WIFI_NETS;
+    transitionStart = millis();
+    uiWifiNetsInit(*canvas);
+}
+static void enterWifiAdd() {
+    state = AppState::WIFI_ADD;
+    transitionStart = millis();
+    engine.startRawWifiScan();
+    uiWifiAddInit(*canvas);
+}
+
 static void enterHunt() {
     state = AppState::HUNT;
     transitionStart = millis();
@@ -1875,6 +1896,7 @@ static void printBootBanner() {
             Serial.println("*** That was not a clean boot.");
             Serial.printf("*** Short boots in a row: %u%s\n", (unsigned)g_crumb.shortCrashes,
                           g_safeBoot ? " -- SAFE MODE, passive Bluetooth scan" : "");
+            if (!g_bootGuard) Serial.println("*** Boot guard is OFF (GUARD ON restores it)");
             Serial.printf("*** Boots in a row under 90 s, any reason: %u%s\n", (unsigned)g_shortBoots,
                           g_powerSafe ? " -- backlight capped this boot" : "");
             Serial.println("*** The crash is saved in flash. To read it out:");
@@ -2406,7 +2428,7 @@ void loop() {
          state == AppState::DESK) &&
         Theme::lockButtonHit(tp.x, tp.y, tft.width())) {
         lastTouch = now;
-        if (state == AppState::RAWSCAN) engine.stopRawScan();
+        if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
         Security::lock();
         enterLocked();
         s_swallowTouch = true;
@@ -2531,7 +2553,7 @@ void loop() {
             // -- otherwise the raw scan (and the continuous detection
             // scan it's pausing) would just sit there indefinitely
             // while the user is off in Settings.
-            if (state == AppState::RAWSCAN) engine.stopRawScan();
+            if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
             enterSettings();
         }
     }
@@ -3740,6 +3762,7 @@ void loop() {
                             break;
                         case SettingsRow::CHECK_COLORS: enterColorCheck(true); break;
                         case SettingsRow::DIAGNOSTICS:  enterDiagnostics(); break;
+                        case SettingsRow::WIFI_NETWORKS: enterWifiNets(); break;
                         case SettingsRow::DESK_MODE:    enterDesk(); break;
                         case SettingsRow::UPDATE_FIRMWARE: enterUpdate(); break;
                         case SettingsRow::SHOW_OFF:
@@ -3891,9 +3914,10 @@ void loop() {
                     case UpdateHit::NETWORK: {
                         const OtaWifi::Net* n = OtaWifi::net((uint8_t)netIndex);
                         if (!n) break;
-                        if (OtaWifi::hasSaved() && !strcmp(n->ssid, OtaWifi::savedSsid())) {
+                        const int8_t k = OtaWifi::savedIndexOf(n->ssid);
+                        if (k >= 0) {
                             releaseFrameForDownload();
-                            OtaWifi::connectSaved();
+                            OtaWifi::connectSavedAt((uint8_t)k);
                         } else if (n->open) {
                             releaseFrameForDownload();
                             OtaWifi::connect(n->ssid, "", true);
@@ -3903,10 +3927,6 @@ void loop() {
                         break;
                     }
                     case UpdateHit::RESCAN:    OtaWifi::rescan();   break;
-                    case UpdateHit::FORGET:
-                        OtaWifi::forget();
-                        Theme::showToast("WIFI FORGOTTEN", nullptr, Theme::CYAN);
-                        break;
                     case UpdateHit::INSTALL:   OtaWifi::install();  break;
                     case UpdateHit::TRY_AGAIN: OtaWifi::tryAgain(); break;
                     case UpdateHit::BT_START:
@@ -3975,7 +3995,18 @@ void loop() {
             else if (tp.valid)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::MOVE);
             else if (touchJustUp) uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::UP);
             const WifiPassResult r = uiWifiPassResult();
-            if (r == WifiPassResult::OK) {
+            if (r == WifiPassResult::OK && s_passForNets) {
+                s_passForNets = false;
+                const bool ok = OtaWifi::saveNetwork(uiWifiPassSsid(), uiWifiPassText());
+                uiWifiPassClear();
+                Theme::showToast(ok ? "SAVED" : "LIST FULL", ok ? "Checked at the next boot" : "Remove one first",
+                                 ok ? Theme::CYAN : Theme::AMBER);
+                enterWifiNets();
+            } else if (r == WifiPassResult::BACK && s_passForNets) {
+                s_passForNets = false;
+                uiWifiPassClear();
+                enterWifiNets();
+            } else if (r == WifiPassResult::OK) {
                 releaseFrameForDownload();
                 OtaWifi::connect(uiWifiPassSsid(), uiWifiPassText(), true);
                 uiWifiPassClear();
@@ -3983,6 +4014,72 @@ void loop() {
             } else if (r == WifiPassResult::BACK) {
                 uiWifiPassClear();
                 enterUpdate();
+            }
+            break;
+        }
+        case AppState::WIFI_NETS: {
+            uiWifiNetsTick(*canvas, now);
+            if (touchJustDown) {
+                int row = -1;
+                switch (uiWifiNetsHit(*canvas, tp.x, tp.y, &row)) {
+                    case WifiNetsHit::ROW: uiWifiNetsSelect(row); break;
+                    case WifiNetsHit::USE: {
+                        const int s = uiWifiNetsSelected();
+                        if (s >= 0 && s < OtaWifi::savedCount()) {
+                            OtaWifi::useSaved((uint8_t)s);
+                            Theme::showToast("TRIED FIRST", OtaWifi::savedSsidAt((uint8_t)s), Theme::CYAN);
+                        }
+                        break;
+                    }
+                    case WifiNetsHit::REMOVE: {
+                        const int s = uiWifiNetsSelected();
+                        if (s >= 0 && s < OtaWifi::savedCount()) {
+                            OtaWifi::removeSaved((uint8_t)s);
+                            uiWifiNetsSelect(OtaWifi::savedCount() ? (int)OtaWifi::savedUse() : -1);
+                            Theme::showToast("REMOVED", nullptr, Theme::CYAN);
+                        }
+                        break;
+                    }
+                    case WifiNetsHit::ADD:
+                        if (OtaWifi::savedCount() >= OtaWifi::SAVED_MAX)
+                            Theme::showToast("LIST FULL", "Remove one first", Theme::AMBER);
+                        else
+                            enterWifiAdd();
+                        break;
+                    case WifiNetsHit::BACK: enterSettings(); break;
+                    default: break;
+                }
+            }
+            break;
+        }
+        case AppState::WIFI_ADD: {
+            uiWifiAddTick(*canvas, now, engine);
+            if (touchJustDown) {
+                int row = -1;
+                switch (uiWifiAddHit(*canvas, tp.x, tp.y, engine, &row)) {
+                    case WifiAddHit::ROW: {
+                        char ssid[33];
+                        snprintf(ssid, sizeof ssid, "%s", engine.rawWifiSsid((uint8_t)row));
+                        const bool open = engine.rawWifiOpen((uint8_t)row);
+                        engine.stopRawScan();
+                        if (!ssid[0]) {
+                            Theme::showToast("HIDDEN NETWORK", "No name to save", Theme::AMBER);
+                            enterWifiNets();
+                        } else if (open) {
+                            const bool ok = OtaWifi::saveNetwork(ssid, "");
+                            Theme::showToast(ok ? "SAVED" : "LIST FULL", ok ? "Open network" : "Remove one first",
+                                             ok ? Theme::CYAN : Theme::AMBER);
+                            enterWifiNets();
+                        } else {
+                            s_passForNets = true;
+                            enterWifiPass(ssid);
+                        }
+                        break;
+                    }
+                    case WifiAddHit::RESCAN: engine.stopRawScan(); engine.startRawWifiScan(); break;
+                    case WifiAddHit::BACK:   engine.stopRawScan(); enterWifiNets(); break;
+                    default: break;
+                }
             }
             break;
         }
@@ -4715,12 +4812,13 @@ void loop() {
         static uint32_t lastFrameSay = 0;
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu\n",
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
                           (unsigned long)(1000000UL / s_frameUsAvg),
                           (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10),
                           (unsigned)state, (unsigned long)ESP.getFreeHeap(),
-                          (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                          (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                          (unsigned long)wifiFramesSeen(), (unsigned long)advertRate(), (unsigned long)advertsSeen());
         }
     }
 #if CROWD_BENCH
@@ -4755,7 +4853,7 @@ void loop() {
             state != AppState::ALERT && state != AppState::WATCH_ALERT) {
             const uint32_t lockMs = Security::autoLockIdleMs();
             if ((lockMs && idleMs >= lockMs) || (Security::autoLockOnSleep() && s_screenDimmed)) {
-                if (state == AppState::RAWSCAN) engine.stopRawScan();
+                if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
                 Security::lock();
                 enterLocked();
             }

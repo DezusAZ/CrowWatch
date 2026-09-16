@@ -18,7 +18,7 @@ enum class UpdateHit : uint8_t {
     SWITCH_CANCEL,
     NETWORK,         // a row in the WiFi list; see netIndex
     RESCAN,
-    FORGET,          // forget the saved WiFi network
+    FORGET,          // unused since the WIFI NETWORKS screen took over; kept so the numbering holds
     INSTALL,
     TRY_AGAIN,       // back to the WiFi list after a failure
     CANCEL,          // leaves update mode

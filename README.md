@@ -329,6 +329,16 @@ something newer knows without touching WiFi. Either way Squachy says it once
 on the main screen, the SYSTEM row reads UPDATE, and UPDATE FIRMWARE names
 the version until you install it.
 
+**WIFI NETWORKS** on the SYSTEM page is where the board keeps the networks it
+knows: up to six, with USE marking the one it tries first. ADD picks one from
+a scan and takes the password on the board's keyboard; it is not checked by
+joining, since joining means giving Bluetooth up until a restart, but at the
+next boot check, and each row then says how that went: joined, wrong
+password, or not found. At boot the board scans, joins the USE network if it
+is there and otherwise the strongest saved one that is, so home and work both
+just work. The update flow does the same, and only shows its own list when
+none of the saved networks is in range. REMOVE takes one off the list.
+
 ### Smaller things
 
 - **Arrows on NEARBY.** Each device shows a green up-arrow when it has come

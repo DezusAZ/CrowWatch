@@ -1,6 +1,7 @@
 // SquachWatch-CYD — settings screen implementation
 #include "ui_settings.h"
 #include "ota_core.h"
+#include "ota_wifi.h"
 #include "theme.h"
 #include "settings.h"
 #include "security.h"
@@ -92,7 +93,7 @@ static const SettingsRow APPEARANCE_ROWS[] = {
 // The SYSTEM page: the rarely-needed machinery, off the main list.
 static const SettingsRow SYSTEM_ROWS[] = {
     SettingsRow::CALIBRATE, SettingsRow::CHECK_COLORS,
-    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::TIME_ZONE,
+    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::WIFI_NETWORKS, SettingsRow::TIME_ZONE,
     SettingsRow::RESET_STATS,
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
@@ -706,6 +707,11 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::UPDATE_CHECK:
             label = "UPDATE CHECK"; value = Settings::updateCheck() ? "AT BOOT" : "OFF";
+            break;
+        case SettingsRow::WIFI_NETWORKS:
+            label = "WIFI NETWORKS";
+            if (OtaWifi::savedCount()) { snprintf(valBuf, valBufN, "%u SAVED >", (unsigned)OtaWifi::savedCount()); value = valBuf; }
+            else value = "NONE >";
             break;
         case SettingsRow::TIME_ZONE:
             label = "TIME ZONE"; value = Settings::timeZoneName();

@@ -44,8 +44,12 @@ uint8_t s_netN = 0;
 char    s_ssid[33]  = "";
 char    s_pass[65]  = "";
 bool    s_save      = false;
-char    s_saved[33] = "";
+char    s_saved[33] = "";      // the one marked USE, for the callers that want one name
 bool    s_savedRead = false;
+bool    s_autoJoin  = false;    // begin() with networks saved: join the best one after the scan
+struct Saved { char ssid[33]; SavedResult result; };
+Saved   s_list[SAVED_MAX];
+uint8_t s_n = 0, s_use = 0;
 char    s_latest[24] = "";
 uint8_t s_sig[80];
 uint8_t s_sigLen = 0;
@@ -53,13 +57,88 @@ uint8_t s_sigLen = 0;
 TaskHandle_t s_task       = nullptr;
 bool         s_btReleased = false;
 
+void key(char* out, const char* k, uint8_t i) { snprintf(out, 4, "%s%u", k, (unsigned)i); }
+
+void cacheUse() {
+    strncpy(s_saved, s_n ? s_list[s_use].ssid : "", sizeof s_saved - 1);
+    s_saved[sizeof s_saved - 1] = '\0';
+}
+
+// Keys: n, use, s0..s5 (names), p0..p5 (passwords), r0..r5 (how the last try
+// went). A board from before the list had one network under ssid/pass; it
+// becomes slot 0 the first time this runs.
 void readSaved() {
     if (s_savedRead) return;
     s_savedRead = true;
     Preferences p;
-    if (p.begin(NVS_NS, true)) {
-        strncpy(s_saved, p.getString("ssid", "").c_str(), sizeof s_saved - 1);
-        s_saved[sizeof s_saved - 1] = '\0';
+    if (!p.begin(NVS_NS, false)) return;
+    if (p.isKey("n")) {
+        s_n   = p.getUChar("n", 0);   if (s_n > SAVED_MAX) s_n = SAVED_MAX;
+        s_use = p.getUChar("use", 0); if (s_use >= s_n)    s_use = 0;
+        for (uint8_t i = 0; i < s_n; i++) {
+            char k[4];
+            key(k, "s", i);
+            strncpy(s_list[i].ssid, p.getString(k, "").c_str(), 32);
+            s_list[i].ssid[32] = '\0';
+            key(k, "r", i);
+            s_list[i].result = (SavedResult)p.getUChar(k, 0);
+        }
+    } else if (p.isKey("ssid")) {
+        strncpy(s_list[0].ssid, p.getString("ssid", "").c_str(), 32);
+        s_list[0].ssid[32] = '\0';
+        s_list[0].result = SavedResult::UNTRIED;
+        if (s_list[0].ssid[0]) {
+            s_n = 1; s_use = 0;
+            p.putString("s0", s_list[0].ssid);
+            p.putString("p0", p.getString("pass", ""));
+            p.putUChar("n", 1);
+            p.putUChar("use", 0);
+            Serial.printf("[ota] wifi: %s moved to the network list\n", s_list[0].ssid);
+        }
+        p.remove("ssid");
+        p.remove("pass");
+    }
+    p.end();
+    cacheUse();
+}
+
+void writeList() {
+    Preferences p;
+    if (p.begin(NVS_NS, false)) {
+        p.putUChar("n", s_n);
+        p.putUChar("use", s_use);
+        for (uint8_t i = 0; i < s_n; i++) {
+            char k[4];
+            key(k, "s", i); p.putString(k, s_list[i].ssid);
+            key(k, "r", i); p.putUChar(k, (uint8_t)s_list[i].result);
+        }
+        p.end();
+    }
+    cacheUse();
+}
+
+bool passAt(uint8_t i, char* out, size_t cap) {
+    if (!out || !cap) return false;
+    out[0] = '\0';
+    if (i >= s_n) return false;
+    Preferences p;
+    if (!p.begin(NVS_NS, true)) return false;
+    char k[4];
+    key(k, "p", i);
+    strncpy(out, p.getString(k, "").c_str(), cap - 1);
+    out[cap - 1] = '\0';
+    p.end();
+    return true;
+}
+
+void setResult(int8_t i, SavedResult r) {
+    if (i < 0 || i >= (int8_t)s_n || s_list[i].result == r) return;
+    s_list[i].result = r;
+    Preferences p;
+    if (p.begin(NVS_NS, false)) {
+        char k[4];
+        key(k, "r", (uint8_t)i);
+        p.putUChar(k, (uint8_t)r);
         p.end();
     }
 }
@@ -204,22 +283,16 @@ bool join() {
     }
     if (s_cancel) return false;
     if (st != WL_CONNECTED) {
+        setResult(savedIndexOf(s_ssid), st == WL_NO_SSID_AVAIL ? SavedResult::NOT_FOUND : SavedResult::BAD_PASSWORD);
         fail(st == WL_NO_SSID_AVAIL ? Fail::WIFI_NOT_FOUND : Fail::WIFI_PASSWORD);
         return false;
     }
     Serial.printf("[ota] joined %s as %s\n", s_ssid, WiFi.localIP().toString().c_str());
     // The clock rides along: one NTP round trip while the radio is up anyway.
     Clock::syncWait(1500);
-    if (s_save) {
-        Preferences p;
-        p.begin(NVS_NS, false);
-        p.putString("ssid", s_ssid);
-        p.putString("pass", s_pass);
-        p.end();
-        strncpy(s_saved, s_ssid, sizeof s_saved - 1);
-        s_saved[sizeof s_saved - 1] = '\0';
-        s_savedRead = true;
-    }
+    if (s_save && !saveNetwork(s_ssid, s_pass))
+        Serial.println("[ota] wifi: the network list is full, not saved");
+    setResult(savedIndexOf(s_ssid), SavedResult::JOINED);
     return true;
 }
 
@@ -330,6 +403,8 @@ void run(void*) {
 
 }  // namespace
 
+int8_t bestSavedInScan();   // below, with the rest of the list
+
 bool begin() {
     if (s_state != State::OFF) return true;
     if (Security::locked() || !OtaCore::available()) return false;
@@ -341,12 +416,9 @@ bool begin() {
     // A saved network is used straight away. The list only appears when there
     // is nothing saved, or through TRY AGAIN when the saved one cannot be
     // joined -- which is also how somebody who has moved picks a new one.
-    if (s_saved[0]) {
-        Serial.printf("[ota] wifi update mode: using saved network %s\n", s_saved);
-        s_state = State::PICK;
-        connectSaved();
-        return true;
-    }
+    // With networks saved, the scan comes first and the best of them is
+    // joined from tick(); the list only appears when none is in range.
+    s_autoJoin = s_n > 0;
     startScan();
     Serial.println("[ota] wifi update mode: scanning");
     return true;
@@ -373,6 +445,16 @@ void tick(uint32_t) {
     if (n > 0) collectScan(n);
     else       s_netN = 0;
     s_state = State::PICK;
+    if (s_autoJoin) {
+        s_autoJoin = false;
+        const int8_t k = bestSavedInScan();
+        if (k >= 0) {
+            Serial.printf("[ota] wifi update mode: using saved network %s\n", s_list[k].ssid);
+            connectSavedAt((uint8_t)k);
+        } else {
+            Serial.println("[ota] wifi update mode: no saved network in range, showing the list");
+        }
+    }
 }
 
 void rescan() {
@@ -383,25 +465,108 @@ State      state()    { return s_state; }
 uint8_t    netCount() { return s_netN; }
 const Net* net(uint8_t i) { return i < s_netN ? &s_nets[i] : nullptr; }
 
-bool hasSaved() { readSaved(); return s_saved[0] != '\0'; }
-bool savedPass(char* out, size_t cap) {
-    if (!out || cap == 0) return false;
-    out[0] = '\0';
-    if (!hasSaved()) return false;
-    Preferences p;
-    if (!p.begin(NVS_NS, true)) return false;
-    strncpy(out, p.getString("pass", "").c_str(), cap - 1);
-    out[cap - 1] = '\0';
-    p.end();
-    return true;
-}
+bool hasSaved() { readSaved(); return s_n > 0; }
+bool savedPass(char* out, size_t cap) { readSaved(); return passAt(s_use, out, cap); }
 const char* savedSsid() { readSaved(); return s_saved; }
 
 void forget() {
     Preferences p;
     if (p.begin(NVS_NS, false)) { p.clear(); p.end(); }
+    s_n = 0; s_use = 0;
     s_saved[0] = '\0';
     s_savedRead = true;
+}
+
+uint8_t     savedCount()          { readSaved(); return s_n; }
+const char* savedSsidAt(uint8_t i){ readSaved(); return i < s_n ? s_list[i].ssid : ""; }
+uint8_t     savedUse()            { readSaved(); return s_use; }
+SavedResult savedResult(uint8_t i){ readSaved(); return i < s_n ? s_list[i].result : SavedResult::UNTRIED; }
+int8_t savedIndexOf(const char* ssid) {
+    readSaved();
+    if (!ssid || !ssid[0]) return -1;
+    for (uint8_t i = 0; i < s_n; i++) if (!strcmp(s_list[i].ssid, ssid)) return (int8_t)i;
+    return -1;
+}
+
+bool saveNetwork(const char* ssid, const char* pass) {
+    readSaved();
+    if (!ssid || !ssid[0]) return false;
+    int8_t k = savedIndexOf(ssid);
+    if (k < 0) {
+        if (s_n >= SAVED_MAX) return false;
+        k = (int8_t)s_n++;
+        strncpy(s_list[k].ssid, ssid, 32);
+        s_list[k].ssid[32] = '\0';
+        if (s_n == 1) s_use = 0;
+    }
+    s_list[k].result = SavedResult::UNTRIED;
+    Preferences p;
+    if (p.begin(NVS_NS, false)) {
+        char key_[4];
+        key(key_, "p", (uint8_t)k);
+        p.putString(key_, pass ? pass : "");
+        p.end();
+    }
+    writeList();
+    Serial.printf("[ota] wifi: saved %s (%u of %u)\n", ssid, (unsigned)s_n, (unsigned)SAVED_MAX);
+    return true;
+}
+
+void removeSaved(uint8_t i) {
+    readSaved();
+    if (i >= s_n) return;
+    // Passwords move down with their names; the last slot's is dropped.
+    Preferences p;
+    const bool open = p.begin(NVS_NS, false);
+    for (uint8_t j = i; j + 1 < s_n; j++) {
+        s_list[j] = s_list[j + 1];
+        if (open) {
+            char from[4], to[4];
+            key(from, "p", (uint8_t)(j + 1));
+            key(to,   "p", j);
+            p.putString(to, p.getString(from, ""));
+        }
+    }
+    if (open) {
+        char k[4];
+        key(k, "p", (uint8_t)(s_n - 1)); p.remove(k);
+        key(k, "s", (uint8_t)(s_n - 1)); p.remove(k);
+        key(k, "r", (uint8_t)(s_n - 1)); p.remove(k);
+        p.end();
+    }
+    s_n--;
+    if (s_use == i) s_use = 0;
+    else if (s_use > i) s_use--;
+    writeList();
+}
+
+void printSaved() {
+    readSaved();
+    static const char* const R[] = { "not tried", "joined", "wrong password", "not found" };
+    Serial.printf("[wifi] %u saved, USE is %u\n", (unsigned)s_n, (unsigned)s_use);
+    for (uint8_t i = 0; i < s_n; i++)
+        Serial.printf("[wifi]   %u: %s -- %s\n", (unsigned)i, s_list[i].ssid, R[(uint8_t)s_list[i].result & 3]);
+}
+
+void useSaved(uint8_t i) {
+    readSaved();
+    if (i >= s_n) return;
+    s_use = i;
+    writeList();
+}
+
+// The best saved network in the last scan: USE when it is there, else the
+// strongest. -1 when none of them is.
+int8_t bestSavedInScan() {
+    readSaved();
+    int8_t best = -1, bestRssi = -127;
+    for (uint8_t j = 0; j < s_netN; j++) {
+        const int8_t k = savedIndexOf(s_nets[j].ssid);
+        if (k < 0) continue;
+        if (k == (int8_t)s_use) return k;
+        if (s_nets[j].rssi > bestRssi) { bestRssi = s_nets[j].rssi; best = k; }
+    }
+    return best;
 }
 
 void connect(const char* ssid, const char* pass, bool save) {
@@ -423,21 +588,40 @@ void connect(const char* ssid, const char* pass, bool save) {
 
 bool bootCheck(uint32_t budgetMs) {
     readSaved();
-    if (!s_saved[0]) return false;
-    char pass[65] = "";
-    {
-        Preferences p;
-        if (p.begin(NVS_NS, true)) {
-            strncpy(pass, p.getString("pass", "").c_str(), sizeof pass - 1);
-            p.end();
-        }
-    }
+    if (!s_n) return false;
     const uint32_t t0 = millis();
-    Serial.printf("[ota] boot check: joining %s (heap %lu, largest %lu)\n", s_saved,
+    WiFi.mode(WIFI_STA);
+    // More than one network saved: a quick scan says which are here, and the
+    // one marked USE wins when it is, else the strongest of the rest. One
+    // network: join it blind, as before, and keep the scan's two seconds.
+    uint8_t pick = s_use;
+    if (s_n > 1) {
+        const int found = WiFi.scanNetworks(false, false, false, 110);
+        int8_t best = -1, bestRssi = -127;
+        bool   seen[SAVED_MAX] = { false, false, false, false, false, false };
+        for (int j = 0; j < found; j++) {
+            const int8_t k = savedIndexOf(WiFi.SSID(j).c_str());
+            if (k < 0) continue;
+            seen[k] = true;
+            if (k == (int8_t)s_use) { best = k; bestRssi = 127; }
+            else if (WiFi.RSSI(j) > bestRssi) { bestRssi = (int8_t)WiFi.RSSI(j); best = k; }
+        }
+        WiFi.scanDelete();
+        for (uint8_t i = 0; i < s_n; i++) if (!seen[i]) setResult((int8_t)i, SavedResult::NOT_FOUND);
+        if (best < 0) {
+            Serial.printf("[ota] boot check: none of the %u saved networks in range (%lu ms)\n",
+                          (unsigned)s_n, (unsigned long)(millis() - t0));
+            return false;
+        }
+        pick = (uint8_t)best;
+    }
+    char pass[65] = "";
+    passAt(pick, pass, sizeof pass);
+    const char* ssid = s_list[pick].ssid;
+    Serial.printf("[ota] boot check: joining %s (heap %lu, largest %lu)\n", ssid,
                   (unsigned long)ESP.getFreeHeap(),
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(s_saved, pass[0] ? pass : nullptr);
+    WiFi.begin(ssid, pass[0] ? pass : nullptr);
     wl_status_t st = WiFi.status();
     // Two thirds of the budget for the join, the rest for the fetch.
     while (st != WL_CONNECTED && millis() - t0 < budgetMs * 2 / 3) {
@@ -446,6 +630,11 @@ bool bootCheck(uint32_t budgetMs) {
         st = WiFi.status();
     }
     memset(pass, 0, sizeof pass);
+    // How it went, for the WIFI NETWORKS screen. A join that merely ran out
+    // of time says nothing about the password, so it changes nothing.
+    if (st == WL_CONNECTED)           setResult((int8_t)pick, SavedResult::JOINED);
+    else if (st == WL_NO_SSID_AVAIL)  setResult((int8_t)pick, SavedResult::NOT_FOUND);
+    else if (st == WL_CONNECT_FAILED) setResult((int8_t)pick, SavedResult::BAD_PASSWORD);
     bool found = false;
     if (st == WL_CONNECTED) {
         Serial.printf("[ota] boot check: joined in %lu ms\n", (unsigned long)(millis() - t0));
@@ -521,17 +710,20 @@ bool bootCheck(uint32_t budgetMs) {
     return found;
 }
 
+void connectSavedAt(uint8_t i) {
+    readSaved();
+    if (i >= s_n) return;
+    char pass[65] = "";
+    passAt(i, pass, sizeof pass);
+    connect(s_list[i].ssid, pass, false);
+    memset(pass, 0, sizeof pass);
+}
+
 void connectSaved() {
     readSaved();
-    if (!s_saved[0]) return;
-    char pass[65] = "";
-    Preferences p;
-    if (p.begin(NVS_NS, true)) {
-        strncpy(pass, p.getString("pass", "").c_str(), sizeof pass - 1);
-        p.end();
-    }
-    connect(s_saved, pass, false);
-    memset(pass, 0, sizeof pass);
+    if (!s_n) return;
+    const int8_t k = bestSavedInScan();
+    connectSavedAt(k >= 0 ? (uint8_t)k : s_use);
 }
 
 const char* network()       { return s_ssid; }

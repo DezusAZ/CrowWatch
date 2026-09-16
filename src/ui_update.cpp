@@ -313,13 +313,12 @@ void drawPick(TFT_eSPI& t) {
     if (!OtaWifi::netCount()) {
         para(t, ROW_Y0 + 4, Theme::WHITE, "No networks found. Move closer to the router and press RESCAN.");
     }
-    const bool haveSaved = OtaWifi::hasSaved();
     for (int i = 0; i < n; i++) {
         const OtaWifi::Net* net = OtaWifi::net((uint8_t)i);
         const int y = ROW_Y0 + i * (ROW_H + ROW_GAP);
         t.fillRect(8, y, w - 16, ROW_H, Theme::TASKBAR);
         t.drawRect(8, y, w - 16, ROW_H, Theme::VAPOR_PURPLE);
-        const bool saved = haveSaved && !strcmp(net->ssid, OtaWifi::savedSsid());
+        const bool saved = OtaWifi::savedIndexOf(net->ssid) >= 0;
         const char* tag = saved ? "SAVED" : (net->open ? "OPEN" : "");
         const int tagW = tag[0] ? t.textWidth(tag) + 6 : 0;
         const int maxChars = (w - 16 - 12 - 20 - tagW) / t.textWidth("M");
@@ -335,9 +334,8 @@ void drawPick(TFT_eSPI& t) {
         }
         signalBars(t, w - 16 - 16, y + ROW_H - 5, net->rssi);
     }
-    const Row r = bottomRow(t, haveSaved ? 3 : 2);
+    const Row r = bottomRow(t, 2);
     Theme::drawWin95Button(t, r.x[0], r.y, r.w, BTN_H, "RESCAN", false);
-    if (haveSaved) Theme::drawWin95Button(t, r.x[1], r.y, r.w, BTN_H, "FORGET WIFI", false);
     Theme::drawWin95Button(t, r.x[r.n - 1], r.y, r.w, BTN_H, "CANCEL", false);
 }
 
@@ -456,10 +454,8 @@ UpdateHit uiUpdateHitTest(TFT_eSPI& t, int x, int y, int* netIndex) {
                         return UpdateHit::NETWORK;
                     }
                 }
-                const bool saved = OtaWifi::hasSaved();
-                const Row r = bottomRow(t, saved ? 3 : 2);
+                const Row r = bottomRow(t, 2);
                 if (in(x, y, r.x[0], r.y, r.w, BTN_H)) return UpdateHit::RESCAN;
-                if (saved && in(x, y, r.x[1], r.y, r.w, BTN_H)) return UpdateHit::FORGET;
                 if (in(x, y, r.x[r.n - 1], r.y, r.w, BTN_H)) return UpdateHit::CANCEL;
                 return UpdateHit::NONE;
             }

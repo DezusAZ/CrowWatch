@@ -137,7 +137,9 @@ enum class AppState : uint8_t {
     NUDGE            = 29, // another board asked the squad to update: the countdown
     SQUAD_UPDATE     = 30, // UPDATE SQUAD, from the UPDATE FIRMWARE screen
     INVITE           = 31, // ADD TO SQUAD, either side of it
-    DESK             = 32  // desk mode: the clock, the date, the focus timer
+    DESK             = 32, // desk mode: the clock, the date, the focus timer
+    WIFI_NETS        = 33, // WIFI NETWORKS, from the SYSTEM page: the saved list
+    WIFI_ADD         = 34  // ...and the scan to add one from
 };
 
 enum class ButtonId : uint8_t {
