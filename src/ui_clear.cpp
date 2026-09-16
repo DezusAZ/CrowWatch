@@ -2345,7 +2345,8 @@ static const char* counterLabel(DetectionType t) {
         // counterCount() below. GOOGLE_TAG/TILE/SAMSUNG_TAG keep their
         // own labels everywhere else (LOG screen, colors, vendor
         // names); this is just the compact main-screen row folding all
-        // four BLE-tracker types into one column to save space.
+        // four BLE-tracker types into one column to save space. RING
+        // folds into CAM the same way.
         case DetectionType::AIRTAG:      return "TRACKER";
         case DetectionType::DRONE:       return "DRONE";
         case DetectionType::RAVEN:       return "RAV";
@@ -2355,6 +2356,8 @@ static const char* counterLabel(DetectionType t) {
         case DetectionType::GOOGLE_TAG:  return "GTAG";
         case DetectionType::TILE:        return "TILE";
         case DetectionType::RING:        return "RING";
+        // Four letters, like HACK: this row is packed six-across.
+        case DetectionType::IBEACON:     return "BCON";
         case DetectionType::DEAUTH:      return "DEAUTH";
         case DetectionType::EVILTWIN:    return "EVIL";
         // Four letters, not "HACKER": this row is packed six-across in
@@ -2385,6 +2388,13 @@ static uint16_t counterCount(const DetectionEngine& eng, DetectionType t) {
            + eng.countByType(DetectionType::TILE)
            + eng.countByType(DetectionType::SAMSUNG_TAG);
     }
+    // A Ring doorbell is a camera, and on a row this tight that is the
+    // level the column needs to work at. It keeps its own type, colour,
+    // icon and name everywhere else -- the LOG still says RING -- and the
+    // column it gives up is what makes room for beacons below.
+    if (t == DetectionType::CAMERA) {
+        n += eng.countByType(DetectionType::RING);
+    }
     // EVILTWIN folds into HACKER the same way, and for a better reason than
     // saving a column: a rogue AP is not a category of hardware, it is a
     // thing pentest hardware DOES. A Pineapple running PineAP karma is an
@@ -2402,15 +2412,34 @@ static uint16_t counterCount(const DetectionEngine& eng, DetectionType t) {
 // the old 7-and-6 split ran wide enough on a narrow 240px portrait
 // screen that FLOCK (first on the line) got clipped off the left edge
 // entirely. A hard per-row cap fixes that on both boards, not just
-// AWOK's narrower panel. GOOGLE_TAG/TILE are deliberately absent --
-// AIRTAG stands in for all four as "TRACKER" (see counterLabel/
-// counterCount above).
-static const DetectionType ALL_COUNTER_TYPES[] = {
+// AWOK's narrower panel.
+//
+// THE RULE THIS ROW KEEPS: every type that can be detected is counted in
+// one of these columns, whether or not it has one of its own. Three folds
+// do that (see counterLabel/counterCount above) -- GOOGLE_TAG, TILE and
+// SAMSUNG_TAG into TRACKER, EVILTWIN into HACK, RING into CAM -- which is
+// what keeps the row at eleven fixed columns on a screen that has room for
+// twelve.
+static const DetectionType FIXED_COUNTER_TYPES[] = {
     DetectionType::FLOCK,   DetectionType::AXON,     DetectionType::META,   DetectionType::SKIMMER,
     DetectionType::RAVEN,   DetectionType::AIRTAG,   DetectionType::DRONE,  DetectionType::ALPR,
-    DetectionType::CAMERA,  DetectionType::HACKER,   DetectionType::RING,   DetectionType::DEAUTH,
+    DetectionType::CAMERA,  DetectionType::HACKER,   DetectionType::DEAUTH,
 };
-static const uint8_t ALL_COUNTER_TYPES_N = sizeof(ALL_COUNTER_TYPES) / sizeof(ALL_COUNTER_TYPES[0]);
+static const uint8_t FIXED_COUNTER_TYPES_N =
+    sizeof(FIXED_COUNTER_TYPES) / sizeof(FIXED_COUNTER_TYPES[0]);
+// ...and the twelfth column goes to beacons, but only while the type is
+// switched on. It ships off (DEFAULT_OFF in settings.cpp) because one shop
+// can put dozens of them in range, so most boards never see this column;
+// the one that asked for the type gets it, and the rule above stays true
+// without anybody having to remember it. Twelve is what this row has
+// always drawn, so the layout never grows.
+static const uint8_t MAX_COUNTER_TYPES = FIXED_COUNTER_TYPES_N + 1;
+static uint8_t activeCounterTypes(DetectionType* out) {
+    uint8_t n = 0;
+    for (; n < FIXED_COUNTER_TYPES_N; n++) out[n] = FIXED_COUNTER_TYPES[n];
+    if (Settings::typeEnabled(DetectionType::IBEACON)) out[n++] = DetectionType::IBEACON;
+    return n;
+}
 // Portrait (narrow) caps at 4 per row -- see the comment above. Landscape
 // has plenty of width for the original 7-and-6 two-row split (that's
 // exactly what this produces: 13 types / 2 rows), so row count is
@@ -2419,8 +2448,10 @@ static const uint8_t ALL_COUNTER_TYPES_N = sizeof(ALL_COUNTER_TYPES) / sizeof(AL
 // rotates, not just once per board.
 static const uint8_t MAX_PER_ROW_PORTRAIT   = 4;
 static const uint8_t COUNTER_ROWS_LANDSCAPE = 2;
+// Three rows in portrait at eleven columns and at twelve alike, so turning
+// beacons on never moves the counters up into Squachy's band.
 static const uint8_t COUNTER_ROWS_PORTRAIT  =
-    (ALL_COUNTER_TYPES_N + MAX_PER_ROW_PORTRAIT - 1) / MAX_PER_ROW_PORTRAIT;  // ceil
+    (MAX_COUNTER_TYPES + MAX_PER_ROW_PORTRAIT - 1) / MAX_PER_ROW_PORTRAIT;  // ceil
 
 static void drawCounterLine(TFT_eSPI& t, int w, int y, const DetectionEngine& eng,
                             const DetectionType* types, uint8_t n) {
@@ -2946,12 +2977,14 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // -- a lone last row with a single item looked worse than several
     // similarly-sized rows does, and this still never exceeds the
     // per-orientation cap on any row.
-    uint8_t base      = ALL_COUNTER_TYPES_N / counterRows;
-    uint8_t remainder = ALL_COUNTER_TYPES_N % counterRows;
+    DetectionType counterTypes[MAX_COUNTER_TYPES];
+    const uint8_t counterN = activeCounterTypes(counterTypes);
+    uint8_t base      = counterN / counterRows;
+    uint8_t remainder = counterN % counterRows;
     uint8_t start = 0;
     for (uint8_t row = 0; row < counterRows; row++) {
         uint8_t n = base + (row < remainder ? 1 : 0);
-        drawCounterLine(t, w, counterTextTop + row * lineH, eng, ALL_COUNTER_TYPES + start, n);
+        drawCounterLine(t, w, counterTextTop + row * lineH, eng, counterTypes + start, n);
         start += n;
     }
 

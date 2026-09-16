@@ -175,6 +175,7 @@ static void usage() {
         "  --peername NAME   give that visitor a custom name\n"
         "  --crowd N         clear screen: N squad members in range, roaming with ours\n"
         "  --tab N           sysprops screen: 0 update, 1 notes, 2 board\n"
+        "  --beacons         turn IBEACON on, which gives it a counter column\n"
         "  --from NAME       sysprops screen: heard from that squad member, not the site\n"
         "  --frames N        animation warm-up frames before capture (default 90)\n"
         "  --onboard         let Squachy's first-boot walkthrough run\n"
@@ -221,6 +222,7 @@ int main(int argc, char** argv) {
     std::string peerName;
     int crowdN = 0;
     int tabIdx = 0;
+    bool beacons = false;
     std::string heardFrom;
     std::string inboxText;
     // --type feeds the payphone a tap sequence: digits are key presses,
@@ -252,6 +254,7 @@ int main(int argc, char** argv) {
         else if (a == "--peername" && i + 1 < argc) peerName = argv[++i];
         else if (a == "--crowd" && i + 1 < argc) crowdN = atoi(argv[++i]);
         else if (a == "--tab" && i + 1 < argc) tabIdx = atoi(argv[++i]);
+        else if (a == "--beacons") beacons = true;
         else if (a == "--from" && i + 1 < argc) heardFrom = argv[++i];
         else if (a == "--inboxtext" && i + 1 < argc) inboxText = argv[++i];
         else if (a == "--type" && i + 1 < argc) typeSeq = argv[++i];
@@ -367,6 +370,11 @@ int main(int argc, char** argv) {
         }
         MeshTalk::tick(millis());
     }
+
+    // Off by default on the board, so the counter column only exists when
+    // somebody has asked for the type.
+    if (beacons && !Settings::typeEnabled(DetectionType::IBEACON))
+        Settings::toggleType(DetectionType::IBEACON);
 
     DetectionEngine engine;
     engine.init();
