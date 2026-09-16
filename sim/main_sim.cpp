@@ -557,10 +557,13 @@ int main(int argc, char** argv) {
         uiSysPropsInit(frame);
         // The tab a tap would have opened, for rendering one of them.
         if (tabIdx > 0 && tabIdx < 3) {
-            const int tw = (((frame.width() - 16 < 280 ? frame.width() - 16 : 280)) - 8) / 3;
-            const int wx = (frame.width() - (frame.width() - 16 < 280 ? frame.width() - 16 : 280)) / 2;
-            const int wy = (frame.height() - (frame.height() - 24 < 196 ? frame.height() - 24 : 196)) / 2;
-            uiSysPropsTouch(frame, wx + 4 + tabIdx * tw + tw / 2, wy + 3 + 15 + 2 + 7);
+            // The same arithmetic as geom() in ui_sysprops.cpp.
+            const int ww = frame.width()  - 8 < 300 ? frame.width()  - 8 : 300;
+            const int wh = frame.height() - 8 < 232 ? frame.height() - 8 : 232;
+            const int tw = (ww - 8) / 3;
+            const int wx = (frame.width()  - ww) / 2;
+            const int wy = (frame.height() - wh) / 2;
+            uiSysPropsTouch(frame, wx + 4 + tabIdx * tw + tw / 2, wy + 3 + 18 + 3 + 10);
         }
     }
     else if (screen == "wifinets")   uiWifiNetsInit(frame);

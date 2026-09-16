@@ -2746,11 +2746,20 @@ void loop() {
             break;
         }
         case AppState::CLEAR: {
-            // A newer release, heard of at boot or from a squad member: said
-            // once, after the boot line has had its turn and not over a visit.
+            // A newer release heard of AFTER the intro: the window, now. The
+            // intro only opens it for news that is already known when the
+            // intro ends, and on a board whose boot check could not reach the
+            // site the news comes later, in a squad member's hello -- which on
+            // the bench landed a few seconds either side of that moment, so
+            // the window came up on one boot and not the next. Once per
+            // version: takeAvailableNotice() answers once, and a newer version
+            // arms it again. Not over a visit's banter any more either: being
+            // painted over by it is why this is a window at all.
+            if (now - transitionStart > 1500 && OtaCore::takeAvailableNotice()) {
+                enterSysProps();
+                break;
+            }
             if (now - transitionStart > 7000 && !Squachy::visiting()) {
-                const char* n = OtaCore::takeAvailableNotice();
-                if (n) Squachy::announce(n);
                 // Once a day, a hello with the date in it; on the days that
                 // count, how long it has been.
                 const char* dl = Squachy::takeDayLine();
@@ -4707,6 +4716,13 @@ void loop() {
         }
         case AppState::DESK: {
             Settings::deskActive(true);
+            // The same late news as on the main screen (see CLEAR). An alert
+            // already takes the desk over a focus block, so this may too, and
+            // LATER comes back here: deskActive stays set through the window.
+            if (now - transitionStart > 1500 && OtaCore::takeAvailableNotice()) {
+                enterSysProps();
+                break;
+            }
             // The same test CLEAR makes, but the answer is a small card
             // beside the clock, and Squachy's reaction, not a new screen.
             {
