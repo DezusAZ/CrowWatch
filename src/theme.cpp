@@ -231,6 +231,14 @@ static void drawSettingsIcon(TFT_eSPI& t, int barH) {
     t.drawFastHLine(cx - 9, y0 + 10, 18, CYAN);
 }
 
+void drawSteelKey(TFT_eSPI& t, int x, int y, int w, int h, bool lit) {
+    t.fillRect(x + 2, y + 2, w - 4, h - 4, lit ? PURPLE : TASKBAR);
+    t.drawFastHLine(x, y, w, W95_LIGHT);             t.drawFastVLine(x, y, h, W95_LIGHT);
+    t.drawFastHLine(x, y + h - 1, w, W95_DKSHADOW);  t.drawFastVLine(x + w - 1, y, h, W95_DKSHADOW);
+    t.drawFastHLine(x + 1, y + 1, w - 2, W95_FACE);  t.drawFastVLine(x + 1, y + 1, h - 2, W95_FACE);
+    t.drawFastHLine(x + 1, y + h - 2, w - 2, W95_SHADOW); t.drawFastVLine(x + w - 2, y + 1, h - 2, W95_SHADOW);
+}
+
 bool settingsButtonHit(int x, int y) {
     return x >= 0 && x < SETTINGS_HIT_W && y >= 0 && y < SETTINGS_HIT_H;
 }

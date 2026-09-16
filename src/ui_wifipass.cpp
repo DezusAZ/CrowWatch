@@ -162,25 +162,81 @@ void type(char ch, uint32_t now) {
     }
 }
 
-}  // namespace
 
-void uiWifiPassInit(TFT_eSPI& t, const char* ssid) {
-    strncpy(s_ssid, ssid ? ssid : "", sizeof s_ssid - 1);
-    s_ssid[sizeof s_ssid - 1] = '\0';
-    uiWifiPassClear();
-    s_shift = s_sym = s_show = false;
-    s_result = WifiPassResult::NONE;
-    s_armed = s_lastKey = -1;
-    layout(t.width(), t.height());
-    t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
+// What the glass shows now, so a tick redraws only what changed. The update
+// flow runs this board with no frame buffer (given up for the download's
+// TLS handshake), straight onto the panel, where clearing and redrawing the
+// whole screen on every key was a flash on every key. So the board is drawn
+// once, and after that a key is redrawn when the finger lands on or leaves
+// it, the field when a character lands or the last one goes back to *, the
+// cursor when it blinks, and every key when the page or SHIFT changes.
+uint32_t s_initAt = 0;
+bool     s_full   = true;
+int8_t   s_drawnLit   = -1;
+bool     s_drawnShift = false, s_drawnSym = false, s_drawnShow = false;
+uint8_t  s_drawnLen   = 0;
+bool     s_drawnReveal = false, s_drawnCursor = false;
+int      s_cursorX = 0;
+// The transition effect writes over the frame for its first 220 ms; the
+// whole screen is drawn every frame until it is done.
+const uint32_t SETTLE_MS = 400;
+
+int fieldW(int w) { return showX(w) - GAP - MARGIN; }
+
+void drawKey(TFT_eSPI& t, uint8_t i) {
+    const Key& k = s_keys[i];
+    if (k.ch == K_NONE) { t.fillRect(k.x, k.y, k.w, k.h, Theme::BG); return; }   // a blank on the symbols page
+    const bool lit = (s_armed == (int8_t)i) || (k.ch == K_SHIFT && s_shift);
+    Theme::drawSteelKey(t, k.x, k.y, k.w, k.h, lit);
+    char one[2];
+    const char* lab = label(k.ch, one);
+    t.setTextSize(2);
+    if (t.textWidth(lab) > k.w - 6) t.setTextSize(1);
+    t.setTextColor(lit ? Theme::VAPOR_YELLOW : Theme::WHITE);
+    t.setCursor(k.x + (k.w - t.textWidth(lab)) / 2, k.y + (k.h - t.fontHeight()) / 2);
+    t.print(lab);
+    t.setTextSize(1);
 }
 
-void uiWifiPassTick(TFT_eSPI& t, uint32_t now) {
+// The field: the password as stars but for the last character for a moment
+// (or all of it with SHOW on), and the cursor.
+void drawField(TFT_eSPI& t, int w, uint32_t now) {
+    const int fw = fieldW(w);
+    t.fillRect(MARGIN + 1, FIELD_Y + 1, fw - 2, FIELD_H - 2, Theme::BG);
+    t.drawRect(MARGIN, FIELD_Y, fw, FIELD_H, Theme::VAPOR_PURPLE);
+    const bool reveal = s_len && now - s_typedAt < 900;
+    char shown[PASS_MAX + 1];
+    for (uint8_t i = 0; i < s_len; i++) shown[i] = (s_show || (reveal && i + 1 == s_len)) ? s_buf[i] : '*';
+    shown[s_len] = '\0';
+    t.setTextSize(2);
+    const int cw = t.textWidth("M");
+    const int fits = (fw - 8) / cw;
+    const char* tail = s_len > fits ? shown + (s_len - fits) : shown;
+    t.setTextColor(Theme::WHITE, Theme::BG);
+    t.setCursor(MARGIN + 4, FIELD_Y + (FIELD_H - t.fontHeight()) / 2);
+    t.print(tail);
+    s_cursorX = MARGIN + 4 + t.textWidth(tail) + 1;
+    const bool cursor = (now / 500) % 2;
+    t.fillRect(s_cursorX, FIELD_Y + 3, 2, FIELD_H - 6, cursor ? Theme::CYAN : Theme::BG);
+    t.setTextSize(1);
+    s_drawnLen = s_len; s_drawnReveal = reveal; s_drawnCursor = cursor;
+}
+
+void drawShow(TFT_eSPI& t, int w) {
+    t.setTextSize(1);
+    Theme::drawWin95Button(t, showX(w), FIELD_Y, SHOW_W, FIELD_H, s_show ? "HIDE" : "SHOW", false);
+    s_drawnShow = s_show;
+}
+
+void drawKeys(TFT_eSPI& t) {
+    for (uint8_t i = 0; i < s_keyN; i++) drawKey(t, i);
+    s_drawnLit = s_armed; s_drawnShift = s_shift; s_drawnSym = s_sym;
+}
+
+void drawAll(TFT_eSPI& t, uint32_t now) {
     const int w = t.width(), h = t.height();
-    layout(w, h);
     t.fillRect(0, 0, w, h, Theme::BG);
     t.setTextWrap(false);
-
     // Header: BACK, then which network this is for.
     Theme::drawWin95Button(t, BACK_X, BACK_Y, BACK_W, BACK_H, "BACK", false);
     t.setTextSize(1);
@@ -193,43 +249,49 @@ void uiWifiPassTick(TFT_eSPI& t, uint32_t now) {
     const int maxChars = (w - (BACK_X + BACK_W + 8) - MARGIN) / t.textWidth("M");
     snprintf(ssid, sizeof ssid, "%.*s", maxChars > 32 ? 32 : maxChars, s_ssid);
     t.print(ssid);
+    drawField(t, w, now);
+    drawShow(t, w);
+    drawKeys(t);
+    s_full = false;
+}
 
-    // The field, with SHOW/HIDE beside it.
-    const int fw = showX(w) - GAP - MARGIN;
-    t.drawRect(MARGIN, FIELD_Y, fw, FIELD_H, Theme::VAPOR_PURPLE);
-    char shown[PASS_MAX + 1];
-    for (uint8_t i = 0; i < s_len; i++) {
-        const bool last = (i + 1 == s_len) && now - s_typedAt < 900;
-        shown[i] = (s_show || last) ? s_buf[i] : '*';
-    }
-    shown[s_len] = '\0';
-    t.setTextSize(2);
-    const int cw = t.textWidth("M");
-    const int fits = (fw - 8) / cw;
-    const char* tail = s_len > fits ? shown + (s_len - fits) : shown;
-    t.setTextColor(Theme::WHITE, Theme::BG);
-    t.setCursor(MARGIN + 4, FIELD_Y + (FIELD_H - t.fontHeight()) / 2);
-    t.print(tail);
-    if ((now / 500) % 2) t.fillRect(MARGIN + 4 + t.textWidth(tail) + 1, FIELD_Y + 3, 2, FIELD_H - 6, Theme::CYAN);
-    t.setTextSize(1);
-    Theme::drawWin95Button(t, showX(w), FIELD_Y, SHOW_W, FIELD_H, s_show ? "HIDE" : "SHOW", false);
+}  // namespace
 
-    // Keys.
-    for (uint8_t i = 0; i < s_keyN; i++) {
-        const Key& k = s_keys[i];
-        if (k.ch == K_NONE) continue;
-        const bool lit = (s_armed == (int8_t)i) || (k.ch == K_SHIFT && s_shift);
-        t.fillRect(k.x, k.y, k.w, k.h, lit ? Theme::PURPLE : Theme::TASKBAR);
-        t.drawRect(k.x, k.y, k.w, k.h, Theme::W95_SHADOW);
-        char one[2];
-        const char* lab = label(k.ch, one);
-        t.setTextSize(2);
-        if (t.textWidth(lab) > k.w - 4) t.setTextSize(1);
-        t.setTextColor(lit ? Theme::VAPOR_YELLOW : Theme::WHITE);
-        t.setCursor(k.x + (k.w - t.textWidth(lab)) / 2, k.y + (k.h - t.fontHeight()) / 2);
-        t.print(lab);
+void uiWifiPassInit(TFT_eSPI& t, const char* ssid) {
+    strncpy(s_ssid, ssid ? ssid : "", sizeof s_ssid - 1);
+    s_ssid[sizeof s_ssid - 1] = '\0';
+    uiWifiPassClear();
+    s_shift = s_sym = s_show = false;
+    s_result = WifiPassResult::NONE;
+    s_armed = s_lastKey = -1;
+    layout(t.width(), t.height());
+    s_full   = true;
+    s_initAt = millis();
+    t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
+}
+
+void uiWifiPassTick(TFT_eSPI& t, uint32_t now) {
+    const int w = t.width(), h = t.height();
+    layout(w, h);
+    if (s_full || now - s_initAt < SETTLE_MS) { drawAll(t, now); return; }
+    // Every key when the page or SHIFT changes: the labels are different
+    // and the SHIFT key lights while it is on.
+    if (s_drawnShift != s_shift || s_drawnSym != s_sym) drawKeys(t);
+    else if (s_drawnLit != s_armed) {
+        const int8_t old = s_drawnLit;
+        s_drawnLit = s_armed;
+        if (old >= 0)     drawKey(t, (uint8_t)old);
+        if (s_armed >= 0) drawKey(t, (uint8_t)s_armed);
     }
-    t.setTextSize(1);
+    if (s_drawnShow != s_show) { drawShow(t, w); drawField(t, w, now); }
+    const bool reveal = s_len && now - s_typedAt < 900;
+    const bool cursor = (now / 500) % 2;
+    if (s_drawnLen != s_len || s_drawnReveal != reveal) drawField(t, w, now);
+    else if (s_drawnCursor != cursor) {
+        // The cursor alone, painted over, so the blink never clears the field.
+        t.fillRect(s_cursorX, FIELD_Y + 3, 2, FIELD_H - 6, cursor ? Theme::CYAN : Theme::BG);
+        s_drawnCursor = cursor;
+    }
 }
 
 void uiWifiPassTouch(int x, int y, uint32_t now, WifiPassTouch phase) {

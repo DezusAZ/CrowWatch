@@ -202,6 +202,9 @@ namespace Theme {
     // Distinct from drawButton() above, which is the vaporwave chrome the
     // rest of the device uses. Both exist on purpose: this one is for the
     // controls that are meant to feel like they came out of a system dialog.
+    // A keyboard key in the payphone's steel: the message board and the
+    // WiFi password board share it. `lit` is the key under the finger.
+    void drawSteelKey(TFT_eSPI& t, int x, int y, int w, int h, bool lit);
     void drawWin95Button(TFT_eSPI& t, int x, int y, int w, int h,
                          const char* label, bool sunken);
 

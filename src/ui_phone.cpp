@@ -605,8 +605,7 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         for (uint8_t i = 0; i < s_keyN; i++) {
             const Qwerty::Key& k = s_keys[i];
             const bool lit = (s_armed == (int8_t)i);
-            bevel(t, k.x, k.y, k.w, k.h, lit ? Theme::PURPLE : Theme::TASKBAR,
-                  STEEL_LT, STEEL, STEEL_DK, STEEL_SH, false);
+            Theme::drawSteelKey(t, k.x, k.y, k.w, k.h, lit);
             const char* lab = keyLabel(k.ch);
             t.setTextSize(2);
             if (t.textWidth(lab) > k.w - 6) t.setTextSize(1);

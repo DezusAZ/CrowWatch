@@ -2481,7 +2481,7 @@ void loop() {
         (state == AppState::CLEAR || state == AppState::LOG ||
                       state == AppState::SETTINGS || state == AppState::OUTFIT ||
                       state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
-                      state == AppState::IGNORE_LIST) &&
+                      state == AppState::IGNORE_LIST || state == AppState::DESK) &&
         Theme::rotateButtonHit(tp.x, tp.y, tft.width()) &&
         (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
         lastTouch = now;
@@ -2552,7 +2552,8 @@ void loop() {
                       state == AppState::SETTINGS || state == AppState::OUTFIT ||
                       state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
                       state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER ||
-                      state == AppState::SECURITY || state == AppState::STATUS_LIGHT) &&
+                      state == AppState::SECURITY || state == AppState::STATUS_LIGHT ||
+                      state == AppState::DESK) &&
         Theme::settingsButtonHit(tp.x, tp.y) &&
         // ...but not where the watch/hunt pill is sitting. The gear's tap box
         // is 55x50, much larger than its 28px glyph, so it reaches into the
@@ -2581,6 +2582,10 @@ void loop() {
             // scan it's pausing) would just sit there indefinitely
             // while the user is off in Settings.
             if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
+            // From the desk, Settings' BACK comes back to the desk, the way
+            // the alert card's does. The gear drew on the desk from the day
+            // desk mode shipped and this is the first time it did anything.
+            if (state == AppState::DESK) s_backToDesk = true;
             enterSettings();
         }
     }
@@ -4011,22 +4016,9 @@ void loop() {
             // Still inside update mode, with detection paused: the same pin on
             // lastTouch keeps auto-lock from taking the screen mid-password.
             lastTouch = now;
-            // Same flicker rule as UPDATE when there is no frame buffer (after a
-            // failed attempt's TRY AGAIN): redraw on touch, and slowly otherwise.
-            {
-                // Once on each touch edge, and once more a second after the
-                // last one so the briefly-shown last character goes back to *.
-                static uint32_t lastPassDraw = 0;
-                static bool     hidePending  = false;
-                if (frameBufferOk || touchJustDown || touchJustUp) {
-                    uiWifiPassTick(*canvas, now);
-                    lastPassDraw = now;
-                    hidePending  = !frameBufferOk;
-                } else if (hidePending && now - lastPassDraw > 1000) {
-                    uiWifiPassTick(*canvas, now);
-                    hidePending = false;
-                }
-            }
+            // The board redraws only what changed, so it is the same with the
+            // frame buffer and without it (given up for a download).
+            uiWifiPassTick(*canvas, now);
             if (touchJustDown)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::DOWN);
             else if (tp.valid)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::MOVE);
             else if (touchJustUp) uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::UP);
