@@ -484,7 +484,11 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         const uint8_t want = Settings::meshCrowd() > 8 ? 8 : Settings::meshCrowd();
         crowdN = Mesh::squadList(now, crowd, (uint8_t)(want - 1));
     }
-    if (crowdN >= 2) {
+    // From ONE member up. The main screen waits for two because a single
+    // visitor gets the ordinary visit there, with its set pieces; the desk
+    // has no visit, so with the bar at two a squad of two boards -- each
+    // seeing one -- never showed up under the clock at all.
+    if (crowdN >= 1) {
         uiClearDrawCrowd(t, now, crowd, crowdN, top, feet, true, false, 0);
         Theme::drawBackgroundOverlay(t, now);
     } else
