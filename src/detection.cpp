@@ -76,16 +76,35 @@ void setScanSafe(bool safe) { s_scanSafe = safe; }
 bool scanSafe() { return s_scanSafe; }
 
 static volatile uint32_t s_advRaw = 0;   // every advert the radio handed over, seatbelt or not
+// ...and by kind: 0 ADV_IND (connectable, scannable), 1 DIRECT, 2 SCAN_IND
+// (scannable only), 3 NONCONN (neither), 4 anything else. Only kinds 0 and 2
+// make an active scanner wait for a reply, so only they can pile its list up.
+static volatile uint32_t s_advKind[5] = { 0, 0, 0, 0, 0 };
+const volatile uint32_t* advertKinds() { return s_advKind; }
 static volatile uint32_t s_wifiRaw = 0;  // every frame the sniffer was handed
 uint32_t wifiFramesSeen() { return s_wifiRaw; }
 uint32_t advertsSeen()    { return s_advRaw; }
 static volatile uint8_t s_windowReq = 0;   // a WINDOW command waiting for the next restart
 static bool             s_windowPending = false;
 void setScanWindow(uint8_t w) { if (w >= 1 && w <= 100) { s_windowReq = w; s_windowPending = true; } }
+static volatile uint8_t s_scanPin = 0;   // 0 auto, 1 active, 2 passive -- the bench's say
+void setScanPin(uint8_t pin) { s_scanPin = pin > 2 ? 0 : pin; }
 
-class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-    void onResult(NimBLEAdvertisedDevice* adv) override {
+class BleScanCallbacks : public NimBLEScanCallbacks {
+    // First sight of every advert, before any reply. The counts live here
+    // and not in onResult: in an active scan a device that never answers
+    // is not handed to onResult until the wait times out, and the advert
+    // rate the passive switch runs on has to see exactly those devices --
+    // they are the ones that fill the list. Measured with the fake flood:
+    // counted at onResult, 200 unanswering adverts a second read as a
+    // quiet room right up to the crash.
+    void onDiscovered(const NimBLEAdvertisedDevice* adv) override {
         s_advRaw++;
+        const uint8_t t = adv->getAdvType();
+        s_advKind[t == BLE_HCI_ADV_TYPE_ADV_IND ? 0 : t == BLE_HCI_ADV_TYPE_ADV_DIRECT_IND_HD ? 1 :
+                  t == BLE_HCI_ADV_TYPE_ADV_SCAN_IND ? 2 : t == BLE_HCI_ADV_TYPE_ADV_NONCONN_IND ? 3 : 4]++;
+    }
+    void onResult(const NimBLEAdvertisedDevice* adv) override {
         // The seatbelt. Everything below asks NimBLE for strings, and a
         // string on a heap of scraps throws, and a throw on the host task
         // is the abort a user photographed at 28 seconds up. With nothing
@@ -115,7 +134,7 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
             for (uint8_t i = 0; i < mdN; i++) {
                 const std::string md = adv->getManufacturerData(i);
                 if (Mesh::onManufacturerData((const uint8_t*)md.data(), md.size(),
-                                             adv->getAddress().getNative(), millis())) ours = true;
+                                             adv->getAddress().getBase()->val, millis())) ours = true;
             }
             // A SquachWatch is not a detection, but it can be a hunt target:
             // the SQUAD screen's HUNT aims the gauge at one. Its advert feeds
@@ -123,15 +142,15 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
             if (ours) {
                 if (g_engine) {
                     const int8_t r = (int8_t)adv->getRSSI();
-                    g_engine->checkWatchBle(adv->getAddress().getNative(), r);
-                    g_engine->checkHuntBle(adv->getAddress().getNative(), r);
+                    g_engine->checkWatchBle(adv->getAddress().getBase()->val, r);
+                    g_engine->checkHuntBle(adv->getAddress().getBase()->val, r);
                 }
                 return;
             }
         }
 #endif
         if (!g_engine) return;
-        const uint8_t* mac = adv->getAddress().getNative();
+        const uint8_t* mac = adv->getAddress().getBase()->val;
         // Checked regardless of raw-scan mode -- a watched/hunted
         // target still fires even if it's not a known signature and
         // even while the raw-scan screen happens to be open. The two
@@ -179,8 +198,8 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
                 // runs against the RAW advert rather than this parsed
                 // field -- see isAirTagPayload().
                 if (det.type == DetectionType::AIRTAG) {
-                    if (!isAirTagPayload(adv->getPayload(),
-                                         (uint8_t)adv->getPayloadLength())) {
+                    if (!isAirTagPayload(adv->getPayload().data(),
+                                         (uint8_t)adv->getPayload().size())) {
                         det.type = DetectionType::UNKNOWN;
                         label    = nullptr;
                         // Apple's company ID is also how an iBeacon announces
@@ -218,7 +237,7 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         // carries the Find My structure behind another AD structure, or
         // in a scan response, reaches the detector only through here.
         if (det.type == DetectionType::UNKNOWN &&
-            isAirTagPayload(adv->getPayload(), (uint8_t)adv->getPayloadLength())) {
+            isAirTagPayload(adv->getPayload().data(), (uint8_t)adv->getPayload().size())) {
             det.type = DetectionType::AIRTAG;
         }
 
@@ -278,8 +297,8 @@ class BleScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         // Decode it before the entry is posted so the log row can be named
         // after the actual aircraft rather than after a service UUID.
         if (det.type == DetectionType::DRONE) {
-            g_engine->mergeRemoteId(mac, adv->getPayload(),
-                                    (uint8_t)adv->getPayloadLength());
+            g_engine->mergeRemoteId(mac, adv->getPayload().data(),
+                                    (uint8_t)adv->getPayload().size());
             const RemoteId::Info& rid = g_engine->remoteId();
             if (rid.haveBasic && rid.serial[0]) {
                 strncpy(det.name, rid.serial, sizeof(det.name) - 1);
@@ -519,10 +538,18 @@ bool DetectionEngine::init() {
     // dip in adverts inside run-to-run noise. 50 costs half the adverts.
     scan->setWindow(75);
     scan->setDuplicateFilter(false);
+    // How long an active scan waits for a device's reply before reporting
+    // it as it is and letting its record go. The library's default is the
+    // longest advertising interval, 10.24 s, and at 200 unanswering devices
+    // a second that is two thousand records -- the college-floor crash, and
+    // the fake flood reproduces it in seconds. A reply that is coming
+    // arrives inside the same advertising event, well under a millisecond,
+    // so 200 ms loses none and bounds the list to a few dozen records.
+    scan->setScanResponseTimeout(200);
     // wantDuplicates=true: we want onResult() called on every sighting
     // of a device, not just the first, so lastSeen/RSSI keep updating
     // (postBle()/expireStale() rely on that for the still-active log).
-    scan->setAdvertisedDeviceCallbacks(&g_bleScanCallbacks, true);
+    scan->setScanCallbacks(&g_bleScanCallbacks, true);
     // Without this, NimBLE keeps its OWN permanent record of every
     // distinct BLE address it has ever seen since scan start (a
     // separate, unbounded structure from our own bounded 200-entry
@@ -539,7 +566,7 @@ bool DetectionEngine::init() {
     // per-advertisement callback; the retained-results list and the
     // scan-complete callback below are never read).
     scan->setMaxResults(0);
-    scan->start(0, nullptr, false);
+    scan->start(0, false, false);   // forever; not a restart
     s_bootHeap.bleFree    = ESP.getFreeHeap();
     s_bootHeap.bleLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     Serial.printf("[boot] heap with Bluetooth up: %lu free, %lu largest\n",
@@ -695,13 +722,13 @@ static void setAdvertising(bool on, uint32_t now) {
         NimBLEAdvertisementData r;
         r.setManufacturerData(sm);
         adv->setScanResponseData(r);
-        adv->setScanResponse(true);
+        adv->enableScanResponse(true);
     } else {
-        adv->setScanResponse(false);
+        adv->enableScanResponse(false);
     }
     // Never connectable. Update mode's server shares this advertiser, and a
     // stack with the peripheral role compiled in defaults to connectable.
-    adv->setAdvertisementType(BLE_GAP_CONN_MODE_NON);
+    adv->setConnectableMode(BLE_GAP_CONN_MODE_NON);
     adv->setMinInterval((uint16_t)(ADV_MS * 8 / 5));
     adv->setMaxInterval((uint16_t)(ADV_MS * 8 / 5 + 16));
     adv->start();
@@ -720,7 +747,7 @@ void radioTick(uint32_t now) {
     // a named NimBLEAddress rather than via getNative() on a temporary.
     if (!s_macSet) {
         const NimBLEAddress a = NimBLEDevice::getAddress();
-        MeshTalk::setOwnMac(a.getNative());
+        MeshTalk::setOwnMac(a.getBase()->val);
         s_macSet = true;
     }
 
@@ -811,7 +838,11 @@ static const uint8_t  SCAN_PRESSED_LIMIT  = 3;       // pressed flushes inside a
 // quiet, and passive again the moment it gets loud. A passive scan misses
 // only what a device says when asked: some names, and a squad message.
 static const uint32_t SCAN_ACTIVE_BELOW   = 50;      // adverts/s: quiet enough to ask
-static const uint32_t SCAN_PASSIVE_ABOVE  = 90;      // adverts/s: too loud to keep asking
+// Raised from 90 to 300 on 2.x: with the 200 ms reply timeout an active scan
+// costs about 3 KB under a 200-a-second flood (measured, the fake flood plus
+// a Flipper), so a busy room keeps its names and squad messages. Passive is
+// still the net above this, and heap pressure still forces it regardless.
+static const uint32_t SCAN_PASSIVE_ABOVE  = 300;     // adverts/s: too loud to keep asking
 // The block an active scan needs to spare before it starts. Measured on the
 // bench: a 2.8" board has 12 KB in a piece once Bluetooth is up, and ran
 // active scans on that for a year, so the bar sits under it.
@@ -851,7 +882,7 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     if (s_windowReq) { scan->setWindow(s_windowReq); s_windowReq = 0; }
     const bool passive = s_scanSafe || s_wantPassive;
     if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }
-    scan->start(0, nullptr, false);
+    scan->start(0, false, true);
     const uint32_t freed = (after > before) ? after - before : 0;
     s_flush.lastFreed   = freed;
     s_flush.totalFreed += freed;
@@ -869,7 +900,9 @@ static bool scanModeTick(uint32_t now, uint32_t largest) {
     lastAt  = now;
     const bool pressedWindow = s_passiveUntil && (int32_t)(s_passiveUntil - now) > 0;
     bool want = s_wantPassive;
-    if (s_scanSafe || pressedWindow) want = true;
+    if (s_scanPin == 1)      want = false;   // pinned active: the bench wants to see it suffer
+    else if (s_scanPin == 2) want = true;
+    else if (s_scanSafe || pressedWindow) want = true;
     else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
     else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
              s_advRate < SCAN_ACTIVE_BELOW && largest >= SCAN_ACTIVE_BLOCK_B) want = false;
@@ -1266,7 +1299,7 @@ static void updScanStopOnHost(struct ble_npl_event*) {
 
 static void updScanStartOnHost(struct ble_npl_event*) {
     NimBLEScan* scan = NimBLEDevice::getScan();
-    if (g_rawMode == RawScanMode::NONE && scan && !scan->isScanning()) scan->start(0, nullptr, false);
+    if (g_rawMode == RawScanMode::NONE && scan && !scan->isScanning()) scan->start(0, false, false);
 }
 
 void DetectionEngine::startUpdateRadio() {

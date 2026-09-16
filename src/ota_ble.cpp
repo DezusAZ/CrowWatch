@@ -69,7 +69,7 @@ void put32(uint8_t* p, uint32_t v) {
 }
 
 void notifyCtrl(const uint8_t* b, size_t n) {
-    if (s_ctrl && s_connected) s_ctrl->notify(b, n, true);
+    if (s_ctrl && s_connected) s_ctrl->notify(b, n, s_connHandle);   // 2.x: the third argument is the connection, not "is a notification"
 }
 
 void sendAck() {
@@ -121,28 +121,28 @@ void startAdvertising() {
     NimBLEAdvertisementData r;
     r.setName(s_name);
     adv->setScanResponseData(r);
-    adv->setScanResponse(true);
-    adv->setAdvertisementType(BLE_GAP_CONN_MODE_UND);
+    adv->enableScanResponse(true);
+    adv->setConnectableMode(BLE_GAP_CONN_MODE_UND);
     adv->setMinInterval(48);   // 30 ms: quick to find while somebody is looking
     adv->setMaxInterval(96);
     adv->start();
 }
 
 class ServerCb : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer*, ble_gap_conn_desc* d) override {
-        s_connHandle = d->conn_handle;
+    void onConnect(NimBLEServer*, NimBLEConnInfo& d) override {
+        s_connHandle = d.getConnHandle();
         s_connected  = true;
         s_codeOk     = false;
         s_triesLeft  = CODE_TRIES;
         if (s_state == State::WAITING) s_state = State::CONNECTED;
         Serial.printf("[ota] connected: interval %.1f ms, latency %u, timeout %u ms\n",
-                      d->conn_itvl * 1.25f, (unsigned)d->conn_latency,
-                      (unsigned)d->supervision_timeout * 10u);
+                      d.getConnInterval() * 1.25f, (unsigned)d.getConnLatency(),
+                      (unsigned)d.getConnTimeout() * 10u);
         // No connection-parameter request here. Asking for a faster interval
         // while the browser is still discovering services hung Windows'
         // Bluetooth stack on the bench; it is asked for once sending starts.
     }
-    void onDisconnect(NimBLEServer*, ble_gap_conn_desc*) override {
+    void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
         s_connected  = false;
         s_connHandle = 0xFFFF;
         s_codeOk     = false;
@@ -153,7 +153,7 @@ class ServerCb : public NimBLEServerCallbacks {
 } s_serverCb;
 
 class CtrlCb : public NimBLECharacteristicCallbacks {
-    void onWrite(NimBLECharacteristic* c) override {
+    void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
         const NimBLEAttValue v = c->getValue();
         const uint8_t* p = v.data();
         const size_t   n = v.length();
@@ -200,7 +200,7 @@ class CtrlCb : public NimBLECharacteristicCallbacks {
 } s_ctrlCb;
 
 class DataCb : public NimBLECharacteristicCallbacks {
-    void onWrite(NimBLECharacteristic* c) override {
+    void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
         if (s_state != State::RECEIVING) return;
         const NimBLEAttValue v = c->getValue();
         const size_t n = v.length();
@@ -298,7 +298,7 @@ bool begin() {
         s_server->start();
 
         const NimBLEAddress a = NimBLEDevice::getAddress();
-        const uint8_t* m = a.getNative();
+        const uint8_t* m = a.getBase()->val;
         snprintf(s_name, sizeof s_name, "SquachWatch-%02X%02X", m[1], m[0]);
     }
 

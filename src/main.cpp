@@ -255,6 +255,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_desk.h"
 #include "ui_zone.h"
 #include "ui_wifinets.h"
+#include "flood_bench.h"
 #include "ui_boot.h"
 #include "ui_clear.h"
 #include "crowd_bench.h"
@@ -2351,6 +2352,7 @@ void loop() {
         touchJustUp = false;
     }
     engine.loop();
+    floodTick();   // nothing outside a FLOOD_BENCH build
     // The heap at the first pass of loop(), for DIAGNOSTICS' BOOT line.
     static uint32_t s_loopHeapFree = 0, s_loopHeapLargest = 0;
     if (!s_loopHeapFree) {
@@ -4812,13 +4814,15 @@ void loop() {
         static uint32_t lastFrameSay = 0;
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu\n",
+            const volatile uint32_t* ak = advertKinds();
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
                           (unsigned long)(1000000UL / s_frameUsAvg),
                           (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10),
                           (unsigned)state, (unsigned long)ESP.getFreeHeap(),
                           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-                          (unsigned long)wifiFramesSeen(), (unsigned long)advertRate(), (unsigned long)advertsSeen());
+                          (unsigned long)wifiFramesSeen(), (unsigned long)advertRate(), (unsigned long)advertsSeen(),
+                          (unsigned long)ak[0], (unsigned long)ak[1], (unsigned long)ak[2], (unsigned long)ak[3], (unsigned long)ak[4]);
         }
     }
 #if CROWD_BENCH

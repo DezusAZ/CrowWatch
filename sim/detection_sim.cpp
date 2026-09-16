@@ -54,7 +54,10 @@ uint32_t advertsDropped()       { return 0; }
 uint32_t advertRate()           { return 0; }
 uint32_t wifiFramesSeen()       { return 0; }
 uint32_t advertsSeen()          { return 0; }
+static const volatile uint32_t s_kinds0[5] = { 0, 0, 0, 0, 0 };
+const volatile uint32_t* advertKinds() { return s_kinds0; }
 void     setScanWindow(uint8_t) {}
+void     setScanPin(uint8_t)    {}
 
 void DetectionEngine::clearLog() {
     _logCount = 0;

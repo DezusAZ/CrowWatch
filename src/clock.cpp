@@ -3,6 +3,7 @@
 #include "security.h"   // a locked device takes no console commands
 #include "ota_wifi.h"    // the WIFI command lists the saved networks
 #include "detection.h"   // WINDOW N, for the bench
+#include "flood_bench.h" // FLOOD N, for the bench (a no-op outside FLOOD_BENCH builds)
 #include "settings.h"
 #include "crowd_bench.h"
 #include <Arduino.h>
@@ -376,6 +377,17 @@ void pollSerial() {
                 bp.end();
             }
             Serial.printf("[boot] guard %s from the next boot; the short-boot count is zero\n", on ? "ON" : "OFF");
+            continue;
+        }
+        if (strncasecmp(line, "FLOOD ", 6) == 0) {
+            floodSet((uint16_t)atoi(line + 6));
+            continue;
+        }
+        if (strncasecmp(line, "SCAN ", 5) == 0) {
+            const char* a = line + 5;
+            const uint8_t pin = strcasecmp(a, "ACTIVE") == 0 ? 1 : strcasecmp(a, "PASSIVE") == 0 ? 2 : 0;
+            setScanPin(pin);
+            Serial.printf("[scan] %s\n", pin == 1 ? "pinned ACTIVE" : pin == 2 ? "pinned PASSIVE" : "back to AUTO");
             continue;
         }
         if (strncasecmp(line, "WINDOW ", 7) == 0) {

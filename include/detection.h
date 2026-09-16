@@ -132,9 +132,13 @@ bool     scanPassiveNow();   // the scan is passive right now (the room, pressur
 uint32_t advertRate();       // adverts/s the radio handed over in the last second
 uint32_t wifiFramesSeen();   // frames the WiFi sniffer has been handed since boot
 uint32_t advertsSeen();      // adverts the radio has handed over since boot, seatbelt or not
+const volatile uint32_t* advertKinds();   // [ind, direct, scan, nonconn, other] since boot
 // The scan window, 1..100 of the 100 ms interval, changed live: WINDOW N on
 // the console. For pricing the WiFi/Bluetooth radio-time trade on the bench.
 void     setScanWindow(uint8_t w);
+// SCAN ACTIVE / SCAN PASSIVE / SCAN AUTO on the console: pin the scan mode
+// for a bench flood, or hand it back to the room. 0 auto, 1 active, 2 passive.
+void     setScanPin(uint8_t pin);
 uint32_t advertsDropped();   // adverts the seatbelt refused for want of heap
 
 class DetectionEngine {
