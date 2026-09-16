@@ -185,18 +185,28 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
 // dies before the menu. So on a boot after a panic the splash holds for
 // nine seconds with the same lines in a box at the bottom, and a photo of
 // the splash is the bug report.
-// The power line, unless IGNORE put it off for a while. The clock is the
-// note-to-self one when nothing better is known, which is what makes ten
-// minutes mean ten minutes across the reboots this card is about.
+// The power line, unless IGNORE put it off for a while. A board with no
+// idea of the time reads 0 from the clock, and 0 is never "before the
+// deadline": an unset clock cannot make the line disappear, it only makes
+// the ten minutes shorter -- the tap zeroes the count too, so the line is
+// off until two more short boots either way.
 static bool shortBootsShown() {
-    return g_shortBoots >= 2 && !(g_shortIgnoreUntil && Clock::nowEpoch() < g_shortIgnoreUntil);
+    const uint32_t nowE = Clock::nowEpoch();
+    return g_shortBoots >= 2 && !(g_shortIgnoreUntil && nowE && nowE < g_shortIgnoreUntil);
 }
 static bool crashCardWanted() { return g_lastCrash.valid || g_lastCrash.haveDump || shortBootsShown(); }
 static void ignoreShortBoots() {
-    g_shortIgnoreUntil = Clock::nowEpoch() + 600;
+    const uint32_t nowE = Clock::nowEpoch();
+    g_shortIgnoreUntil = nowE ? nowE + 600 : 0;
+    g_shortBoots = 0;
     Preferences bp;
-    if (bp.begin("boot", false)) { bp.putUInt("ign", g_shortIgnoreUntil); bp.end(); }
-    Serial.println("[boot] the short-boot line is off the splash for ten minutes");
+    if (bp.begin("boot", false)) {
+        bp.putUInt("ign", g_shortIgnoreUntil);
+        bp.putUChar("short", 0);
+        bp.end();
+    }
+    Serial.println(nowE ? "[boot] the short-boot line is off the splash for ten minutes, count zeroed"
+                        : "[boot] no clock to time ten minutes by; the short-boot count is zeroed instead");
 }
 static const char* resetReasonName();
 static void drawCrashCard(TFT_eSPI& t) {

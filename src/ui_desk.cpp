@@ -282,7 +282,6 @@ static void drawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int
     s_cardY = compact ? 18 : barY - CARD_H - 4;
     const int x = s_cardX, y = s_cardY;
     const int cw = s_cardW;
-    const int tx = compact ? x + 20 : x + 24;
     // The border blinks for the first two seconds, then holds.
     const bool lit = (now - s_alertAt > 2000) || ((now / 250) & 1);
     t.fillRoundRect(x, y, cw, CARD_H, 4, Theme::BG);
@@ -294,7 +293,6 @@ static void drawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int
     // the longest line clear of it. Seven characters on the compact card,
     // eleven on the full one.
     const int right = x + cw - 4;
-    (void)tx;
     char ty[13];
     snprintf(ty, sizeof ty, compact ? "%.7s" : "%.11s", detectionTypeName(d.type));
     t.setTextColor(c, Theme::BG);
@@ -399,7 +397,11 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     Clock::formatDate(date, sizeof date);
     t.setTextSize(2);
     const int dateW = t.textWidth(date);
-    const int pw = (dateW > totalW ? dateW : totalW) + 20;
+    int pw = (dateW > totalW ? dateW : totalW) + 20;
+    // The title bar's corner icons are painted after the plate and blank
+    // 28 px at each end of the top 20 rows; a plate this high stays
+    // between them (portrait with a two-digit hour is the case that bit).
+    if (plateTop < 20 && pw > w - 58) pw = w - 58;
     const int px = (w - pw) / 2;
     if (!running) {
         t.fillRoundRect(px, plateTop, pw, y + dh + 5 - plateTop, 5, Theme::BG);
