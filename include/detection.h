@@ -488,6 +488,13 @@ private:
     // detection instead of one per type.
     uint32_t    _lifetimeByType[(uint8_t)DetectionType::COUNT] = {0};
     bool        _lifetimeDirty   = false;   // counted since the last write
+    // Detections waiting for their SD line. pushLog runs on the Bluetooth
+    // host task, and an SD append (open, write, close) does not belong
+    // there any more than the flash writes did; loop() writes them, one a
+    // frame. A burst past eight loses log lines, never detections.
+    static const uint8_t SD_Q_CAP = 8;
+    Detection        _sdQ[SD_Q_CAP];
+    volatile uint8_t _sdQHead = 0, _sdQTail = 0;
     uint32_t    _lifetimeSavedMs = 0;
     void        saveLifetime(uint32_t now); // from loop()
     void        saveLifetimeByType();

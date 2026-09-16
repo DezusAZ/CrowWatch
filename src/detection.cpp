@@ -906,7 +906,13 @@ static bool scanModeTick(uint32_t now, uint32_t largest) {
     // is the pressed window (three early flushes in a minute) and the same
     // block bar that gates going active in AUTO.
     if (pressedWindow)       want = true;
-    else if (s_scanPin == 1) want = largest < SCAN_ACTIVE_BLOCK_B;   // pinned active, while there is room
+    else if (s_scanPin == 1) {
+        // Pinned active, while there is room: under the bar it goes passive
+        // at once, and comes back only after the same dwell AUTO keeps, or
+        // a flood that hovers at the bar would restart the scan every second.
+        if (largest < SCAN_ACTIVE_BLOCK_B) want = true;
+        else if (!s_wantPassive || now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS)) want = false;
+    }
     else if (s_scanPin == 2) want = true;
     else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
     else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
@@ -990,6 +996,10 @@ void DetectionEngine::loop() {
     expireStale();
     decayChannelActivity();
     saveLifetime(millis());
+    if (_sdQTail != _sdQHead) {
+        _sd.logEvent(_sdQ[_sdQTail]);
+        _sdQTail = (uint8_t)((_sdQTail + 1) % SD_Q_CAP);
+    }
     _sd.tick();
 }
 
@@ -1667,7 +1677,8 @@ void DetectionEngine::pushLog(const Detection& d) {
     // per new detection on the task that receives the adverts was what let
     // a bench flood of new trackers back the radio up until the heap went.
     _lifetimeDirty = true;
-    _sd.logEvent(d);
+    const uint8_t next = (uint8_t)((_sdQHead + 1) % SD_Q_CAP);
+    if (next != _sdQTail) { _sdQ[_sdQHead] = d; _sdQHead = next; }
 }
 
 // The lifetime tally, to flash: at most once every five seconds while it

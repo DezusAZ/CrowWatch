@@ -2650,6 +2650,10 @@ void loop() {
             bool leave = uiBootDone(bootStart, crashCardWanted() ? 9000 : 3000);
             if (!leave && touchJustDown && ignoreButtonHit(tp.x, tp.y, canvas->width())) {
                 ignoreShortBoots();
+                // The finger is still down where the next screen's own
+                // bottom-right button will be (BACK on the desk); the rest
+                // of this gesture is swallowed, as the calibration hatch does.
+                s_swallowTouch = true;
                 leave = true;
             }
             if (leave) {
