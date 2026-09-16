@@ -41,7 +41,7 @@ platform = espressif32
 board = esp32dev
 framework = arduino
 upload_speed = 921600
-monitor_speed = 115200
+monitor_speed = 2000000
 lib_deps =
     bodmer/TFT_eSPI@^2.5.43
     paulstoffregen/XPT2046_Touchscreen@^1.4

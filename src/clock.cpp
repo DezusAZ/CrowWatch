@@ -366,14 +366,21 @@ void pollSerial() {
         }
 
         if (strncasecmp(line, "FLOOD ", 6) == 0) {
-            floodSet((uint16_t)atoi(line + 6));
+            // A thousand a second is five times the loudest room measured;
+            // a typo like -1 would be sixty-five thousand in one burst.
+            int n = atoi(line + 6);
+            if (n < 0) n = 0;
+            if (n > 1000) n = 1000;
+            floodSet((uint16_t)n);
             continue;
         }
         if (strncasecmp(line, "SCAN ", 5) == 0) {
             const char* a = line + 5;
-            const uint8_t pin = strcasecmp(a, "ACTIVE") == 0 ? 1 : strcasecmp(a, "PASSIVE") == 0 ? 2 : 0;
-            setScanPin(pin);
-            Serial.printf("[scan] %s\n", pin == 1 ? "pinned ACTIVE" : pin == 2 ? "pinned PASSIVE" : "back to AUTO");
+            while (*a == ' ') a++;
+            if      (strcasecmp(a, "ACTIVE")  == 0) { setScanPin(1); Serial.println("[scan] pinned ACTIVE"); }
+            else if (strcasecmp(a, "PASSIVE") == 0) { setScanPin(2); Serial.println("[scan] pinned PASSIVE"); }
+            else if (strcasecmp(a, "AUTO")    == 0) { setScanPin(0); Serial.println("[scan] back to AUTO"); }
+            else Serial.println("[scan] unknown. One of: ACTIVE, PASSIVE, AUTO");
             continue;
         }
         if (strncasecmp(line, "WINDOW ", 7) == 0) {

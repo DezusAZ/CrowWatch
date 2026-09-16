@@ -487,6 +487,9 @@ private:
     // where the whole array fits in three, and it means one write per
     // detection instead of one per type.
     uint32_t    _lifetimeByType[(uint8_t)DetectionType::COUNT] = {0};
+    bool        _lifetimeDirty   = false;   // counted since the last write
+    uint32_t    _lifetimeSavedMs = 0;
+    void        saveLifetime(uint32_t now); // from loop()
     void        saveLifetimeByType();
 
     // Promiscuous mode only ever receives on whatever channel the

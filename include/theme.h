@@ -126,6 +126,10 @@ namespace Theme {
     // pinned to the bottom edge. Before this each of them had a title that
     // drawTitleBar() no longer draws, no way back but the gear, and rows
     // in whatever colour the file happened to use.
+    // The title bar's corner icons: each blanks a box this wide and this
+    // high at its end of the top edge, painted after the screen below.
+    static const int TITLE_ICON_W      = 28;
+    static const int TITLE_ICON_BAND_H = 20;
     static const int LIST_TOP       = 16;   // under the corner icons
     static const int LIST_HEADING_H = 14;   // the Settings group header's height
     static const int PINNED_BACK_H  = 26;

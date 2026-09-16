@@ -51,17 +51,14 @@ static void formatMac(char* dst, size_t dstSize, const uint8_t* mac) {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-// scan->start(0, cb, ...) starts an indefinite scan (0 = "forever" per
-// NimBLEScan::start()'s own implementation) — cb is a *scan-complete*
-// callback, which for a forever-scan never fires under normal
-// operation. That's the real reason BLE detection (AirTag, Meta
-// glasses, Raven, Tile, DroneID) never worked at all, confirmed
-// against a real AirTag that other detectors picked up fine but this
-// one never did — not just the earlier nullptr-restart bug (a real
-// bug too, but not the actual root cause). The correct API for
-// continuous scanning is setAdvertisedDeviceCallbacks(), which fires
-// onResult() in real time for every advertisement seen, live, with no
-// restart needed.
+// scan->start(0, ...) starts an indefinite scan (0 = "forever" per
+// NimBLEScan::start()'s own implementation); its completion callback
+// never fires for a forever-scan, which is why an early version of this
+// file never detected anything. Live detection comes from the scan
+// callbacks set with setScanCallbacks(): onDiscovered() for every advert
+// as it arrives, onResult() once the library considers a device's data
+// complete (at once in a passive scan; after the reply or the reply
+// timeout in an active one).
 static uint32_t s_advertsDropped = 0;   // adverts refused for want of heap; reported with the flush
 // Set on the loop task by scanFlushTick from one heap walk a frame, and read
 // here on the host task: the walk itself takes the heap lock and a few
@@ -100,15 +97,24 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
         const uint8_t t = adv->getAdvType();
         s_advKind[t == BLE_HCI_ADV_TYPE_ADV_IND ? 0 : t == BLE_HCI_ADV_TYPE_ADV_DIRECT_IND_HD ? 1 :
                   t == BLE_HCI_ADV_TYPE_ADV_SCAN_IND ? 2 : t == BLE_HCI_ADV_TYPE_ADV_NONCONN_IND ? 3 : 4]++;
+#if SQUACH_MESH
+        // Counted here, once per advert, whatever handle() goes on to do
+        // with it. The measurement is of what the RADIO heard, not of what
+        // the signature tables liked, and not of how many times the library
+        // hands the same advert over (see below: up to twice).
+        MeshProbe::noteAdvert();
+#endif
         // Detection at first sight, for the one case the library holds back:
         // an active scan and a scannable advert. The library waits for that
         // device's reply before calling onResult, and a device that never
         // answers but keeps advertising restarts that wait every time, so it
         // would never be reported at all -- and a scan restart deletes it
         // unreported. Everything else (passive, or an advert nobody asks) is
-        // handed to onResult at once and is handled there. When a reply does
-        // come, onResult runs the same handling again with the reply's data
-        // (a name, a squad message) on top; the log dedupes by address.
+        // handed to onResult at once and is handled there. When a reply or
+        // the reply timeout does come, onResult runs the same handling again
+        // with whatever the reply added (a name, a squad message); the log
+        // keeps the entry it already has and takes the name from the reply
+        // (see postBle).
         if (!scanPassiveNow() && adv->isLegacyAdvertisement() && adv->isScannable()) handle(adv);
     }
     void onResult(const NimBLEAdvertisedDevice* adv) override { handle(adv); }
@@ -122,10 +128,10 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
             s_advertsDropped++;
             return;
         }
+        // 2.x hands back a reference to the device's own address, so the
+        // pointer is good for the whole of this call.
+        const uint8_t* mac = adv->getAddress().getBase()->val;
 #if SQUACH_MESH
-        // Counted before anything can return early. The measurement is of
-        // what the RADIO heard, not of what the signature tables liked.
-        MeshProbe::noteAdvert();
         // A peer is handled here and RETURNS, so it never reaches the
         // signature tables and can never become a Detection. Getting that
         // wrong would have two SquachWatches alarming at each other -- the
@@ -141,8 +147,7 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
             const uint8_t mdN = adv->getManufacturerDataCount();
             for (uint8_t i = 0; i < mdN; i++) {
                 const std::string md = adv->getManufacturerData(i);
-                if (Mesh::onManufacturerData((const uint8_t*)md.data(), md.size(),
-                                             adv->getAddress().getBase()->val, millis())) ours = true;
+                if (Mesh::onManufacturerData((const uint8_t*)md.data(), md.size(), mac, millis())) ours = true;
             }
             // A SquachWatch is not a detection, but it can be a hunt target:
             // the SQUAD screen's HUNT aims the gauge at one. Its advert feeds
@@ -150,15 +155,14 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
             if (ours) {
                 if (g_engine) {
                     const int8_t r = (int8_t)adv->getRSSI();
-                    g_engine->checkWatchBle(adv->getAddress().getBase()->val, r);
-                    g_engine->checkHuntBle(adv->getAddress().getBase()->val, r);
+                    g_engine->checkWatchBle(mac, r);
+                    g_engine->checkHuntBle(mac, r);
                 }
                 return;
             }
         }
 #endif
         if (!g_engine) return;
-        const uint8_t* mac = adv->getAddress().getBase()->val;
         // Checked regardless of raw-scan mode -- a watched/hunted
         // target still fires even if it's not a known signature and
         // even while the raw-scan screen happens to be open. The two
@@ -359,7 +363,8 @@ void DetectionEngine::saveLifetimeByType() {
 }
 
 void DetectionEngine::resetLifetime() {
-    _lifetimeTotal = 0;
+    _lifetimeTotal  = 0;
+    _lifetimeDirty  = false;
     _prefs.putUInt("total", 0);
     for (uint8_t i = 0; i < (uint8_t)DetectionType::COUNT; i++) {
         _typeCounts[i]     = 0;
@@ -553,8 +558,8 @@ bool DetectionEngine::init() {
     // arrives inside the same advertising event, well under a millisecond,
     // so 200 ms loses none and bounds the list to a few dozen records.
     scan->setScanResponseTimeout(200);
-    // wantDuplicates=true: we want onResult() called on every sighting
-    // of a device, not just the first, so lastSeen/RSSI keep updating
+    // wantDuplicates=true: every sighting of a device reaches the
+    // callbacks, not just the first, so lastSeen/RSSI keep updating
     // (postBle()/expireStale() rely on that for the still-active log).
     scan->setScanCallbacks(&g_bleScanCallbacks, true);
     // Without this, NimBLE keeps its OWN permanent record of every
@@ -735,11 +740,14 @@ static void setAdvertising(bool on, uint32_t now) {
     } else {
         // 2.x pushes scan-response data to the controller the moment it is
         // set and enableScanResponse(false) only clears a flag, so the last
-        // message would go on being served to anyone who asked. Clear it,
-        // and make the advert non-scannable so nobody asks: with no reply
-        // to give there is no reason to cost every scanner a request.
+        // message would go on being served to anyone who asked. So the
+        // advert goes non-scannable (non-connectable and non-discoverable
+        // is ADV_NONCONN_IND): the controller answers no scan request in
+        // that mode, so the stale reply is never sent, and no scanner pays
+        // for a request that has nothing behind it. The next message sets
+        // fresh reply data before the advert turns scannable again. (Not
+        // cleared with empty data: the library takes &payload[0] of it.)
         adv->enableScanResponse(false);
-        adv->setScanResponseData(NimBLEAdvertisementData());
         adv->setDiscoverableMode(BLE_GAP_DISC_MODE_NON);
     }
     // Never connectable. Update mode's server shares this advertiser, and a
@@ -760,7 +768,7 @@ void radioTick(uint32_t now) {
     if (g_rawMode == RawScanMode::UPDATE) return;
     // Our own address goes into the nonce of every message we send, so the
     // runtime needs it -- read once, after the stack is up, and copied out of
-    // a named NimBLEAddress rather than via getNative() on a temporary.
+    // a named NimBLEAddress rather than through a pointer into a temporary.
     if (!s_macSet) {
         const NimBLEAddress a = NimBLEDevice::getAddress();
         MeshTalk::setOwnMac(a.getBase()->val);
@@ -894,9 +902,11 @@ static bool scanModeTick(uint32_t now, uint32_t largest) {
     bool want = s_wantPassive;
     // Heap pressure first: the bench may pin the scan active to watch it
     // suffer, but a board that is out of room goes passive whatever the pin
-    // says, since the pin ships in every build and the abort is real.
+    // says, since the pin ships in every build and the abort is real. That
+    // is the pressed window (three early flushes in a minute) and the same
+    // block bar that gates going active in AUTO.
     if (pressedWindow)       want = true;
-    else if (s_scanPin == 1) want = false;   // pinned active: the bench wants to see it suffer
+    else if (s_scanPin == 1) want = largest < SCAN_ACTIVE_BLOCK_B;   // pinned active, while there is room
     else if (s_scanPin == 2) want = true;
     else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
     else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
@@ -979,6 +989,7 @@ void DetectionEngine::loop() {
     processDeauthQ();
     expireStale();
     decayChannelActivity();
+    saveLifetime(millis());
     _sd.tick();
 }
 
@@ -1149,6 +1160,12 @@ void DetectionEngine::postBle(Detection d) {
             // first sighting, and then silently stop being detected
             // for good.
             bool reactivating = !_log[slot].active;
+            // The reply to an active scan carries what the advert did not:
+            // the name, usually. Under 2.x the entry is made at first sight
+            // from the advert alone, so the reply's name lands here, on the
+            // entry that already exists.
+            if (d.name[0]) memcpy(_log[slot].name, d.name, sizeof _log[slot].name);
+            if (d.vendor[0] && !_log[slot].vendor[0]) memcpy(_log[slot].vendor, d.vendor, sizeof _log[slot].vendor);
             // hits counts distinct sightings (comes-and-goes, gated by
             // expireStale's active flag), not raw advertisement
             // packets -- a BLE beacon like an AirTag advertises every
@@ -1281,8 +1298,8 @@ void DetectionEngine::stopRawScan() {
 
 // ---- Bluetooth update mode --------------------------------------------------
 // The scan stops and starts ON THE HOST TASK, for the reason spelled out above
-// scanFlushOnHost(): the host hands its records to onResult() on the other
-// core, and a stop() from the loop task once freed one mid-callback.
+// scanFlushOnHost(): the host hands its records to the scan callbacks on the
+// other core, and a stop() from the loop task once freed one mid-callback.
 static struct ble_npl_event s_updStopEv;
 static struct ble_npl_event s_updStartEv;
 static bool                 s_updEvReady = false;
@@ -1643,12 +1660,24 @@ void DetectionEngine::pushLog(const Detection& d) {
     _latestChangeMs = millis();
     _typeCounts[(uint8_t)d.type]++;
     _lifetimeTotal++;
-    _prefs.putUInt("total", _lifetimeTotal);
-    if ((uint8_t)d.type < (uint8_t)DetectionType::COUNT) {
-        _lifetimeByType[(uint8_t)d.type]++;
-        saveLifetimeByType();
-    }
+    if ((uint8_t)d.type < (uint8_t)DetectionType::COUNT) _lifetimeByType[(uint8_t)d.type]++;
+    // Counted here, on the Bluetooth host task, and written to flash from
+    // loop() (see saveLifetime). A flash write stalls both cores for a
+    // millisecond and every so often for a sector erase, and two of them
+    // per new detection on the task that receives the adverts was what let
+    // a bench flood of new trackers back the radio up until the heap went.
+    _lifetimeDirty = true;
     _sd.logEvent(d);
+}
+
+// The lifetime tally, to flash: at most once every five seconds while it
+// has changed. Five seconds of counting is what a power cut can lose.
+void DetectionEngine::saveLifetime(uint32_t now) {
+    if (!_lifetimeDirty || now - _lifetimeSavedMs < 5000) return;
+    _lifetimeDirty   = false;
+    _lifetimeSavedMs = now;
+    _prefs.putUInt("total", _lifetimeTotal);
+    saveLifetimeByType();
 }
 
 void DetectionEngine::expireStale() {

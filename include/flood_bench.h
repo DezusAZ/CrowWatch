@@ -12,9 +12,7 @@
 #if FLOOD_BENCH
 void floodSet(uint16_t perSecond);
 void floodTick();          // from loop(): posts the next burst to the host task
-uint16_t floodRate();
 #else
 inline void floodSet(uint16_t) {}
 inline void floodTick() {}
-inline uint16_t floodRate() { return 0; }
 #endif

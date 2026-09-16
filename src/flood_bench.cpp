@@ -2,11 +2,6 @@
 #include "flood_bench.h"
 #if FLOOD_BENCH
 
-// The scan's event handler is private to the library; this is a bench file
-// and the one place that reaches past that.
-#define private public
-#include <NimBLEScan.h>
-#undef private
 #include <NimBLEDevice.h>
 #include <Arduino.h>
 #if defined(CONFIG_NIMBLE_CPP_IDF)
@@ -16,38 +11,54 @@
 #endif
 #include <string.h>
 
-static volatile uint16_t s_perSec = 0;
-static volatile uint16_t s_owed   = 0;   // 50 ms slots owed to the host task
+// The host's own entry for an advertising report, the one the HCI parser
+// calls: it sanity-checks the payload and hands the report to whatever
+// scan is running, exactly as a real advert is. Declared here rather than
+// through the host's private header.
+extern "C" void ble_gap_rx_adv_report(struct ble_gap_disc_desc* desc);
+
+static volatile uint16_t s_perSec    = 0;
+// 50 ms slots: the loop task counts them due, the host task counts them
+// paid. One writer each, so neither has to read-modify-write the other's.
+static volatile uint32_t s_slotsDue  = 0;
+static volatile uint32_t s_slotsPaid = 0;
 static struct ble_npl_event s_ev;
 static bool     s_evReady = false;
 static uint32_t s_made    = 0;
 
-// Runs on the host task: one burst, the share of a second that 50 ms holds.
+// Runs on the host task: the adverts of every slot due and not yet paid.
 static void burstOnHost(struct ble_npl_event*) {
-    // Every 50 ms slot that has elapsed since the last burst, not one: the
-    // loop that posts this runs at the frame rate, and a slow frame used to
-    // mean a slot silently skipped -- FLOOD 200 delivered 120-180 a second
-    // and said 200. The rate the board reports (adv, ble/s) is the truth.
-    const uint16_t slots = s_owed;
-    s_owed = 0;
+    // At most four slots (200 ms) at once. A real radio delivers one advert
+    // at a time with the reply timer running between them; a burst that
+    // pays a second of backlog in one go makes hundreds of records before
+    // the timer can free one, and the heap goes before the radio would
+    // ever have been asked. What is not paid is dropped, and the rate the
+    // board reports (adv, ble/s on the frame line) is the truth.
+    const uint32_t due = s_slotsDue;
+    uint32_t slots = due - s_slotsPaid;
+    if (slots > 4) slots = 4;
+    s_slotsPaid = due;
     const uint16_t n = (uint16_t)(((s_perSec + 19) / 20) * slots);
     for (uint16_t i = 0; i < n; i++) {
-        // A phone's advert: flags, then a short name, from a fresh random address.
-        uint8_t data[14] = { 0x02, 0x01, 0x06, 0x0A, 0x09, 'F','L','O','O','D','0','0','0','0' };
+        // Flags, Tile's 16-bit service UUID (0xFEED) so the detector counts
+        // every one, then a short name, from a fresh random address. The
+        // detection count on the frame line is how the bench proves an
+        // advert was handled at first sight rather than waiting on a reply.
+        uint8_t data[18] = { 0x02, 0x01, 0x06, 0x03, 0x03, 0xED, 0xFE,
+                             0x0A, 0x09, 'F','L','O','O','D','0','0','0','0' };
         const uint32_t k = s_made++;
-        data[10] = (uint8_t)('A' + (k >> 12 & 15)); data[11] = (uint8_t)('A' + (k >> 8 & 15));
-        data[12] = (uint8_t)('A' + (k >> 4 & 15));  data[13] = (uint8_t)('A' + (k & 15));
-        ble_gap_event ev;
-        memset(&ev, 0, sizeof ev);
-        ev.type = BLE_GAP_EVENT_DISC;
-        ev.disc.event_type  = BLE_HCI_ADV_RPT_EVTYPE_ADV_IND;   // connectable and scannable: the kind a scanner waits on
-        ev.disc.length_data = sizeof data;
-        ev.disc.data        = data;
-        ev.disc.rssi        = (int8_t)(-55 - (int8_t)(k % 30));
-        ev.disc.addr.type   = BLE_ADDR_RANDOM;
-        for (int b = 0; b < 6; b++) ev.disc.addr.val[b] = (uint8_t)esp_random();
-        ev.disc.addr.val[5] |= 0xC0;                             // a static random address
-        NimBLEScan::handleGapEvent(&ev, nullptr);
+        data[14] = (uint8_t)('A' + (k >> 12 & 15)); data[15] = (uint8_t)('A' + (k >> 8 & 15));
+        data[16] = (uint8_t)('A' + (k >> 4 & 15));  data[17] = (uint8_t)('A' + (k & 15));
+        ble_gap_disc_desc desc;
+        memset(&desc, 0, sizeof desc);
+        desc.event_type  = BLE_HCI_ADV_RPT_EVTYPE_ADV_IND;   // connectable and scannable: the kind a scanner waits on
+        desc.length_data = sizeof data;
+        desc.data        = data;
+        desc.rssi        = (int8_t)(-55 - (int8_t)(k % 30));
+        desc.addr.type   = BLE_ADDR_RANDOM;
+        for (int b = 0; b < 6; b++) desc.addr.val[b] = (uint8_t)esp_random();
+        desc.addr.val[5] |= 0xC0;                             // a static random address
+        ble_gap_rx_adv_report(&desc);
     }
 }
 
@@ -56,19 +67,18 @@ void floodSet(uint16_t perSecond) {
     Serial.printf("[flood] %u fake adverts a second, connectable, never answering\n", (unsigned)perSecond);
 }
 
-uint16_t floodRate() { return s_perSec; }
-
 void floodTick() {
     static uint32_t last = 0;
     const uint32_t now = millis();
     if (!s_perSec) { last = now; return; }
-    uint16_t owed = 0;
-    while (now - last >= 50 && owed < 20) { last += 50; owed++; }
-    if (now - last >= 50) last = now;   // more than a second behind: drop the rest, do not spiral
+    const uint32_t owed = (now - last) / 50;
     if (!owed) return;
-    s_owed = (uint16_t)(s_owed + owed);
+    last += owed * 50;
+    s_slotsDue += owed;
     NimBLEScan* scan = NimBLEDevice::getScan();
-    if (!scan || !scan->isScanning()) return;
+    if (!scan || !scan->isScanning()) return;   // nothing to hand them to; the host drops the backlog
+    // A post while the last one is still queued is ignored by NimBLE's port;
+    // the burst pays every slot due when it does run, so nothing is lost.
     if (!s_evReady) { ble_npl_event_init(&s_ev, burstOnHost, nullptr); s_evReady = true; }
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_ev);
 }

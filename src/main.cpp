@@ -55,16 +55,26 @@ RTC_NOINIT_ATTR static struct {
 // up, whatever the reset reason (a restart the firmware asked for is not
 // counted). Written once a boot and cleared once at 90 seconds. It exists
 // for one line on the crash card -- "N boots in a row, check the power" --
-// and nothing else: the safe mode that once hung off it (a passive scan
-// and a capped backlight on the fifth boot) was a crutch for a crash that
-// has since been fixed at the root, and it retired with the fix.
+// and nothing else (the safe mode that once hung off it retired with the
+// crash it was a crutch for).
+static const char* const kBootNs      = "boot";
+static const char* const kShortKey    = "short";   // boots in a row under 90 s
+static const char* const kIgnKey      = "ign";     // IGNORE: clock time the power line comes back
+static const char* const kIgnBootsKey = "ignN";    // IGNORE: boots left before it comes back regardless
 static uint8_t           g_shortBoots  = 0;
 static esp_reset_reason_t g_resetReason = ESP_RST_UNKNOWN;
 // IGNORE on that card: the power line stays off the splash until this
 // clock time, ten minutes from the tap, for a bench that reflashes or a
-// desk where the cable got knocked twice. The count itself goes on.
+// desk where the cable got knocked twice. The count itself goes on. A
+// board with no real clock starts every cold boot from its last note, so
+// ten minutes by that clock could be forever: the ignore also ends after
+// ten more boots, whatever the clock says.
 static uint32_t          g_shortIgnoreUntil = 0;
-static int               s_ignX = 0, s_ignY = 0, s_ignW = 0, s_ignH = 0;   // the button, for the tap
+static const uint8_t     IGNORE_BOOTS = 10;
+// The IGNORE button on the crash card, for the tap: drawn at the card's
+// bottom right, y set by drawCrashCard, -1 when there is no button.
+static const int         IGN_W = 64, IGN_H = 18;
+static int               s_ignY = -1;
 
 // Snapshotted at boot, before the live breadcrumb starts overwriting it.
 static CrashReport g_lastCrash = {};
@@ -104,11 +114,17 @@ static void crashReportInit() {
     g_resetReason = r;
     {
         Preferences bp;
-        if (bp.begin("boot", false)) {
-            g_shortIgnoreUntil = bp.getUInt("ign", 0);
-            uint8_t n = bp.getUChar("short", 0);
+        if (bp.begin(kBootNs, false)) {
+            g_shortIgnoreUntil = bp.getUInt(kIgnKey, 0);
+            if (g_shortIgnoreUntil) {
+                // One of the boots the ignore covers; the last one ends it.
+                const uint8_t left = bp.getUChar(kIgnBootsKey, 0);
+                if (left) bp.putUChar(kIgnBootsKey, left - 1);
+                else { g_shortIgnoreUntil = 0; bp.putUInt(kIgnKey, 0); }
+            }
+            uint8_t n = bp.getUChar(kShortKey, 0);
             n = (r == ESP_RST_SW || r == ESP_RST_DEEPSLEEP) ? 0 : (uint8_t)(n < 10 ? n + 1 : 10);
-            bp.putUChar("short", n);
+            bp.putUChar(kShortKey, n);
             bp.end();
             g_shortBoots = n;             // counts this boot: 1 is an ordinary plug-in
         }
@@ -175,7 +191,7 @@ static void crashCrumbTick(uint32_t now, uint32_t lifetime, uint8_t screen) {
         if (!cleared) {
             cleared = true;
             Preferences bp;
-            if (bp.begin("boot", false)) { bp.putUChar("short", 0); bp.end(); }
+            if (bp.begin(kBootNs, false)) { bp.putUChar(kShortKey, 0); bp.end(); }
         }
     }
 }
@@ -200,21 +216,29 @@ static void ignoreShortBoots() {
     g_shortIgnoreUntil = nowE ? nowE + 600 : 0;
     g_shortBoots = 0;
     Preferences bp;
-    if (bp.begin("boot", false)) {
-        bp.putUInt("ign", g_shortIgnoreUntil);
-        bp.putUChar("short", 0);
+    if (bp.begin(kBootNs, false)) {
+        bp.putUInt(kIgnKey, g_shortIgnoreUntil);
+        bp.putUChar(kIgnBootsKey, IGNORE_BOOTS);
+        bp.putUChar(kShortKey, 0);
         bp.end();
     }
     Serial.println(nowE ? "[boot] the short-boot line is off the splash for ten minutes, count zeroed"
                         : "[boot] no clock to time ten minutes by; the short-boot count is zeroed instead");
 }
+// The IGNORE button's tap target, a little larger than the button.
+static bool ignoreButtonHit(int x, int y, int w) {
+    if (s_ignY < 0) return false;
+    const int bx = w - 8 - IGN_W;
+    return x >= bx - 6 && x < bx + IGN_W + 6 && y >= s_ignY - 6 && y < s_ignY + IGN_H + 6;
+}
 static const char* resetReasonName();
 static void drawCrashCard(TFT_eSPI& t) {
     const int w = t.width(), h = t.height();
-    const bool power = shortBootsShown() && !g_lastCrash.valid && !g_lastCrash.haveDump;   // the loop, not a crash
-    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (shortBootsShown() ? 1 : 0);
+    const bool shortLine = shortBootsShown();
+    const bool power = shortLine && !g_lastCrash.valid && !g_lastCrash.haveDump;   // the loop, not a crash
+    const int lines = 1 + (g_lastCrash.haveDump ? 2 : (g_lastCrash.valid ? 1 : 0)) + (shortLine ? 1 : 0);
     const int bh = 8 + lines * 11 + (power ? 24 : 0);
-    s_ignW = 0;
+    s_ignY = -1;
     const int y0 = h - bh - 4;
     t.fillRoundRect(4, y0, w - 8, bh, 4, Theme::BG);
     t.drawRoundRect(4, y0, w - 8, bh, 4, Theme::RED);
@@ -243,16 +267,15 @@ static void drawCrashCard(TFT_eSPI& t) {
                  (unsigned long)g_lastCrash.lifetime);
         t.setCursor(10, y); t.print(line); y += 11;
     }
-    if (shortBootsShown()) {
+    if (shortLine) {
         snprintf(line, sizeof line, "%u BOOTS IN A ROW UNDER 90 S%s", (unsigned)g_shortBoots,
                  (g_resetReason == ESP_RST_POWERON || g_resetReason == ESP_RST_BROWNOUT) ? ": CHECK THE POWER" : "");
         t.setCursor(10, y); t.print(line); y += 11;
     }
     if (power) {
         // IGNORE: off the splash for ten minutes, and on with the boot now.
-        s_ignW = 64; s_ignH = 18;
-        s_ignX = w - 8 - s_ignW; s_ignY = y0 + bh - s_ignH - 3;
-        Theme::drawWin95Button(t, s_ignX, s_ignY, s_ignW, s_ignH, "IGNORE", false);
+        s_ignY = y0 + bh - IGN_H - 3;
+        Theme::drawWin95Button(t, w - 8 - IGN_W, s_ignY, IGN_W, IGN_H, "IGNORE", false);
     }
 }
 #include "state.h"
@@ -2625,8 +2648,7 @@ void loop() {
             if (crashCardWanted()) drawCrashCard(*canvas);
 #endif
             bool leave = uiBootDone(bootStart, crashCardWanted() ? 9000 : 3000);
-            if (!leave && s_ignW && touchJustDown && tp.x >= s_ignX - 6 && tp.x < s_ignX + s_ignW + 6 &&
-                tp.y >= s_ignY - 6 && tp.y < s_ignY + s_ignH + 6) {
+            if (!leave && touchJustDown && ignoreButtonHit(tp.x, tp.y, canvas->width())) {
                 ignoreShortBoots();
                 leave = true;
             }
@@ -4823,14 +4845,15 @@ void loop() {
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
             const volatile uint32_t* ak = advertKinds();
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu\n",
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
                           (unsigned long)(1000000UL / s_frameUsAvg),
                           (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10),
                           (unsigned)state, (unsigned long)ESP.getFreeHeap(),
                           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
                           (unsigned long)wifiFramesSeen(), (unsigned long)advertRate(), (unsigned long)advertsSeen(),
-                          (unsigned long)ak[0], (unsigned long)ak[1], (unsigned long)ak[2], (unsigned long)ak[3], (unsigned long)ak[4]);
+                          (unsigned long)ak[0], (unsigned long)ak[1], (unsigned long)ak[2], (unsigned long)ak[3], (unsigned long)ak[4],
+                          (unsigned long)engine.lifetimeTotal());
         }
     }
 #if CROWD_BENCH

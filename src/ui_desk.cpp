@@ -293,22 +293,21 @@ static void drawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int
     // the longest line clear of it. Seven characters on the compact card,
     // eleven on the full one.
     const int right = x + cw - 4;
+    auto printRight = [&](const char* s, int ty, uint16_t color) {
+        t.setTextColor(color, Theme::BG);
+        t.setCursor(right - t.textWidth(s), ty);
+        t.print(s);
+    };
     char ty[13];
     snprintf(ty, sizeof ty, compact ? "%.7s" : "%.11s", detectionTypeName(d.type));
-    t.setTextColor(c, Theme::BG);
-    t.setCursor(right - t.textWidth(ty), y + 4);
-    t.print(ty);
+    printRight(ty, y + 4, c);
     // The device's own name where it has one, else the vendor; what fits.
     char who[13];
     snprintf(who, sizeof who, compact ? "%.7s" : "%.11s", d.name[0] ? d.name : d.vendor);
-    t.setTextColor(Theme::WHITE, Theme::BG);
-    t.setCursor(right - t.textWidth(who), y + 15);
-    t.print(who);
+    printRight(who, y + 15, Theme::WHITE);
     char sig[16];
     snprintf(sig, sizeof sig, "%d dBm", d.rssi);
-    t.setTextColor(Theme::CYAN, Theme::BG);
-    t.setCursor(right - t.textWidth(sig), y + 26);
-    t.print(sig);
+    printRight(sig, y + 26, Theme::CYAN);
 }
 
 void uiDeskTapTimer(uint32_t now) {
@@ -399,15 +398,18 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const int dateW = t.textWidth(date);
     int pw = (dateW > totalW ? dateW : totalW) + 20;
     // The title bar's corner icons are painted after the plate and blank
-    // 28 px at each end of the top 20 rows; a plate this high stays
-    // between them (portrait with a two-digit hour is the case that bit).
-    if (plateTop < 20 && pw > w - 58) pw = w - 58;
+    // their own boxes at each end of the top rows; a plate that reaches
+    // up into that band stays between them (portrait with a two-digit
+    // hour is the case that bit).
+    const int iconsW = 2 * Theme::TITLE_ICON_W + 2;
+    if (plateTop < Theme::TITLE_ICON_BAND_H && pw > w - iconsW) pw = w - iconsW;
     const int px = (w - pw) / 2;
+    const int plateH = plateBottom - plateTop;
     if (!running) {
-        t.fillRoundRect(px, plateTop, pw, y + dh + 5 - plateTop, 5, Theme::BG);
-        t.drawRoundRect(px, plateTop, pw, y + dh + 5 - plateTop, 5, Theme::VAPOR_PURPLE);
+        t.fillRoundRect(px, plateTop, pw, plateH, 5, Theme::BG);
+        t.drawRoundRect(px, plateTop, pw, plateH, 5, Theme::VAPOR_PURPLE);
     }
-    if (running) t.fillRect(px, plateTop, pw, y + dh + 5 - plateTop, Theme::BG);   // over the box, on a plain ground
+    if (running) t.fillRect(px, plateTop, pw, plateH, Theme::BG);   // over the box, on a plain ground
     t.setTextColor(Theme::CYAN, Theme::BG);
     t.setCursor((w - dateW) / 2, plateTop + 3);
     t.print(date);

@@ -179,7 +179,7 @@ uint16_t titlebarColor(int x, int w) {
 // target (ROTATE_HIT_*) is bigger than the visual icon and extends
 // below the title bar into the content area — a finger needs a much
 // bigger target than a stylus would.
-static const int ROTATE_ICON_W = 28;
+static const int ROTATE_ICON_W = Theme::TITLE_ICON_W;
 // A quarter bigger than they were, and the ICON grew as well as the target.
 // The targets were already 44x40, far larger than the 22px glyph inside them,
 // so what made these awkward to hit was never the hit box -- it was that they
@@ -214,13 +214,13 @@ bool rotateButtonHit(int x, int y, int w) {
 // Settings button, mirrored into the top-left corner of the title bar:
 // a 3-bar "hamburger" glyph, same oversized tap target treatment as the
 // rotate icon on the other side.
-static const int SETTINGS_ICON_W = 28;
+static const int SETTINGS_ICON_W = Theme::TITLE_ICON_W;
 static const int SETTINGS_HIT_W  = 55;
 static const int SETTINGS_HIT_H  = 50;
 // The two icons float over live background now that the bar behind them is
 // gone, so each keeps a small opaque box of its own -- without it a thin
 // cyan glyph disappears against the synthwave sun.
-static const int ICON_BOX_H      = 20;
+static const int ICON_BOX_H      = Theme::TITLE_ICON_BAND_H;
 
 static void drawSettingsIcon(TFT_eSPI& t, int barH) {
     t.fillRect(0, 0, SETTINGS_ICON_W, barH, BG);
