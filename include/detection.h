@@ -120,7 +120,7 @@ struct BootHeap {
     uint32_t bleFree,  bleLargest;    // the Bluetooth scan just started
 };
 BootHeap bootHeap();
-bool     scanPassiveNow();   // the scan is passive right now (the room, pressure, or safe mode)
+bool     scanPassiveNow();   // the scan is passive right now (the room, or heap pressure)
 uint32_t advertRate();       // adverts/s the radio handed over in the last second
 uint32_t wifiFramesSeen();   // frames the WiFi sniffer has been handed since boot
 uint32_t advertsSeen();      // adverts the radio has handed over since boot, seatbelt or not

@@ -100,8 +100,19 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
         const uint8_t t = adv->getAdvType();
         s_advKind[t == BLE_HCI_ADV_TYPE_ADV_IND ? 0 : t == BLE_HCI_ADV_TYPE_ADV_DIRECT_IND_HD ? 1 :
                   t == BLE_HCI_ADV_TYPE_ADV_SCAN_IND ? 2 : t == BLE_HCI_ADV_TYPE_ADV_NONCONN_IND ? 3 : 4]++;
+        // Detection at first sight, for the one case the library holds back:
+        // an active scan and a scannable advert. The library waits for that
+        // device's reply before calling onResult, and a device that never
+        // answers but keeps advertising restarts that wait every time, so it
+        // would never be reported at all -- and a scan restart deletes it
+        // unreported. Everything else (passive, or an advert nobody asks) is
+        // handed to onResult at once and is handled there. When a reply does
+        // come, onResult runs the same handling again with the reply's data
+        // (a name, a squad message) on top; the log dedupes by address.
+        if (!scanPassiveNow() && adv->isLegacyAdvertisement() && adv->isScannable()) handle(adv);
     }
-    void onResult(const NimBLEAdvertisedDevice* adv) override {
+    void onResult(const NimBLEAdvertisedDevice* adv) override { handle(adv); }
+    void handle(const NimBLEAdvertisedDevice* adv) {
         // The seatbelt. Everything below asks NimBLE for strings, and a
         // string on a heap of scraps throws, and a throw on the host task
         // is the abort a user photographed at 28 seconds up. With nothing
@@ -719,8 +730,17 @@ static void setAdvertising(bool on, uint32_t now) {
         r.setManufacturerData(sm);
         adv->setScanResponseData(r);
         adv->enableScanResponse(true);
+        // Scannable: a peer's scan request is how the message travels.
+        adv->setDiscoverableMode(BLE_GAP_DISC_MODE_GEN);
     } else {
+        // 2.x pushes scan-response data to the controller the moment it is
+        // set and enableScanResponse(false) only clears a flag, so the last
+        // message would go on being served to anyone who asked. Clear it,
+        // and make the advert non-scannable so nobody asks: with no reply
+        // to give there is no reason to cost every scanner a request.
         adv->enableScanResponse(false);
+        adv->setScanResponseData(NimBLEAdvertisementData());
+        adv->setDiscoverableMode(BLE_GAP_DISC_MODE_NON);
     }
     // Never connectable. Update mode's server shares this advertiser, and a
     // stack with the peripheral role compiled in defaults to connectable.
@@ -769,39 +789,15 @@ void stopAdvertisingForUpdate() { setAdvertising(false, 0); }
 #endif
 
 // ---- the scan-result flush --------------------------------------------------
-// NimBLE keeps a record of every advertiser until that record's callback has
-// fired, and with setMaxResults(0) it deletes the record straight after. But
-// for a SCANNABLE advert under active scanning -- nearly every phone and
-// headset -- the callback waits for the device's scan response, and if that
-// response never arrives the record is never deleted. The only other cleanup
-// is at the end of a scan, and this scan never ends.
-//
-// So the list grows by one record for every device that did not answer before
-// it walked off or rotated its address. At the user's workplace, with
-// SquachMesh switched off, that was about 480 bytes a minute, until the heap
-// was 12 KB of 140-byte scraps and the next allocation failed -- twice, at 80
-// and 63 minutes. Fewer answers and more address churn both make it worse,
-// which is why it only ever crashed away from home. Every advert also does a
-// linear search of that list, so it cost CPU on the other core as it grew.
-//
-// NimBLE's own stop() clears the list when results are not retained, and
-// start() begins clean. Nothing in this file keeps a result past its
-// callback; that is what setMaxResults(0) already said.
-//
-// Both have to run ON THE HOST TASK. That task appends to the list and hands
-// its records to onResult(), on the other core. v1.5.24 called stop() and
-// start() from here, in the loop task, and after 403 minutes a soak board
-// panicked with the host task inside onResult() -> getName() on a record
-// stop() had just deleted; the core dump has the loop task one frame deep in
-// the start() that followed. NimBLE's m_ignoreResults only turns away the NEXT
-// report, never the one already in flight.
-//
-// So the loop task only posts an event to the host's own queue, and the
-// restart runs there, between two advert reports rather than in the middle of
-// one. Blocking in stop()/start() on the host task is safe: the controller's
-// command-complete and command-status acks are taken straight off the
-// transport (ble_hs_hci_rx_evt in ble_hs_hci.c), never queued behind this
-// event, so its HCI commands cannot end up waiting on themselves.
+// The scan is restarted once a minute. Under the old library this was the
+// only thing that ever freed a record for a device that never answered a
+// scan request; the 200 ms reply timeout set in init() does that now, and
+// detection no longer waits on the reply (see onDiscovered). What the
+// restart still does: it clears the duplicate cache and any record the
+// timeout has not reached, and it is the moment a mode change or a WINDOW
+// command takes effect. It costs the adverts of the stop/start gap, and any
+// device still inside its 200 ms wait at that moment is dropped from the
+// library's list unreported -- which is why first-sight detection matters.
 static const uint32_t SCAN_FLUSH_MS = 60000;
 // The minute was sized at a workplace where the list grew 480 bytes a
 // minute. A user's board in a denser place -- 129 adverts a second, and a
@@ -896,9 +892,12 @@ static bool scanModeTick(uint32_t now, uint32_t largest) {
     lastAt  = now;
     const bool pressedWindow = s_passiveUntil && (int32_t)(s_passiveUntil - now) > 0;
     bool want = s_wantPassive;
-    if (s_scanPin == 1)      want = false;   // pinned active: the bench wants to see it suffer
+    // Heap pressure first: the bench may pin the scan active to watch it
+    // suffer, but a board that is out of room goes passive whatever the pin
+    // says, since the pin ships in every build and the abort is real.
+    if (pressedWindow)       want = true;
+    else if (s_scanPin == 1) want = false;   // pinned active: the bench wants to see it suffer
     else if (s_scanPin == 2) want = true;
-    else if (pressedWindow) want = true;
     else if (!s_wantPassive && s_advRate > SCAN_PASSIVE_ABOVE) want = true;
     else if (s_wantPassive && now - modeSince >= (modeSince ? SCAN_MODE_DWELL_MS : SCAN_MODE_SETTLE_MS) &&
              s_advRate < SCAN_ACTIVE_BELOW && largest >= SCAN_ACTIVE_BLOCK_B) want = false;
