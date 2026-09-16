@@ -765,6 +765,23 @@ void drawPulsingBorder(TFT_eSPI& t, uint32_t now, uint16_t a, uint16_t b,
     }
 }
 
+// The rain's glyph buffer and the terminal's two columns, on the heap for
+// the same reason the fire's heat grid is (see releaseFire): they are the
+// two backgrounds that need a real buffer, and as statics they held it on
+// every board whichever background was chosen. Freed as soon as something
+// else is on screen, which is most of the time for any one of them.
+//
+// A pointer-to-array rather than a flat block so every charBuf[i][j] below
+// still reads as a grid. The two numbers that give it its shape live out
+// here with it rather than inside the function that draws.
+static const int MAX_COLS = 96;
+static const int MAXTRAIL = 24;
+static uint8_t (*s_rainBuf)[MAXTRAIL] = nullptr;
+static bool      s_rainInited = false;
+static void releaseRain() {
+    if (s_rainBuf) { free(s_rainBuf); s_rainBuf = nullptr; s_rainInited = false; }
+}
+
 void drawDigitalRain(TFT_eSPI& t, uint32_t now, int yStart, int yEnd, bool advance) {
     // Dense columns with long, smoothly-decaying trails. Glyphs are plain
     // ASCII (the default GLCD font can't render UTF-8 katakana correctly)
@@ -777,13 +794,11 @@ void drawDigitalRain(TFT_eSPI& t, uint32_t now, int yStart, int yEnd, bool advan
     // there was simply less rain. Trails are longer than the original now,
     // not shorter, and the cheap wins below (white-hot heads, per-drop
     // colour, shimmer, glow) all cost either nothing or O(cols).
-    static const int  MAX_COLS = 96;
     static const int  SPACING  = 5;
     static const char GLYPHS[] =
         "01" "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "!@#$%^&*<>{}[]/\\|+=~" "SASQUACH";
     static const int  GLN      = sizeof(GLYPHS) - 1;
-    static const int  MAXTRAIL = 24;
     static const int  MINTRAIL = 17;      // averages ~21, just under the old flat 22
     // Ordered cool -> warm so that indexing them by depth gives distance:
     // violet sits at the back, pink at the front.
@@ -813,7 +828,14 @@ void drawDigitalRain(TFT_eSPI& t, uint32_t now, int yStart, int yEnd, bool advan
     // A rare drop that is longer, faster and burns white most of the way
     // down. Costs nothing extra -- it is a column that already exists.
     static bool    colSurge[MAX_COLS];
-    static uint8_t charBuf[MAX_COLS][MAXTRAIL];
+    if (!s_rainBuf) {
+        s_rainBuf = (uint8_t(*)[MAXTRAIL])malloc(MAX_COLS * MAXTRAIL);
+        // No room for it: a flat band, the same answer fire gives. The
+        // screen stays legible and the next frame tries again.
+        if (!s_rainBuf) { t.fillRect(0, yStart, t.width(), yEnd - yStart, BG); return; }
+        s_rainInited = false;
+    }
+    uint8_t (*const charBuf)[MAXTRAIL] = s_rainBuf;
     // Wind, lightning and splashes. All three are O(cols) or O(1), and none
     // of them draws an extra glyph cell -- cells are the only thing on this
     // screen that costs real pixels, so motion is where the budget goes.
@@ -832,7 +854,6 @@ void drawDigitalRain(TFT_eSPI& t, uint32_t now, int yStart, int yEnd, bool advan
     static uint16_t splashX[6];
     static uint8_t  splashAge[6], splashHue[6];
     static bool     fxInit = false;
-    static bool    initialized = false;
     static int     lastCols = -1;
 
     auto respawn = [&](int i, bool anywhere) {
@@ -855,12 +876,12 @@ void drawDigitalRain(TFT_eSPI& t, uint32_t now, int yStart, int yEnd, bool advan
                                : (int16_t)(yStart - random(0, 90));
     };
 
-    if (!initialized || cols != lastCols) {
+    if (!s_rainInited || cols != lastCols) {
         for (int i = 0; i < cols; i++) {
             respawn(i, true);
             for (int j = 0; j < MAXTRAIL; j++) charBuf[i][j] = (uint8_t)random(0, GLN);
         }
-        initialized = true;
+        s_rainInited = true;
         lastCols = cols;
     }
 
@@ -3460,8 +3481,19 @@ static void termRender(TFT_eSPI& t, const TermCol& c, int x, int yStart, int vis
     }
 }
 
+static TermCol* s_termCols = nullptr;
+static void releaseTerm() {
+    if (s_termCols) { free(s_termCols); s_termCols = nullptr; }
+}
+
 void drawTerminalLog(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
-    static TermCol cols[2];
+    if (!s_termCols) {
+        // calloc, not malloc: a TermCol is only correct starting empty, and
+        // a static one used to get that for free.
+        s_termCols = (TermCol*)calloc(2, sizeof(TermCol));
+        if (!s_termCols) { t.fillRect(0, yStart, t.width(), yEnd - yStart, BG); return; }
+    }
+    TermCol* const cols = s_termCols;
     int w = t.width();
     int bandH = yEnd - yStart;
     if (bandH < 20) return;
@@ -4109,7 +4141,12 @@ void drawActiveBackground(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
             s_animK = 0.0f;
         }
     }
-    if (Settings::background() != Settings::Background::FIRE) releaseFire();
+    // Each of the three buffered backgrounds gives its block back the moment
+    // it is not the one being drawn.
+    const Settings::Background bgNow = Settings::background();
+    if (bgNow != Settings::Background::FIRE)     releaseFire();
+    if (bgNow != Settings::Background::DIGITAL)  releaseRain();
+    if (bgNow != Settings::Background::TERMINAL) releaseTerm();
     switch (Settings::background()) {
         case Settings::Background::STARFIELD:  drawStarfield(t, now, yStart, yEnd); break;
         case Settings::Background::TOASTERS:   drawFlyingToasters(t, now, yStart, yEnd); break;
