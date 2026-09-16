@@ -17,13 +17,20 @@
 #include <string.h>
 
 static volatile uint16_t s_perSec = 0;
+static volatile uint16_t s_owed   = 0;   // 50 ms slots owed to the host task
 static struct ble_npl_event s_ev;
 static bool     s_evReady = false;
 static uint32_t s_made    = 0;
 
 // Runs on the host task: one burst, the share of a second that 50 ms holds.
 static void burstOnHost(struct ble_npl_event*) {
-    const uint16_t n = (uint16_t)((s_perSec + 19) / 20);
+    // Every 50 ms slot that has elapsed since the last burst, not one: the
+    // loop that posts this runs at the frame rate, and a slow frame used to
+    // mean a slot silently skipped -- FLOOD 200 delivered 120-180 a second
+    // and said 200. The rate the board reports (adv, ble/s) is the truth.
+    const uint16_t slots = s_owed;
+    s_owed = 0;
+    const uint16_t n = (uint16_t)(((s_perSec + 19) / 20) * slots);
     for (uint16_t i = 0; i < n; i++) {
         // A phone's advert: flags, then a short name, from a fresh random address.
         uint8_t data[14] = { 0x02, 0x01, 0x06, 0x0A, 0x09, 'F','L','O','O','D','0','0','0','0' };
@@ -53,10 +60,13 @@ uint16_t floodRate() { return s_perSec; }
 
 void floodTick() {
     static uint32_t last = 0;
-    if (!s_perSec) return;
     const uint32_t now = millis();
-    if (now - last < 50) return;
-    last = now;
+    if (!s_perSec) { last = now; return; }
+    uint16_t owed = 0;
+    while (now - last >= 50 && owed < 20) { last += 50; owed++; }
+    if (now - last >= 50) last = now;   // more than a second behind: drop the rest, do not spiral
+    if (!owed) return;
+    s_owed = (uint16_t)(s_owed + owed);
     NimBLEScan* scan = NimBLEDevice::getScan();
     if (!scan || !scan->isScanning()) return;
     if (!s_evReady) { ble_npl_event_init(&s_ev, burstOnHost, nullptr); s_evReady = true; }

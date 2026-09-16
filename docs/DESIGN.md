@@ -45,7 +45,7 @@ monitor_speed = 115200
 lib_deps =
     bodmer/TFT_eSPI@^2.5.43
     paulstoffregen/XPT2046_Touchscreen@^1.4
-    h2zero/NimBLE-Arduino@^1.4.0
+    h2zero/NimBLE-Arduino@^2.5.1
 build_flags =
     -DCYD
     -DUSER_SETUP_LOADED=1
