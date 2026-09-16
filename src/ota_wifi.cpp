@@ -641,9 +641,15 @@ bool bootCheck(uint32_t budgetMs) {
         const int found = WiFi.scanNetworks(false, false, false, 110);
         int8_t best = -1, bestRssi = -127;
         bool   seen[SAVED_MAX] = { false, false, false, false, false, false };
+        Serial.printf("[ota] boot check: scan saw %d network(s)\n", found);
         for (int j = 0; j < found; j++) {
             const int8_t k = savedIndexOf(WiFi.SSID(j).c_str());
             if (k < 0) continue;
+            // Never the name: the index into the saved list, and what the
+            // radio made of it. A join that times out on a network the scan
+            // can see is signal, channel or security, and this is which.
+            Serial.printf("[ota] boot check: saved %d in range, %d dBm, ch %d, auth %d\n",
+                          (int)k, (int)WiFi.RSSI(j), (int)WiFi.channel(j), (int)WiFi.encryptionType(j));
             seen[k] = true;
             if (k == (int8_t)s_use) { best = k; bestRssi = 127; }
             else if (WiFi.RSSI(j) > bestRssi) { bestRssi = (int8_t)WiFi.RSSI(j); best = k; }
@@ -663,14 +669,38 @@ bool bootCheck(uint32_t budgetMs) {
     Serial.printf("[ota] boot check: joining %s (heap %lu, largest %lu)\n", ssid,
                   (unsigned long)ESP.getFreeHeap(),
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    // Why the access point let go, if it did. The status alone says only
+    // "disconnected"; the driver's reason code says whether that was the
+    // password (15, a handshake that never finished), the signal (2, auth
+    // expired), or the network vanishing (201).
+    static volatile uint8_t s_dropReason;
+    s_dropReason = 0;
+    const wifi_event_id_t dropEv = WiFi.onEvent(
+        [](arduino_event_id_t, arduino_event_info_t info) {
+            s_dropReason = info.wifi_sta_disconnected.reason;
+        },
+        ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    // The budget starts HERE, after the scan, not at t0. It used to be one
+    // clock for the lot, and on the soak board the scan alone took 5.7 of
+    // the 6 seconds the join was allowed: the join got 0.3 s, gave up
+    // before the router had answered, and a network three access points
+    // strong went unjoined boot after boot. A board with one saved network
+    // skips the scan, which is why it never showed there.
+    const uint32_t tj = millis();
+    Serial.printf("[ota] boot check: saved %u picked, join starts %lu ms in\n",
+                  (unsigned)pick, (unsigned long)(tj - t0));
     WiFi.begin(ssid, pass[0] ? pass : nullptr);
     wl_status_t st = WiFi.status();
     // Two thirds of the budget for the join, the rest for the fetch.
-    while (st != WL_CONNECTED && millis() - t0 < budgetMs * 2 / 3) {
+    while (st != WL_CONNECTED && millis() - tj < budgetMs * 2 / 3) {
         if (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL) break;
         delay(50);
         st = WiFi.status();
     }
+    WiFi.removeEvent(dropEv);
+    if (st != WL_CONNECTED)
+        Serial.printf("[ota] boot check: join gave up after %lu ms, status %d, last drop reason %u\n",
+                      (unsigned long)(millis() - tj), (int)st, (unsigned)s_dropReason);
     memset(pass, 0, sizeof pass);
     // How it went, for the WIFI NETWORKS screen. A join that merely ran out
     // of time says nothing about the password, so it changes nothing.
@@ -685,7 +715,11 @@ bool bootCheck(uint32_t budgetMs) {
         Clock::syncStart();
         uint8_t body[1024];
         size_t  len = 0;
-        const uint32_t left = budgetMs - (millis() - t0);
+        // From the join, like the join's own wait, and never below a second:
+        // this was an unsigned subtraction, and a join that ran past the
+        // whole budget would have wrapped it round to about fifty days.
+        const uint32_t usedJ = millis() - tj;
+        const uint32_t left  = usedJ + 1000 < budgetMs ? budgetMs - usedJ : 1000;
         // Plain HTTP, on purpose. A TLS handshake wants 40 KB in one piece
         // and five to ten seconds, and one that timed out left a dead
         // connection in the middle of the heap that cost the frame buffer
@@ -734,7 +768,7 @@ bool bootCheck(uint32_t budgetMs) {
         // A time server answers in well under a second; this is the cap on
         // a bad day, not the usual cost. Skipped once the clock is fresh.
         const uint32_t t2 = millis();
-        const uint32_t used = t2 - t0;
+        const uint32_t used = t2 - tj;
         uint32_t left = used < budgetMs ? budgetMs - used : 0;
         if (left > 2500) left = 2500;
         const bool ok = Clock::syncWait(left);
