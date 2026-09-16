@@ -171,6 +171,7 @@ static void usage() {
         "  --noseed          no detections at all -- CLEAR's idle state\n"
         "  --peer N          draw a visiting SquachMesh peer in outfit N\n"
         "  --peername NAME   give that visitor a custom name\n"
+        "  --crowd N         clear screen: N squad members in range, roaming with ours\n"
         "  --frames N        animation warm-up frames before capture (default 90)\n"
         "  --onboard         let Squachy's first-boot walkthrough run\n"
         "  --sequence N      capture N consecutive frames instead of one\n"
@@ -214,6 +215,7 @@ int main(int argc, char** argv) {
     // the thing custom names exist for: a name that travelled here from
     // somebody else's device.
     std::string peerName;
+    int crowdN = 0;
     std::string inboxText;
     // --type feeds the payphone a tap sequence: digits are key presses,
     // "." waits past the multi-tap window. Typing is the feature; a screen
@@ -242,6 +244,7 @@ int main(int argc, char** argv) {
         else if (a == "--noseed") noSeed = true;
         else if (a == "--peer" && i + 1 < argc) peerOutfit = atoi(argv[++i]);
         else if (a == "--peername" && i + 1 < argc) peerName = argv[++i];
+        else if (a == "--crowd" && i + 1 < argc) crowdN = atoi(argv[++i]);
         else if (a == "--inboxtext" && i + 1 < argc) inboxText = argv[++i];
         else if (a == "--type" && i + 1 < argc) typeSeq = argv[++i];
         else if (a == "--scroll" && i + 1 < argc) scrollBy = atoi(argv[++i]);
@@ -327,6 +330,32 @@ int main(int argc, char** argv) {
             const size_t n = MeshMsg::sealTextPart(MeshCrypto::impl(), from, 10 + p,
                                                    inboxText.c_str(), p, total, f, sizeof f);
             MeshTalk::onFrame(from, f, n, peerName.empty() ? "BIGFOOT" : peerName.c_str());
+        }
+        MeshTalk::tick(millis());
+    }
+
+    if (crowdN > 0) {
+        // The same seeding the roster uses: an advert so Mesh knows the look,
+        // a HELLO so the board counts them as squad, all heard just now so
+        // every one of them is in range. CROWD is raised until they all fit.
+        if (!Settings::meshDetect()) Settings::cycleMeshDetect();
+        if (!Settings::messagesOn()) Settings::toggleMessages();
+        MeshTalk::setPhrase("GIBSON MOTHMAN PHREAK NESSIE ZEROCOOL");
+        for (int g = 0; g < 10 && (Settings::meshCrowd() < crowdN + 1); g++) Settings::cycleMeshCrowd();
+        static const char* const NAMES[7] = { "BIGFOOT", nullptr, "YETI", "MOTHMAN", nullptr, "NESSIE", "WENDIGO" };
+        uint32_t ctr = 100;
+        for (int k = 0; k < crowdN && k < 7; k++) {
+            const uint8_t mac[6] = { 0x24, 0x0A, 0xC4, (uint8_t)(k + 1), 0x00, (uint8_t)(k + 1) };
+            SquachMesh::Peer p{};
+            p.nick = (uint8_t)(3 + k * 2); p.outfit = (uint8_t)((k * 5 + 1) % Squachy::outfitCount()); p.shade = (uint8_t)(k % 4);
+            if (NAMES[k]) { p.custom = true; snprintf(p.name, sizeof p.name, "%s", NAMES[k]); }
+            uint8_t ad[SquachMesh::LEN_MAX + 2] = { (uint8_t)(SquachMesh::COMPANY_ID & 0xFF), (uint8_t)(SquachMesh::COMPANY_ID >> 8) };
+            const size_t an = SquachMesh::encode(p, ad + 2);
+            Mesh::onManufacturerData(ad, an + 2, mac, millis());
+            uint8_t f[MeshMsg::FRAME_MAX];
+            const uint8_t hv[3] = { 1, 7, 9 };
+            const size_t n = MeshMsg::sealHello(MeshCrypto::impl(), mac, ctr++, hv, f, sizeof f);
+            MeshTalk::onFrame(mac, f, n, NAMES[k] ? NAMES[k] : "");
         }
         MeshTalk::tick(millis());
     }

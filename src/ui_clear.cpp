@@ -1800,14 +1800,22 @@ static void drawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     // of them do not, and pinning every count to one size made the small
     // crowds needlessly tiny.
     //
-    // A body is 56 wide and 74 tall in scale units, and it has to clear its
-    // cell WITH the drift on top -- the wander is 15% of a cell either side
-    // horizontally and 10% vertically, so the body itself may have 70% of the
-    // width and 80% of the height. Without that margin neighbours collide at
-    // the ends of their drift rather than at rest, which is the kind of fault
-    // that only shows up a few seconds after a screenshot is taken.
+    // A body is 56 wide and 74 tall in scale units. It used to be kept to 70%
+    // of its cell's width and 80% of its height so that neighbours never met
+    // even at the far end of their wander (15% of a cell either side, 10%
+    // vertically) -- and three of them stood at x1.3 where one stands at
+    // x1.9, which read as small. Now a body may be wider than its cell: they
+    // stand shoulder to shoulder and pass in front of one another as they
+    // drift, the way a group does. Three land at x1.9 in landscape, four at
+    // x1.6. Chosen from the emulator's renders of four sizes side by side.
     const float sMax = (float)(floorY - top) / 91.0f;
-    float s = fminf(0.70f * cw / 56.0f, 0.80f * ch / 74.0f);
+    float fitW = 1.15f, fitH = 1.00f;
+#ifndef ARDUINO
+    // Emulator only: SQUACHSIM_CROWDFIT="w,h" tries another pair of margins,
+    // for rendering the choices side by side before one of them ships.
+    if (const char* fit = getenv("SQUACHSIM_CROWDFIT")) sscanf(fit, "%f,%f", &fitW, &fitH);
+#endif
+    float s = fminf(fitW * cw / 56.0f, fitH * ch / 74.0f);
     if (s > sMax) s = sMax;
 
     // Where a cell sits, and how far its occupant has wandered off the middle
