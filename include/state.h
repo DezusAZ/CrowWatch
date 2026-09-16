@@ -76,7 +76,14 @@ struct Detection {
     int8_t         rssi;
     uint8_t        channel;        // 0 if N/A
     DetectionType  type;
-    char           vendor[12];
+    // Who made it, when the match knew: a pointer into the signature
+    // tables or a literal, never a copy. Every vendor string in this
+    // firmware is a compile-time constant, so a log of two hundred rows
+    // was carrying two hundred copies of "Apple" -- eight bytes a row
+    // against a pointer, and the log is the largest thing the board
+    // allocates. nullptr when nothing named it: read it through
+    // vendorText() rather than testing it at every use.
+    const char*    vendor;
     char           name[20];
     uint32_t       firstSeen;
     uint32_t       lastSeen;
@@ -86,6 +93,10 @@ struct Detection {
     Confidence     conf;
     bool           active;
 };
+
+// A detection's vendor, safe to print. A record is zeroed before it is
+// filled, so "no vendor" arrives here as a null pointer.
+inline const char* vendorText(const Detection& d) { return d.vendor ? d.vendor : ""; }
 
 enum class AppState : uint8_t {
     BOOT     = 0,

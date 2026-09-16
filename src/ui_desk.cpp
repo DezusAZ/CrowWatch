@@ -303,7 +303,7 @@ static void drawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int
     printRight(ty, y + 4, c);
     // The device's own name where it has one, else the vendor; what fits.
     char who[13];
-    snprintf(who, sizeof who, compact ? "%.7s" : "%.11s", d.name[0] ? d.name : d.vendor);
+    snprintf(who, sizeof who, compact ? "%.7s" : "%.11s", d.name[0] ? d.name : vendorText(d));
     printRight(who, y + 15, Theme::WHITE);
     char sig[16];
     snprintf(sig, sizeof sig, "%d dBm", d.rssi);
@@ -486,7 +486,17 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     if (msgOn) drawPolaroid(t, y + dh + 18, msgP, now);
 #endif
 
-    // The buttons.
+    // The buttons, on a cleared strip.
+    //
+    // The strip below the background's band is drawn by nothing else, and
+    // these two buttons are an outline and a word -- they have no fill to
+    // hide what is behind them. A background that draws outside the band it
+    // was handed therefore shows THROUGH them, which the starfield does:
+    // its tunnel rings ran past the band (clipped at the source now) and a
+    // piece of its space junk still does, since junk is only retired once
+    // it is FULLY outside and a piece straddling the edge draws in full.
+    // Clearing the strip contains all of it, whatever the background.
+    t.fillRect(0, bar.y, w, h - bar.y, Theme::BG);
     int tx, ty, tw, tth, bx, bw;
     timerRects(w, h, tx, ty, tw, tth, bx, bw);
     char lbl[16];

@@ -137,7 +137,7 @@ inline void simMakeDetection(Detection& d, const SimDetectionProfile& p, uint32_
     // Without this a memset leaves conf at 0, which is LOW -- and every
     // synthetic sighting would render as a shaky match.
     d.conf      = confidenceFor(p.type);
-    snprintf(d.vendor, sizeof(d.vendor), "%s", p.vendor);
+    d.vendor = p.vendor;   // a pointer into the seed table, as on the board
     snprintf(d.name,   sizeof(d.name),   "%s", p.name);
     d.firstSeen = now;
     d.lastSeen  = now;

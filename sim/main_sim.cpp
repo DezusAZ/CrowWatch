@@ -93,7 +93,7 @@ static void seedDetections(DetectionEngine& eng) {
         d.channel   = (uint8_t)(1 + i);
         d.type      = seeds[i].type;
         d.conf      = confidenceFor(seeds[i].type);
-        snprintf(d.vendor, sizeof(d.vendor), "%s", seeds[i].vendor);
+        d.vendor = seeds[i].vendor;
         snprintf(d.name,   sizeof(d.name),   "%s", seeds[i].name);
         d.firstSeen = now - 30000 - (uint32_t)i * 5000;
         d.lastSeen  = now - (uint32_t)i * 1200;

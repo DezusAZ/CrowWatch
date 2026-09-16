@@ -1442,6 +1442,39 @@ static void drawJunk(TFT_eSPI& t, uint8_t kind, int x, int y, int s, uint32_t no
     }
 }
 
+// A line clipped to the background's own band before it is drawn.
+//
+// The tunnel's rings are sized from a radius that deliberately runs past the
+// corners -- that is what keeps geometry beyond the edges instead of a hole
+// at the widest ring -- so a segment can leave the band entirely. TFT_eSPI
+// clips to the PANEL, not to the strip the background was handed, and on the
+// desk that strip stops above the buttons: a ring drew straight through
+// FOCUS 25 and BACK, which have no fill of their own to hide it. Every other
+// part of this scene already tests the band (the warp stars, the planets,
+// the junk); the rings were the one that did not.
+//
+// Only y needs clipping. A point off the left or right edge is the library's
+// business and it handles that.
+static void bandLine(TFT_eSPI& t, int x0, int y0, int x1, int y1,
+                     int yTop, int yBot, uint16_t col) {
+    const int last = yBot - 1;
+    if ((y0 < yTop && y1 < yTop) || (y0 > last && y1 > last)) return;
+    if (y0 != y1) {
+        // Both ends move to where the segment crosses, worked out from the
+        // ORIGINAL endpoints: clipping one end first and then reading it
+        // back to clip the other is how a clipped line ends up bent.
+        const int ax0 = x0, ay0 = y0, ax1 = x1, ay1 = y1;
+        auto at = [&](int yy) {
+            return ax0 + (int)(((long)(ax1 - ax0) * (long)(yy - ay0)) / (long)(ay1 - ay0));
+        };
+        if      (y0 < yTop) { x0 = at(yTop); y0 = yTop; }
+        else if (y0 > last) { x0 = at(last); y0 = last; }
+        if      (y1 < yTop) { x1 = at(yTop); y1 = yTop; }
+        else if (y1 > last) { x1 = at(last); y1 = last; }
+    }
+    t.drawLine(x0, y0, x1, y1, col);
+}
+
 void drawStarfield(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     const int w     = t.width();
     const int bandH = yEnd - yStart;
@@ -1598,11 +1631,11 @@ void drawStarfield(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
                 const bool horiz = (nx - px) * (nx - px) >= (ny - py) * (ny - py);
                 for (int o = 0; o < lw; o++) {
                     const int d = o - lw / 2;
-                    if (horiz) t.drawLine(px, py + d, nx, ny + d, col);
-                    else       t.drawLine(px + d, py, nx + d, ny, col);
+                    if (horiz) bandLine(t, px, py + d, nx, ny + d, yStart, yEnd, col);
+                    else       bandLine(t, px + d, py, nx + d, ny, yStart, yEnd, col);
                 }
             } else {
-                t.drawLine(px, py, nx, ny, col);
+                bandLine(t, px, py, nx, ny, yStart, yEnd, col);
             }
             px = nx; py = ny;
         }

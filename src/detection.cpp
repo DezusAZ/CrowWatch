@@ -319,37 +319,37 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
         }
         // Set vendor label based on the matched table entry.
         if (det.type == DetectionType::AIRTAG) {
-            strncpy(det.vendor, "Apple", sizeof(det.vendor) - 1);
+            det.vendor = "Apple";
         } else if (det.type == DetectionType::DRONE) {
-            strncpy(det.vendor, "DroneID", sizeof(det.vendor) - 1);
+            det.vendor = "DroneID";
         } else if (det.type == DetectionType::META) {
             // Which row matched, because META is four devices: Ray-Ban
             // Meta's own UUID, any Meta radio, Luxottica, Snap Spectacles.
-            strncpy(det.vendor, label ? label : "Meta", sizeof(det.vendor) - 1);
+            det.vendor = label ? label : "Meta";
         } else if (det.type == DetectionType::RAVEN) {
-            strncpy(det.vendor, "Raven", sizeof(det.vendor) - 1);
+            det.vendor = "Raven";
         } else if (det.type == DetectionType::FLOCK) {
-            strncpy(det.vendor, "Flock-BLE", sizeof(det.vendor) - 1);
+            det.vendor = "Flock-BLE";
         } else if (det.type == DetectionType::SAMSUNG_TAG) {
-            strncpy(det.vendor, "Samsung", sizeof(det.vendor) - 1);
+            det.vendor = "Samsung";
         } else if (det.type == DetectionType::GOOGLE_TAG) {
-            strncpy(det.vendor, "Google", sizeof(det.vendor) - 1);
+            det.vendor = "Google";
         } else if (det.type == DetectionType::TILE) {
-            strncpy(det.vendor, "Tile", sizeof(det.vendor) - 1);
+            det.vendor = "Tile";
         } else if (det.type == DetectionType::IBEACON) {
-            strncpy(det.vendor, "iBeacon", sizeof(det.vendor) - 1);
+            det.vendor = "iBeacon";
         } else if (det.type == DetectionType::HACKER) {
             // Everything that reaches HACKER over BLE is a Flipper: the
             // three service UUIDs, the company ID and the name prefix are
             // all theirs. The Pineapple and the deauther arrive over WiFi
             // and are labelled in processWiFiQ().
-            strncpy(det.vendor, "Flipper", sizeof(det.vendor) - 1);
+            det.vendor = "Flipper";
         } else if (det.type == DetectionType::SKIMMER && label) {
             // The serial-port UUID's row. A skimmer matched on its NAME has
             // no label and stays "BLE": its page is found by the name.
-            strncpy(det.vendor, label, sizeof(det.vendor) - 1);
+            det.vendor = label;
         } else {
-            strncpy(det.vendor, "BLE", sizeof(det.vendor) - 1);
+            det.vendor = "BLE";
         }
         g_engine->postBle(det);
     }
@@ -1116,7 +1116,7 @@ void DetectionEngine::processDeauthQ() {
             d.channel = e.channel;
             d.type    = DetectionType::DEAUTH;
             d.conf    = confidenceFor(DetectionType::DEAUTH);
-            strncpy(d.vendor, "Deauth", sizeof(d.vendor) - 1);
+            d.vendor = "Deauth";
             d.firstSeen = d.lastSeen = now;
             // hits doubles as "how many frames triggered this" here,
             // rather than a repeat-sighting count like every other
@@ -1175,7 +1175,7 @@ void DetectionEngine::postBle(Detection d) {
             // from the advert alone, so the reply's name lands here, on the
             // entry that already exists.
             if (d.name[0]) memcpy(_log[slot].name, d.name, sizeof _log[slot].name);
-            if (d.vendor[0] && !_log[slot].vendor[0]) memcpy(_log[slot].vendor, d.vendor, sizeof _log[slot].vendor);
+            if (d.vendor && !_log[slot].vendor) _log[slot].vendor = d.vendor;
             // hits counts distinct sightings (comes-and-goes, gated by
             // expireStale's active flag), not raw advertisement
             // packets -- a BLE beacon like an AirTag advertises every
@@ -1637,20 +1637,20 @@ void DetectionEngine::processWiFiQ() {
         // neither -- what matters is which network is being
         // impersonated, so the SSID goes in as the name.
         if (t == DetectionType::EVILTWIN) {
-            strncpy(d.vendor, "EvilTwin", sizeof(d.vendor) - 1);
+            d.vendor = "EvilTwin";
             strncpy(d.name, e.ssid, sizeof(d.name) - 1);
         } else if (e.pwnagotchi) {
-            strncpy(d.vendor, "Pwnagotchi", sizeof(d.vendor) - 1);
+            d.vendor = "Pwnagotchi";
             strncpy(d.name, e.ssid, sizeof(d.name) - 1);
         } else if (matchedBySsid) {
             const char* name = ssidVendorName(e.ssid);
-            if (name) strncpy(d.vendor, name, sizeof(d.vendor) - 1);
+            if (name) d.vendor = name;
         } else {
             for (uint16_t k = 0; k < kOuiCount; k++) {
                 if (e.mac[0] == kOuiTable[k].b[0] &&
                     e.mac[1] == kOuiTable[k].b[1] &&
                     e.mac[2] == kOuiTable[k].b[2]) {
-                    strncpy(d.vendor, kOuiTable[k].name, sizeof(d.vendor) - 1);
+                    d.vendor = kOuiTable[k].name;
                     break;
                 }
             }

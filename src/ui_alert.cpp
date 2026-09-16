@@ -407,8 +407,8 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     // come out "DID" -- upper-casing is what makes the vendor strings in
     // signatures.cpp renderable at all.
     {
-        const char* src = s_redacted ? "LOCKED" : s_last.vendor;
-        char up[sizeof(s_last.vendor)];
+        const char* src = s_redacted ? "LOCKED" : vendorText(s_last);
+        char up[16];
         size_t i = 0;
         for (; src[i] && i + 1 < sizeof(up); i++) {
             const char c = src[i];

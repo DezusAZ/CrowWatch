@@ -117,7 +117,7 @@ void SdLog::logEvent(const Detection& d) {
              d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4], d.mac[5]);
     // Sanitize any commas in vendor / name
     char vendorSafe[12], nameSafe[20];
-    strncpy(vendorSafe, d.vendor, sizeof(vendorSafe) - 1); vendorSafe[sizeof(vendorSafe)-1] = 0;
+    strncpy(vendorSafe, vendorText(d), sizeof(vendorSafe) - 1); vendorSafe[sizeof(vendorSafe)-1] = 0;
     strncpy(nameSafe,   d.name,   sizeof(nameSafe)   - 1); nameSafe[sizeof(nameSafe)-1]   = 0;
     for (char* p = vendorSafe; *p; p++) if (*p == ',') *p = '.';
     for (char* p = nameSafe;   *p; p++) if (*p == ',') *p = '.';

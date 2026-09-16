@@ -1179,9 +1179,9 @@ static uint8_t s_confirmMac[6];
 // Which DEVICE the MORE INFO page is about, not just which type: the label
 // and name off the log entry, which is what device_info.cpp matches on. The
 // alert keeps its own copy for when its MORE INFO is tapped.
-static char s_confirmVendor[sizeof(Detection::vendor)] = "";
+static char s_confirmVendor[16] = "";
 static char s_confirmName[sizeof(Detection::name)]     = "";
-static char s_alertVendor[sizeof(Detection::vendor)]   = "";
+static char s_alertVendor[16]   = "";
 static char s_alertName[sizeof(Detection::name)]       = "";
 static char    s_confirmLabel[24];
 // LOG's long-press sets this per-row (BLE vs WiFi isn't implied by a
@@ -1367,7 +1367,7 @@ static void enterAlert(const Detection& d) {
     alertStart = millis();
     transitionStart = alertStart;
     lastAlertType = d.type;
-    memcpy(s_alertVendor, d.vendor, sizeof s_alertVendor);
+    snprintf(s_alertVendor, sizeof s_alertVendor, "%s", vendorText(d));
     memcpy(s_alertName,   d.name,   sizeof s_alertName);
     lastAlertConf = d.conf;
     lastAlertHits = d.hits;
@@ -1378,7 +1378,7 @@ static void enterAlert(const Detection& d) {
     memcpy(s_alertMac, d.mac, 6);
     s_alertIsBle = (d.channel == 0);   // same discriminator LOG's long-press uses
     {
-        const char* lbl = d.name[0] ? d.name : d.vendor;
+        const char* lbl = d.name[0] ? d.name : vendorText(d);
         strncpy(s_alertLabel, lbl, sizeof(s_alertLabel) - 1);
         s_alertLabel[sizeof(s_alertLabel) - 1] = 0;
     }
@@ -3509,9 +3509,9 @@ void loop() {
                         memcpy(s_confirmMac, d->mac, 6);
                         s_confirmIsBle = (d->channel == 0);
                         s_confirmType  = d->type;
-                        memcpy(s_confirmVendor, d->vendor, sizeof s_confirmVendor);
+                        snprintf(s_confirmVendor, sizeof s_confirmVendor, "%s", vendorText(*d));
                         memcpy(s_confirmName,   d->name,   sizeof s_confirmName);
-                        const char* lbl = d->name[0] ? d->name : d->vendor;
+                        const char* lbl = d->name[0] ? d->name : vendorText(*d);
                         strncpy(s_confirmLabel, lbl, sizeof(s_confirmLabel) - 1);
                         s_confirmLabel[sizeof(s_confirmLabel) - 1] = 0;
                         s_confirmPending = true;
