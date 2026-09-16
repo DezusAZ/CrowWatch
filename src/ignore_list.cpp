@@ -124,4 +124,25 @@ void clear() {
     s_prefs.remove(KEY);
 }
 
+// ---- SNOOZE: RAM only, gone at restart --------------------------------------
+static const uint8_t SNOOZE_MAX = 32;
+static uint8_t s_snz[SNOOZE_MAX][6];
+static uint8_t s_snzN = 0, s_snzNext = 0;
+
+bool snoozed(const uint8_t* mac) {
+    if (!mac) return false;
+    for (uint8_t i = 0; i < s_snzN; i++)
+        if (memcmp(s_snz[i], mac, 6) == 0) return true;
+    return false;
+}
+
+void snooze(const uint8_t* mac) {
+    if (!mac || snoozed(mac)) return;
+    memcpy(s_snz[s_snzNext], mac, 6);
+    s_snzNext = (uint8_t)((s_snzNext + 1) % SNOOZE_MAX);
+    if (s_snzN < SNOOZE_MAX) s_snzN++;
+}
+
+bool silenced(const uint8_t* mac) { return contains(mac) || snoozed(mac); }
+
 }  // namespace IgnoreList

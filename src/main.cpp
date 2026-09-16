@@ -2864,7 +2864,7 @@ void loop() {
                     // Only the ALERT is suppressed -- the detection is
                     // still counted and still written to the LOG above, so
                     // the device stays visible and un-ignorable.
-                    !IgnoreList::contains(latest->mac)) {
+                    !IgnoreList::silenced(latest->mac)) {
                     uiAlertSetRedacted(false);
                     enterAlert(*latest);
                 }
@@ -3257,16 +3257,14 @@ void loop() {
                                      engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterClear();
                 } else if (uiAlertHitSnooze(tp.x, tp.y, tft.width(), tft.height())) {
-                    // An hour off for the whole type, not the device: the
-                    // filter row shows the minutes left, and it comes back
-                    // on its own. Acknowledges the alert like IGNORE does.
+                    // This device, until the board restarts: no more alerts
+                    // from it, while it goes on being scanned, counted and
+                    // logged like anything IGNOREd. Acknowledges the alert
+                    // like IGNORE does. See IgnoreList::snooze for why it
+                    // is no longer the whole type for an hour.
                     lastTouch = now;
-                    Settings::snoozeType(lastAlertType, 3600000u);
-                    {
-                        static char sub[40];
-                        snprintf(sub, sizeof sub, "%s muted for an hour", detectionTypeName(lastAlertType));
-                        Theme::showToast("SNOOZED", sub, Theme::AMBER);
-                    }
+                    IgnoreList::snooze(s_alertMac);
+                    Theme::showToast("SNOOZED", "This one, until restart", Theme::AMBER);
                     Squachy::trigger(Squachy::Event::DETECTION, lastAlertType,
                                      engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterClear();
@@ -4558,7 +4556,7 @@ void loop() {
                 const Security::LockAlerts la = Security::lockAlerts();
                 const Detection* latest = engine.latest();
                 if (la != Security::LockAlerts::NONE && latest && (now - latest->firstSeen) < 200 &&
-                    latest->conf >= Settings::minConfidence() && !IgnoreList::contains(latest->mac)) {
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac)) {
                     uiAlertSetRedacted(la == Security::LockAlerts::TYPE_ONLY);
                     enterAlert(*latest);
                     break;
@@ -4714,7 +4712,7 @@ void loop() {
             {
                 const Detection* latest = engine.latest();
                 if (latest && (now - latest->firstSeen) < 200 &&
-                    latest->conf >= Settings::minConfidence() && !IgnoreList::contains(latest->mac)) {
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac)) {
                     uiDeskAlert(*latest, now);
                     lastAlertType = latest->type;
                     Squachy::trigger(Squachy::Event::DETECTION, latest->type, engine.lifetimeTotal(),

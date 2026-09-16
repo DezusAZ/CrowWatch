@@ -351,8 +351,9 @@ none of the saved networks is in range. REMOVE takes one off the list.
 - **Read receipts.** When a squad member opens your message their board says
   so, and yours shows a READ toast with their name. A reader with TRANSMIT off
   can't send one, so you see sent and never read, which is the truth.
-- **SNOOZE 1H on an alert.** Mutes the type, not the device, for an hour. The
-  type filter shows the minutes left, and it comes back on its own.
+- **SNOOZE on an alert.** Quiets that one device until the board restarts. It
+  is still scanned, counted and logged; only the alert stops. IGNORE is the
+  same thing kept for good.
 - **Banter about something.** Two Squachys now talk about the weather on
   screen, what was caught earlier, each other's outfits, how many times
   they've met, the squad's size, and the length of the day, one exchange in

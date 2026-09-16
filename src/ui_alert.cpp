@@ -605,11 +605,11 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         t.setCursor(bx + (bw - hw) / 2, by + (bh - t.fontHeight()) / 2);
         t.print("HUNT");
     }
-    // SNOOZE 1H between the two: the type, not the device, off for an hour.
+    // SNOOZE between the two: this device, quiet until the board restarts.
     {
         int bx, by, bw, bh;
         snoozeBtnRect(w, h, bx, by, bw, bh);
-        Theme::drawButton(t, bx, by, bw, bh, "SNOOZE 1H", false);
+        Theme::drawButton(t, bx, by, bw, bh, "SNOOZE", false);
     }
 
     // TV-static snow over the whole screen during the same random burst

@@ -57,7 +57,6 @@ static const uint32_t DEFAULT_OFF = (1u << (uint8_t)DetectionType::IBEACON);
 // last type silently loses its switch. NVS has always stored this through
 // putUInt/getUInt, so the saved format is unchanged and nothing migrates.
 static uint32_t    s_typeMask = 0;
-static uint32_t    s_snoozeUntil[(uint8_t)DetectionType::COUNT] = { 0 };
 // MEDIUM (85%). Only ever consulted on a board that has never been told
 // otherwise -- anyone who has touched the SIZE row has a stored value and
 // keeps it, which is why changing this default is safe.
@@ -605,21 +604,7 @@ void cycleSquachySize() {
 bool typeEnabled(DetectionType t) {
     uint8_t idx = (uint8_t)t;
     if (idx == 0 || idx >= (uint8_t)DetectionType::COUNT) return true;  // UNKNOWN, or out of range -- never gated
-    if (typeSnoozeLeft(t)) return false;
     return (s_typeMask & (1u << idx)) != 0;
-}
-void snoozeType(DetectionType t, uint32_t ms) {
-    const uint8_t idx = (uint8_t)t;
-    if (idx == 0 || idx >= (uint8_t)DetectionType::COUNT) return;
-    s_snoozeUntil[idx] = millis() + ms;
-    if (s_snoozeUntil[idx] == 0) s_snoozeUntil[idx] = 1;   // zero means "not snoozed"
-}
-uint32_t typeSnoozeLeft(DetectionType t) {
-    const uint8_t idx = (uint8_t)t;
-    if (idx == 0 || idx >= (uint8_t)DetectionType::COUNT || !s_snoozeUntil[idx]) return 0;
-    const int32_t left = (int32_t)(s_snoozeUntil[idx] - millis());
-    if (left <= 0) { s_snoozeUntil[idx] = 0; return 0; }
-    return (uint32_t)left;
 }
 
 void toggleType(DetectionType t) {

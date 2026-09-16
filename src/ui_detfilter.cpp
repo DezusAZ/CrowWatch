@@ -43,13 +43,8 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, DetectionType type) {
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(detectionTypeName(type));
 
-    // Snoozed from an ALERT card: how long is left, in amber, so a type that
-    // went quiet for an hour does not look switched off for good.
-    char left[8];
-    const uint32_t sn = Settings::typeSnoozeLeft(type);
     const char* value = on ? "ON" : "OFF";
-    if (sn) { snprintf(left, sizeof left, "%luM", (unsigned long)((sn + 59999) / 60000)); value = left; }
-    t.setTextColor(sn ? Theme::AMBER : on ? Theme::WHITE : Theme::RED, Theme::BG);
+    t.setTextColor(on ? Theme::WHITE : Theme::RED, Theme::BG);
     int vw = t.textWidth(value);
     t.setCursor(w - 18 - vw, y + (hgt - t.fontHeight()) / 2);
     t.print(value);

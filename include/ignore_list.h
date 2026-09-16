@@ -50,4 +50,21 @@ namespace IgnoreList {
     DetectionType typeAt(uint8_t idx);
 
     void clear();
+
+    // SNOOZE: the same thing as IGNORE for one device -- no full-screen
+    // alert, still scanned, counted and logged -- but in RAM only, so it
+    // lasts until the board restarts and not a moment longer. For the
+    // doorbell across the street that keeps coming and going on a walk
+    // past, where IGNORE would be a decision about forever.
+    //
+    // It used to mute the whole TYPE for an hour, and more than the alert:
+    // it switched detection of that type off, so nothing was logged either.
+    // Snoozing a neighbour's AirTag silenced every AirTag, which is the one
+    // thing a tracker detector must never quietly do.
+    //
+    // Thirty-two of them; when full, the oldest snooze makes room.
+    void snooze(const uint8_t* mac);
+    bool snoozed(const uint8_t* mac);
+    // What every alert gate asks: ignored for good, or snoozed for now.
+    bool silenced(const uint8_t* mac);
 }
