@@ -4073,6 +4073,16 @@ uint32_t backgroundUs() { return s_bgUsAvg; }
 // Single place that maps the Settings background choice onto a
 // renderer. Lifted out of uiClearTick(), which owned it while CLEAR was
 // the only screen with a live backdrop.
+// The fire background's heat grid: 6.4 KB on a 2.8" board, and for years a
+// fixed cost whether or not anyone had ever picked FIRE. It is taken from
+// the heap the first time fire draws and given back the moment another
+// background is chosen, so a board that never shows fire never pays for it.
+static uint8_t* s_fireHeat   = nullptr;
+static bool     s_fireInited = false;
+static void releaseFire() {
+    if (s_fireHeat) { free(s_fireHeat); s_fireHeat = nullptr; s_fireInited = false; }
+}
+
 void drawActiveBackground(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
                           const DetectionEngine& eng, bool advance) {
     const uint32_t bgT0 = micros();
@@ -4091,6 +4101,7 @@ void drawActiveBackground(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
             s_animK = 0.0f;
         }
     }
+    if (Settings::background() != Settings::Background::FIRE) releaseFire();
     switch (Settings::background()) {
         case Settings::Background::STARFIELD:  drawStarfield(t, now, yStart, yEnd); break;
         case Settings::Background::TOASTERS:   drawFlyingToasters(t, now, yStart, yEnd); break;
@@ -4338,9 +4349,14 @@ void drawFire(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
 #else
     static const int MAXFW = 80, MAXFH = 80;
 #endif
-    static uint8_t   heat[MAXFW * MAXFH];
+    if (!s_fireHeat) {
+        s_fireHeat = (uint8_t*)malloc(MAXFW * MAXFH);
+        if (!s_fireHeat) { t.fillRect(0, yStart, t.width(), yEnd - yStart, BG); return; }
+        s_fireInited = false;
+    }
+    uint8_t* const   heat = s_fireHeat;
     static float     acc[MAXFW];
-    static bool      inited = false;
+    bool&            inited = s_fireInited;
     // Independent flame sources, each with its own flicker rate and
     // phase — a shared single traveling wave here is exactly what made
     // the old version look like one repeating pattern sliding sideways
@@ -4357,7 +4373,7 @@ void drawFire(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     int fh = bandH / CW; if (fh > MAXFH) fh = MAXFH;
     if (fw < 2 || fh < 2) return;
 
-    if (!inited) { memset(heat, 0, sizeof(heat)); inited = true; }
+    if (!inited) { memset(heat, 0, MAXFW * MAXFH); inited = true; }
     if (!srcInited) {
         for (uint8_t i = 0; i < NSRC; i++) {
             srcX[i]       = (i + 0.5f) * fw / (float)NSRC + (float)random(-2, 3);
