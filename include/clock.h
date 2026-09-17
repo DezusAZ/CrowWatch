@@ -63,6 +63,9 @@ void formatClock(char* out, size_t n);
 // clock is set and the stamp is from today, "9/13" when it is from another
 // day, and the old "MMMM:SS" since boot when the clock is not set.
 void formatStamp(uint32_t ms, char* out, size_t n);
+// The same for a wall-clock second kept from an earlier boot (the black
+// box): "14:32" today, "9/13" another day, "--:--" when it was never known.
+void formatEpochStamp(uint32_t epoch, char* out, size_t n);
 
 // ---- the calendar, once the clock is set ----------------------------
 // Local hour 0..23, weekday 0..6 (Sunday first), and the local day as a

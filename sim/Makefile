@@ -82,6 +82,7 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/signatures.cpp \
             $(SRC)/remote_id.cpp \
             $(SRC)/clock.cpp \
+            $(SRC)/blackbox.cpp \
             $(SRC)/detection_info.cpp \
             $(SRC)/device_info.cpp \
             $(SRC)/idle_events.cpp \

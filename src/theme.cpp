@@ -7252,7 +7252,9 @@ void drawGibson(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
 
     if (eng.logCount()) {
         const Detection* d = eng.logAt(0);
-        if (d) {
+        // Not a row the black box brought back: that is last night's news,
+        // and the corridor would lock onto it at every boot.
+        if (d && !d->restored) {
             const uint32_t mac4 = ((uint32_t)d->mac[2] << 24) | ((uint32_t)d->mac[3] << 16)
                                 | ((uint32_t)d->mac[4] <<  8) |  (uint32_t)d->mac[5];
             if (mac4 != lockMac || d->firstSeen != lockFirst) {

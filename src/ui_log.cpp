@@ -288,7 +288,10 @@ switch (Settings::background()) {
         // "71581:47" was 71581 minutes of uptime, technically an ordering
         // and nothing more.
         char ts[12];
-        Clock::formatStamp(d->firstSeen, ts, sizeof(ts));
+        // A row the black box kept from an earlier boot carries its
+        // wall-clock second instead of a millis() stamp.
+        if (d->restored) Clock::formatEpochStamp(d->firstSeen, ts, sizeof(ts));
+        else             Clock::formatStamp(d->firstSeen, ts, sizeof(ts));
         int tw = t.textWidth(ts);
         t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
         t.setCursor(w - tw - 14, y + topPad);

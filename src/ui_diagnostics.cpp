@@ -110,6 +110,22 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
     }
     y = drawLine(t, y, Theme::CYAN, "SLOT:", "%s  other: %s",
                  info.otaSlot ? info.otaSlot : "?", info.otaOther ? info.otaOther : "none");
+    // The black box: what is kept in flash across restarts. The newest crash
+    // kept by date and version, which is what a photo of this screen needs
+    // to match it to a build; BLACKBOX on the console has the rest.
+    if (!info.bbReady) {
+        y = drawLine(t, y, Theme::CYAN, "KEPT:", "off (flash space in use)");
+    } else if (!info.bbCrashes) {
+        y = drawLine(t, y, Theme::CYAN, "KEPT:", "%u seen, no crashes", (unsigned)info.bbKept);
+    } else {
+        char when[12] = "";
+        if (info.bbHaveLast) Clock::formatEpochStamp(info.bbLast.epoch, when, sizeof when);
+        // The version only where it fits: portrait is forty characters.
+        const bool wide = w >= 300;
+        y = drawLine(t, y, Theme::RED, "KEPT:", "%u seen, %u crash%s, last %s%s%s",
+                     (unsigned)info.bbKept, (unsigned)info.bbCrashes, info.bbCrashes == 1 ? "" : "es",
+                     when, wide ? " v" : "", wide ? info.bbLast.version : "");
+    }
     y += 4;
 
     if (info.hasRaw) {

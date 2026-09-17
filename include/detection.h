@@ -138,6 +138,10 @@ public:
     bool     init();
     void     loop();
     void     clearLog();
+    // The log as the black box left it: the newest sighting of up to
+    // LOG_CAP devices, inactive, stamped with when they were seen. Before
+    // init(), so nothing live is in the log yet. See blackbox.h.
+    void     restoreLog();
     uint8_t  logCount() const { return _logCount; }
     const Detection* logAt(uint8_t idx) const;     // 0 = newest
     const Detection* latest() const { return _latest; }
@@ -495,6 +499,17 @@ private:
     static const uint8_t SD_Q_CAP = 8;
     Detection        _sdQ[SD_Q_CAP];
     volatile uint8_t _sdQHead = 0, _sdQTail = 0;
+
+    // Sightings owed to the black box. Not the Detection itself: the entry
+    // is read back from the log when it is written, a second and a half
+    // later, so the name an active scan's reply brings is on it. Filled from
+    // the host task and loop() both, so under a lock; drained by loop().
+    struct BlackBoxQ { uint8_t mac[6]; DetectionType type; bool again; uint32_t ms; };
+    static const uint8_t BB_Q_CAP = 16;
+    BlackBoxQ _bbQ[BB_Q_CAP];
+    uint8_t   _bbQHead = 0, _bbQTail = 0;
+    void queueBlackBox(const Detection& d, bool again);
+    void drainBlackBox(uint32_t now);
     uint32_t    _lifetimeSavedMs = 0;
     void        saveLifetime(uint32_t now); // from loop()
     void        saveLifetimeByType();

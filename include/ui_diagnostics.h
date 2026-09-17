@@ -8,6 +8,7 @@
 #include <TFT_eSPI.h>
 #include <stdint.h>
 #include "detection.h"
+#include "blackbox.h"
 
 // Filled in by main.cpp each tick, since gathering these values means
 // touching board-specific globals (which raw touch reader, which
@@ -81,6 +82,13 @@ struct DiagnosticsInfo {
     // like), averaged on that screen alone. nullptr until there has been one.
     const char* lastScreenName;
     uint32_t    lastScreenUs;
+    // The black box: sightings kept in flash since the last CLR, crashes
+    // kept, and the newest of those. bbReady false when the space is not ours.
+    bool     bbReady;
+    uint16_t bbKept;
+    uint8_t  bbCrashes;
+    bool     bbHaveLast;
+    BlackBox::BootRecord bbLast;
 
     // System.
     uint32_t    freeHeap;

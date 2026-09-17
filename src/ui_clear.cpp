@@ -2671,7 +2671,15 @@ bool uiClearDrawVisit(TFT_eSPI& t, uint32_t now, int top, int floorY, bool advan
 void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance, bool scanMenu) {
     int w = t.width();
     int h = t.height();
-    s_hitsThisBoot = eng.logCount();
+    // This boot's only: the rows the black box brought back were last boot's.
+    {
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < eng.logCount(); i++) {
+            const Detection* d = eng.logAt(i);
+            if (d && !d->restored) n++;
+        }
+        s_hitsThisBoot = n;
+    }
     // Recomputed every tick, not cached per-board: rotating the screen
     // changes w/h live, and the counter layout should follow it rather
     // than staying stuck at whatever orientation was active at boot.

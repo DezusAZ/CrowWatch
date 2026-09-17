@@ -32,6 +32,7 @@
 #endif
 #include <esp_heap_caps.h>
 #include "ui_diagnostics.h"   // CrashReport, used by the breadcrumb below
+#include "blackbox.h"
 #include "theme.h"            // the crash card on the splash
 #include "clock.h"            // ...and the ten-minute IGNORE on it
 
@@ -1867,6 +1868,7 @@ static void performWipe(WipeBoot after) {
     StatusLight::off();
     Security::wipeSecrets();
     engine.sd().wipe();
+    BlackBox::wipe();        // the log and the crash history kept in flash
 #if HAVE_NVS_ERASE
     // The frame buffer is 77 KB the wipe can have: the board restarts in a
     // moment and the screen is meant to go quiet anyway. Without it the copy
@@ -2325,6 +2327,33 @@ void setup() {
     ledcWrite(BL_CH_ORIG, 24);
     ledcWrite(BL_CH_CAP,  24);
     ledcWrite(BL_CH_AWOK, 24);
+
+    // The black box, before the radios: this boot's record -- with the crash
+    // in it when there was one -- then the log as the last boot left it, so
+    // nothing live has landed in the log yet. After the boot check, so the
+    // record has the time when there is a network to ask.
+    if (BlackBox::begin()) {
+        BlackBox::BootRecord br;
+        memset(&br, 0, sizeof br);
+        br.reason = (uint8_t)g_resetReason;
+        br.epoch  = Clock::trusted() ? Clock::nowEpoch() : 0;
+        if (g_lastCrash.valid) {
+            br.flags    |= BlackBox::BOOT_CRUMB;
+            br.upSec     = g_lastCrash.uptimeMs / 1000u;
+            br.heapFree  = g_lastCrash.heapFree;
+            br.heapBlock = g_lastCrash.heapBlock;
+            br.screen    = g_lastCrash.screen;
+        }
+        if (g_lastCrash.haveDump) {
+            br.flags |= BlackBox::BOOT_DUMP;
+            if (g_lastCrash.dumpOlder) br.flags |= BlackBox::BOOT_DUMP_OLDER;
+            br.pc    = g_lastCrash.pc;
+            br.cause = g_lastCrash.cause;
+            strncpy(br.task, g_lastCrash.task, sizeof br.task - 1);
+        }
+        BlackBox::noteBoot(br);
+        engine.restoreLog();
+    }
 
     engine.init();
 #if SQUACH_MESH
@@ -3537,6 +3566,7 @@ void loop() {
                     if (b == ButtonId::SCAN) { enterClear(); }
                     if (b == ButtonId::CLR)  {
                         engine.clearLog();
+                        BlackBox::markCleared();   // or a restart brings it all back
                         Squachy::trigger(Squachy::Event::LOG_CLEARED);
                         enterClear();
                     }
@@ -4899,6 +4929,10 @@ void loop() {
             info.loopLargest = s_loopHeapLargest;
             info.otaSlot  = OtaCore::runningSlot();
             info.otaOther = OtaCore::otherVersion();
+            info.bbReady   = BlackBox::ready();
+            info.bbKept    = BlackBox::detectionsKept();
+            info.bbCrashes = BlackBox::crashesKept();
+            info.bbHaveLast = BlackBox::lastCrash(info.bbLast);
 
             uiDiagnosticsTick(*canvas, now, engine, info);
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS &&

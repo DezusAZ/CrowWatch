@@ -479,6 +479,23 @@ int main(int argc, char** argv) {
             // A plausible last screen, so the LAST line is laid out at its longest.
             info.lastScreenName = "WATCH";
             info.lastScreenUs   = 123400;
+            // The black box at its longest: a dozen crashes, the newest with
+            // a date and a version.
+            info.bbReady    = true;
+            info.bbKept     = 1834;
+            info.bbCrashes  = 12;
+            info.bbHaveLast = true;
+            info.bbLast.epoch = 1789560000u;
+            strncpy(info.bbLast.version, "1.11.0", sizeof info.bbLast.version - 1);
+            // SQUACHSIM_CRASH: the crash lines too, for the tallest layout.
+            if (getenv("SQUACHSIM_CRASH")) {
+                info.crash.valid = true;
+                info.crash.uptimeMs = 2521000; info.crash.heapFree = 38112; info.crash.heapBlock = 24564;
+                info.crash.haveDump = true;
+                strncpy(info.crash.task, "nimble_host", sizeof info.crash.task - 1);
+                info.crash.pc = 0x400D1234; info.crash.btN = 3;
+                info.crash.bt[0] = 0x400D5678; info.crash.bt[1] = 0x400D9ABC; info.crash.bt[2] = 0x400E0123;
+            }
             info.bgUs           = 12300;
             info.frameUs = 41200;
             info.freeHeap = 180000;

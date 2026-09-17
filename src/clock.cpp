@@ -6,6 +6,7 @@
 #include "flood_bench.h" // FLOOD N, for the bench (a no-op outside FLOOD_BENCH builds)
 #include "settings.h"
 #include "crowd_bench.h"
+#include "blackbox.h"    // BLACKBOX dumps it
 #include <Arduino.h>
 #include <Preferences.h>
 #include <time.h>
@@ -159,6 +160,20 @@ void formatStamp(uint32_t ms, char* out, size_t n) {
     const uint32_t sec = ms / 1000u;
     snprintf(out, n, "%02lu:%02lu",
              (unsigned long)(sec / 60u), (unsigned long)(sec % 60u));
+}
+
+void formatEpochStamp(uint32_t epoch, char* out, size_t n) {
+    if (!epoch) { snprintf(out, n, "--:--"); return; }
+    // The zone is applied at boot whether or not the clock is set, so a
+    // stamp from a boot that knew the time still reads right in one that
+    // does not; it just cannot say "today".
+    struct tm then, today;
+    const time_t t = (time_t)epoch;
+    localtime_r(&t, &then);
+    if (localNow(today) && then.tm_yday == today.tm_yday && then.tm_year == today.tm_year)
+        snprintf(out, n, "%02d:%02d", then.tm_hour, then.tm_min);
+    else
+        snprintf(out, n, "%d/%d", then.tm_mon + 1, then.tm_mday);
 }
 
 // ---- the calendar ------------------------------------------------------
@@ -441,6 +456,8 @@ void pollSerial() {
                               "the epoch, e.g. TIME %lu\n",
                               (unsigned long)e, (unsigned long)kPlausible + 1u);
             }
+        } else if (strncasecmp(line, "BLACKBOX", 8) == 0) {
+            BlackBox::dump();
 #if CROWD_BENCH
         } else if (strncasecmp(line, "CROWD", 5) == 0) {
             CrowdBench::command(line + 5);

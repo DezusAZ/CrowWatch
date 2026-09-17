@@ -23,7 +23,7 @@ CXX      ?= g++
 CXXFLAGS := -std=c++17 -O1 -g -Wall -Wextra -Wno-unused-parameter \
             -I$(SIM) -I$(INC)
 
-TESTS := remote_id_test ibeacon_test signatures_test emitter_roundtrip_test ignore_list_test hacker_test pwnagotchi_test shim_fidelity_test squachmesh_test qwerty_test meshmsg_test device_info_test security_test emote_script_test
+TESTS := remote_id_test ibeacon_test signatures_test emitter_roundtrip_test ignore_list_test hacker_test pwnagotchi_test shim_fidelity_test squachmesh_test qwerty_test meshmsg_test device_info_test security_test emote_script_test blackbox_test
 
 # Only the units under test get linked in. Pulling the whole firmware
 # would drag in TFT_eSPI, NimBLE and the UI, and a test that needs a
@@ -51,6 +51,10 @@ emote_script_test_FLAGS      := -DSQUACH_MESH=1
 device_info_test_SRCS        := $(SRC)/device_info.cpp $(SRC)/signatures.cpp
 # The lock's arithmetic, through the sim's Preferences shim.
 security_test_SRCS           := $(SRC)/security.cpp $(SRC)/ignore_list.cpp
+# The rings, on the emulator's RAM flash. The two clock calls it makes are
+# stubbed in the test.
+blackbox_test_SRCS           := $(SRC)/blackbox.cpp
+blackbox_test_FLAGS          := -DBLACKBOX_TEST
 # Header-only: the shim under test IS sim/TFT_eSPI.h.
 shim_fidelity_test_SRCS      :=
 

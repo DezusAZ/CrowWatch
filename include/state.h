@@ -76,6 +76,11 @@ struct Detection {
     int8_t         rssi;
     uint8_t        channel;        // 0 if N/A
     DetectionType  type;
+    // Kept from before this boot (the black box): firstSeen then holds the
+    // wall-clock second it was seen, not a millis() stamp, and lastSeen is 0.
+    // Cleared the moment the device is seen again. Sits in what was padding,
+    // so the log costs no more RAM than it did.
+    uint8_t        restored;
     // Who made it, when the match knew: a pointer into the signature
     // tables or a literal, never a copy. Every vendor string in this
     // firmware is a compile-time constant, so a log of two hundred rows

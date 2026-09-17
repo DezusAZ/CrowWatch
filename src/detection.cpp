@@ -2,6 +2,7 @@
 #include "detection.h"
 #include "signatures.h"
 #include "settings.h"
+#include "blackbox.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -995,6 +996,7 @@ void DetectionEngine::loop() {
     expireStale();
     decayChannelActivity();
     saveLifetime(millis());
+    drainBlackBox(millis());
     if (_sdQTail != _sdQHead) {
         _sd.logEvent(_sdQ[_sdQTail]);
         _sdQTail = (uint8_t)((_sdQTail + 1) % SD_Q_CAP);
@@ -1188,10 +1190,12 @@ void DetectionEngine::postBle(Detection d) {
             if (reactivating) {
                 _log[slot].hits++;
                 _log[slot].active = true;
+                _log[slot].restored = 0;
                 _log[slot].firstSeen = millis();   // fresh sighting for alert purposes
                 _typeCounts[(uint8_t)d.type]++;
                 _latest = &_log[slot];
                 _latestChangeMs = millis();
+                queueBlackBox(_log[slot], true);
             }
             return;
         }
@@ -1614,10 +1618,12 @@ void DetectionEngine::processWiFiQ() {
                 _log[slot].channel = e.channel;
                 if (reactivating) {
                     _log[slot].active = true;
+                    _log[slot].restored = 0;
                     _log[slot].firstSeen = millis();
                     _typeCounts[(uint8_t)t]++;
                     _latest = &_log[slot];
                     _latestChangeMs = millis();
+                    queueBlackBox(_log[slot], true);
                 }
                 merged = true;
                 break;
@@ -1678,6 +1684,99 @@ void DetectionEngine::pushLog(const Detection& d) {
     _lifetimeDirty = true;
     const uint8_t next = (uint8_t)((_sdQHead + 1) % SD_Q_CAP);
     if (next != _sdQTail) { _sdQ[_sdQHead] = d; _sdQHead = next; }
+    queueBlackBox(d, false);
+}
+
+static portMUX_TYPE s_bbMux = portMUX_INITIALIZER_UNLOCKED;
+
+// A restored row's vendor. Detection keeps a pointer, never a copy, and the
+// text read back from flash has nowhere to live -- so here, once per name:
+// a room holds a handful of vendors, not two hundred.
+static const char* keptVendor(const char* v) {
+    static char    pool[24][16];
+    static uint8_t used = 0;
+    if (!v[0]) return nullptr;
+    for (uint8_t i = 0; i < used; i++) if (strncmp(pool[i], v, sizeof pool[i]) == 0) return pool[i];
+    if (used >= sizeof pool / sizeof pool[0]) return nullptr;
+    strncpy(pool[used], v, sizeof pool[used] - 1);
+    pool[used][sizeof pool[used] - 1] = '\0';
+    return pool[used++];
+}
+
+void DetectionEngine::queueBlackBox(const Detection& d, bool again) {
+    if (!BlackBox::ready()) return;
+    portENTER_CRITICAL(&s_bbMux);
+    const uint8_t next = (uint8_t)((_bbQHead + 1) % BB_Q_CAP);
+    if (next != _bbQTail) {       // full: a flood loses black box lines, never detections
+        BlackBoxQ& q = _bbQ[_bbQHead];
+        memcpy(q.mac, d.mac, 6);
+        q.type  = d.type;
+        q.again = again;
+        q.ms    = millis();
+        _bbQHead = next;
+    }
+    portEXIT_CRITICAL(&s_bbMux);
+}
+
+// One a pass, and only once it is a second and a half old: the flash write
+// stalls both cores, so a burst is spread over the loop instead of landing
+// on one frame.
+void DetectionEngine::drainBlackBox(uint32_t now) {
+    BlackBoxQ q;
+    portENTER_CRITICAL(&s_bbMux);
+    const bool have = _bbQTail != _bbQHead && now - _bbQ[_bbQTail].ms >= 1500;
+    if (have) { q = _bbQ[_bbQTail]; _bbQTail = (uint8_t)((_bbQTail + 1) % BB_Q_CAP); }
+    portEXIT_CRITICAL(&s_bbMux);
+    if (!have) return;
+    for (uint8_t i = 0; i < _logCount; i++) {
+        const Detection& d = _log[(_logHead + LOG_CAP - 1 - i) % LOG_CAP];
+        if (d.type == q.type && memcmp(d.mac, q.mac, 6) == 0) {
+            BlackBox::noteDetection(d, q.again);
+            return;
+        }
+    }
+    // Gone from the log already -- two hundred newer devices in a second and
+    // a half. Nothing left to say about it.
+}
+
+void DetectionEngine::restoreLog() {
+    if (!BlackBox::ready()) return;
+    _logCount = 0;
+    _logHead  = 0;
+    _latest   = nullptr;
+    // Newest first into the top of the ring, so the newest lands where
+    // logAt(0) looks and the next live detection goes in at slot 0.
+    BlackBox::forEachDetection([](const BlackBox::DetRecord& r, void* ctx) {
+        DetectionEngine& e = *(DetectionEngine*)ctx;
+        for (uint8_t i = 0; i < e._logCount; i++) {
+            Detection& d = e._log[LOG_CAP - 1 - i];
+            if ((uint8_t)d.type == r.type && memcmp(d.mac, r.mac, 6) == 0) {
+                // An older sighting of one already restored: only a name
+                // the newer one was missing.
+                if (!d.name[0] && r.name[0]) memcpy(d.name, r.name, sizeof d.name);
+                return true;
+            }
+        }
+        if (e._logCount >= LOG_CAP) return false;
+        Detection& d = e._log[LOG_CAP - 1 - e._logCount];
+        memset(&d, 0, sizeof d);
+        memcpy(d.mac, r.mac, 6);
+        d.rssi      = r.rssi;
+        d.channel   = r.channel;
+        d.type      = r.type < (uint8_t)DetectionType::COUNT ? (DetectionType)r.type : DetectionType::UNKNOWN;
+        d.conf      = r.conf <= (uint8_t)Confidence::HIGH_CONF ? (Confidence)r.conf : Confidence::LOW_CONF;
+        d.vendor    = keptVendor(r.vendor);
+        memcpy(d.name, r.name, sizeof d.name);
+        d.name[sizeof d.name - 1] = '\0';
+        d.firstSeen = r.epoch;
+        d.lastSeen  = 0;
+        d.hits      = r.hits ? r.hits : 1;
+        d.active    = false;
+        d.restored  = 1;
+        e._logCount++;
+        return true;
+    }, this);
+    if (_logCount) Serial.printf("[blackbox] %u devices back in the log\n", (unsigned)_logCount);
 }
 
 // The lifetime tally, to flash: at most once every five seconds while it
