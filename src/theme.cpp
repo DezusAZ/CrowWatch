@@ -4563,6 +4563,16 @@ void drawFire(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     }
 
     float litSum = 0.0f;
+    // A bed of coals under the text. The band runs to the bottom of the
+    // screen now, behind the counters and the buttons; seeding only the last
+    // row put the flames' base down there and cut their reach by the same
+    // amount. So every row from the counters down is fuel, and the flames
+    // rise from the top of it, where the numbers begin. On screens with no
+    // text line (the menus) it is the one row it always was.
+    int bedRows = 1;
+    if (s_bgTextTop > yStart && s_bgTextTop < yEnd) bedRows = (yEnd - s_bgTextTop) / CW;
+    if (bedRows > fh / 3) bedRows = fh / 3;
+    if (bedRows < 1) bedRows = 1;
     for (int x = 0; x < fw; x++) {
         float v = acc[x];
         if (v > 1.25f) v = 1.25f;
@@ -4573,6 +4583,12 @@ void drawFire(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         if (bf > (float)HEAT_MAX) bf = (float)HEAT_MAX;
         uint8_t base = (uint8_t)bf;
         heat[(fh - 1) * MAXFW + x] = (random(0, 6) == 0) ? 0 : base;
+        // The bed above the seed row: glowing rather than blazing, and a
+        // little uneven, so it reads as coals and not as a solid bar.
+        for (int r = 1; r < bedRows; r++) {
+            const int coal = (int)base - random(4, 14);
+            heat[(fh - 1 - r) * MAXFW + x] = (uint8_t)(coal < 0 ? 0 : coal);
+        }
         litSum += (float)base;
     }
 
@@ -4602,7 +4618,7 @@ void drawFire(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // the flames out because most cells are cool most of the time.
     // Touching only the fringe tightens the haze between tongues and
     // leaves the flame body exactly as it was.
-    for (int y = 0; y < fh - 1; y++) {
+    for (int y = 0; y < fh - bedRows; y++) {
         for (int x = 0; x < fw; x++) {
             int drift = random(-1, 2);
             if (windChance > 0 && random(0, 100) < windChance) drift += windDir;
@@ -7628,7 +7644,9 @@ void drawGibson(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
             const float z = (float)k * spacing - fmodf(flyZ, spacing);
             if (z < 30.0f) continue;
             const int gy = (int)(groundY(z) + 0.5f);
-            if (gy > yBot - 1) continue;
+            // To the bottom of the band, not the text line: the counters sit
+            // on plates of their own now, so the floor carries on under them.
+            if (gy > yEnd - 1) continue;
             // Past a certain depth every row lands on the same screen line.
             // Drawing the rest does not add detail, it builds a solid slab
             // along the horizon.
@@ -7640,8 +7658,10 @@ void drawGibson(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
         // straight line out of the vanishing point, so these need no depth
         // maths of their own -- only the width they fan to at the bottom edge.
         const int fan = (int)((float)w * 0.124f);
+        // Still aimed through the same point at yBot, just drawn on to yEnd.
+        const float laneK = (float)(yEnd - 1 - hz) / floorH;
         for (int g = -5; g <= 5; g++)
-            t.drawLine(w / 2, hz, w / 2 + g * fan, yBot - 1, gridFar);
+            t.drawLine(w / 2, hz, w / 2 + (int)((float)(g * fan) * laneK), yEnd - 1, gridFar);
 
         // Packets running down the lanes toward you, one lane per WiFi channel,
         // and ONLY where that channel is actually carrying something. This is
@@ -7665,7 +7685,7 @@ void drawGibson(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
                 const float ph = fmodf((float)now / (float)per + (float)k / (float)n, 1.0f);
                 const float z  = (float)GIB_SPAN * 0.8f * (1.0f - ph) + 60.0f;
                 const int   gy = (int)groundY(z);
-                if (gy > yBot - 3 || gy < hz + 2) continue;
+                if (gy > yEnd - 3 || gy < hz + 2) continue;
                 const float lane = (float)(gy - hz) / floorH;
                 const int   px   = w / 2 + (int)((float)(g * fan) * lane);
                 const int   sz   = (lane > 0.55f) ? 4 : ((lane > 0.25f) ? 3 : 2);
