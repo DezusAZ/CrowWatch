@@ -1732,6 +1732,22 @@ void DetectionEngine::drainBlackBox(uint32_t now) {
     if (have) { q = _bbQ[_bbQTail]; _bbQTail = (uint8_t)((_bbQTail + 1) % BB_Q_CAP); }
     portEXIT_CRITICAL(&s_bbMux);
     if (!have) return;
+
+    // Six in a burst, then one every three seconds. Measured on the bench:
+    // a flood of two hundred adverts a second is two thousand first sights a
+    // minute, which wrote a record fifteen times a second and erased a sector
+    // every four. The ring only holds eighteen hundred sightings, so nothing
+    // real is lost by capping it -- and a crowded festival stops wearing the
+    // flash out at a hundred times the rate an ordinary day does.
+    static const uint8_t  BURST = 6;
+    static const uint32_t EVERY = 3000;
+    static uint8_t  tokens = BURST;
+    static uint32_t filled = 0;
+    if (!filled) filled = now;
+    while (tokens < BURST && now - filled >= EVERY) { tokens++; filled += EVERY; }
+    if (now - filled > EVERY) filled = now;      // long gap: start the clock here
+    if (!tokens) return;
+    tokens--;
     for (uint8_t i = 0; i < _logCount; i++) {
         const Detection& d = _log[(_logHead + LOG_CAP - 1 - i) % LOG_CAP];
         if (d.type == q.type && memcmp(d.mac, q.mac, 6) == 0) {

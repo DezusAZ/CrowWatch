@@ -27,7 +27,7 @@ const uint16_t REC     = 64;
 const uint16_t PER     = SECTOR / REC - 1;   // slot 0 is the header: 63 records
 const uint32_t MAGIC   = 0x58425153u;        // "SQBX"
 const uint16_t CHUNK   = 16;                 // records a read: 1 KB of stack
-const uint8_t  FORMAT  = 1;
+const uint8_t  FORMAT  = 2;   // 2: a boot record keeps a whole version string
 
 const uint8_t KIND_BOOT  = 1;
 const uint8_t KIND_DET   = 2;

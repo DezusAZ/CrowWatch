@@ -59,9 +59,8 @@ struct __attribute__((packed)) BootRecord {
     uint32_t heapBlock;
     uint32_t pc;            // where it died, from the core dump
     uint32_t cause;
-    char     version[12];   // the firmware that wrote this record
-    char     task[16];
-    uint8_t  pad1[3];
+    char     version[16];   // the firmware that wrote this record
+    char     task[15];      // 12 was a version cut off mid-word on the bench
     uint8_t  crc;
 };
 static const uint8_t BOOT_CRUMB      = 0x01;

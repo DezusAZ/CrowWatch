@@ -7,6 +7,11 @@
 #include "settings.h"
 #include "crowd_bench.h"
 #include "blackbox.h"    // BLACKBOX dumps it
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <nvs.h>
+#include <nvs_flash.h>
+#include <esp_heap_caps.h>
 #include <Arduino.h>
 #include <Preferences.h>
 #include <time.h>
@@ -458,6 +463,42 @@ void pollSerial() {
             }
         } else if (strncasecmp(line, "BLACKBOX", 8) == 0) {
             BlackBox::dump();
+        } else if (strncasecmp(line, "MEM", 3) == 0) {
+            // Where the RAM actually is: the heap, the spare room at the
+            // bottom of every task's stack, and how full the settings store
+            // is. The stacks are fixed sizes picked years ago and never
+            // measured; a store that fills up stops saving settings quietly.
+            Serial.printf("[mem] heap %lu free, %lu largest\n",
+                          (unsigned long)ESP.getFreeHeap(),
+                          (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+            // uxTaskGetSystemState needs a trace facility this build does
+            // not carry, so the tasks are asked for by name -- the ones with
+            // a stack size somebody picked, which is the question here.
+            static const char* TASKS[] = { "loopTask", "nimble_host", "btController",
+                                           "wifi", "tiT", "esp_timer", "arduino_events",
+                                           "sys_evt", "otawifi", "IDLE" };
+            for (uint8_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
+                TaskHandle_t th = xTaskGetHandle(TASKS[i]);
+                if (!th) continue;
+                Serial.printf("[mem] task %-16s spare %lu bytes\n", TASKS[i],
+                              (unsigned long)uxTaskGetStackHighWaterMark(th));
+            }
+            nvs_stats_t ns;
+            if (nvs_get_stats(nullptr, &ns) == ESP_OK)
+                Serial.printf("[mem] settings store %u of %u entries used (%u free), %u namespaces\n",
+                              (unsigned)ns.used_entries, (unsigned)ns.total_entries,
+                              (unsigned)ns.free_entries, (unsigned)ns.namespace_count);
+            else
+                Serial.println("[mem] settings store: no stats");
+#ifdef BENCH_TOOLS
+        } else if (strncasecmp(line, "CRASH ME", 8) == 0) {
+            // Bench builds only (-DBENCH_TOOLS=1): a deliberate panic, to
+            // prove the crash history catches one.
+            Serial.println("[bench] crashing on purpose");
+            Serial.flush();
+            volatile int* p = nullptr;
+            *p = 1;
+#endif
 #if CROWD_BENCH
         } else if (strncasecmp(line, "CROWD", 5) == 0) {
             CrowdBench::command(line + 5);
