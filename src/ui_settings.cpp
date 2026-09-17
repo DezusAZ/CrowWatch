@@ -93,7 +93,7 @@ static const SettingsRow APPEARANCE_ROWS[] = {
 // The SYSTEM page: the rarely-needed machinery, off the main list.
 static const SettingsRow SYSTEM_ROWS[] = {
     SettingsRow::CALIBRATE, SettingsRow::CHECK_COLORS,
-    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::WIFI_NETWORKS, SettingsRow::TIME_ZONE,
+    SettingsRow::DIAGNOSTICS, SettingsRow::UPDATE_FIRMWARE, SettingsRow::UPDATE_CHECK, SettingsRow::WIFI_NETWORKS,
     SettingsRow::RESET_STATS,
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
@@ -152,9 +152,10 @@ static RowGroupId groupFor(SettingsRow r) {
     // a leftover. It goes to SYSTEM there -- still reachable, which is the
     // part that matters, since the display rows live behind it.
     if (r == SettingsRow::APPEARANCE && Settings::boringMode()) return RowGroupId::SYSTEM;
-    // TIME ZONE lives on two pages: the clock's, and the machinery's.
-    if (r == SettingsRow::TIME_ZONE && s_page == SettingsPage::DESK) return RowGroupId::DESK;
     switch (r) {
+        // TIME ZONE sat on the SYSTEM page too, the same setting twice. Only
+        // the clock reads it, so it lives with the clock.
+        case SettingsRow::TIME_ZONE:
         case SettingsRow::DESK_OPEN:
         case SettingsRow::DESK_BACKGROUND:
         case SettingsRow::CLOCK_FONT:

@@ -36,7 +36,6 @@
 #include "ui_phone.h"
 #include "qwerty.h"
 #include "ui_meshmenu.h"
-#include "ui_crowd.h"
 #include "ui_meshwarn.h"
 #include "ui_meshphrase.h"
 #include "ui_meshcompose.h"
@@ -454,7 +453,6 @@ int main(int argc, char** argv) {
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
-        else if (screen == "crowd")    uiCrowdTick(frame, t, engine);
         else if (screen == "roster")   uiSquadTick(frame, t, engine);
         else if (screen == "meshwarn") uiMeshWarnTick(frame, t, engine);
         else if (screen == "phrase")   uiMeshPhraseTick(frame, t, engine);
@@ -592,7 +590,6 @@ int main(int argc, char** argv) {
     else if (screen == "wifinets")   uiWifiNetsInit(frame);
     else if (screen == "wifiadd")    uiWifiAddInit(frame);
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
-    else if (screen == "crowd")      uiCrowdInit(frame);
     else if (screen == "roster") {
         // Three members, through the real paths: an advert each so Mesh knows
         // their look, then a sealed HELLO each so MeshTalk puts them on the

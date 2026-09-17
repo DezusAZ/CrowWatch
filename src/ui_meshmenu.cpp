@@ -83,13 +83,10 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     row(t, w, top + 2 * rowH, rowH, "MESSAGES",
         !st ? "ERR" : (Settings::messagesOn() ? "ON" : "OFF"),
         !st ? Theme::RED : (Settings::messagesOn() ? Theme::GREEN : Theme::W95_SHADOW));
-    // How many of them may be on the main screen at once. An arrow, not a
-    // bare value: every row
-    // on this list that says ON or OFF is a switch, and the ones that open
-    // a screen show something that cannot be mistaken for a switch state.
-    char cw[16];
-    snprintf(cw, sizeof cw, "%s >", Settings::meshCrowdLabel());
-    row(t, w, top + 3 * rowH, rowH, "CROWD", cw,
+    // How many of them may be on the main screen at once. A tap steps it
+    // here: it had a page of its own holding only this, and the desk's count
+    // lives on the DESK MODE page.
+    row(t, w, top + 3 * rowH, rowH, "CROWD", Settings::meshCrowdLabel(),
         Settings::meshCrowd() > 1 ? Theme::GREEN : Theme::W95_SHADOW);
     // Everybody who has ever held the phrase, here or not.
     char sq[12];

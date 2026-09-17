@@ -154,9 +154,8 @@ enum class AppState : uint8_t {
     SYS_PROPS        = 35, // SYSTEM PROPERTIES: the window that says an update
                             // is out, in front of the main screen on the first
                             // frame after the intro. See ui_sysprops.h.
-    CROWD            = 36  // how many SquachWatches share the main screen,
-                            // from the SquachMesh menu's CROWD row. See
-                            // ui_crowd.h.
+    // 36 was CROWD, a page holding one setting; the SquachMesh menu's CROWD
+    // row steps it in place now.
 };
 
 enum class ButtonId : uint8_t {

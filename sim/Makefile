@@ -88,7 +88,6 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/ui_clear.cpp \
             $(SRC)/ui_power.cpp \
             $(SRC)/ui_light.cpp \
-            $(SRC)/ui_crowd.cpp \
             $(SRC)/status_light.cpp \
             $(SRC)/pet.cpp \
             $(SRC)/ui_log.cpp \

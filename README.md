@@ -138,7 +138,7 @@ flasher's **Set Time & Zone** button sends this computer's clock and zone
 down the same cable right after flashing; the first time the clock is set
 with no zone chosen, a card on the main screen asks, with the live time in
 the zone it shows so you can see when it's right; and **TIME ZONE** on the
-SYSTEM page changes it later. Daylight saving takes care of itself. Without
+DESK MODE page changes it later. Daylight saving takes care of itself. Without
 a saved network the clock can still be set over serial with a `TIME <epoch>`
 line at 2,000,000 baud, and `ZONE US EASTERN` sets the zone the same way.
 And every squad hello carries the sender's clock and zone, so a board with

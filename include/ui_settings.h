@@ -41,7 +41,7 @@ enum class SettingsRow : uint8_t {
     WIFI_NETWORKS,   // on the SYSTEM page: the saved networks, up to six
     STATUS_LIGHT,    // on the APPEARANCE page: opens the RGB LED's screen
     BANTER,          // on the APPEARANCE page: how much he talks when nothing is happening
-    TIME_ZONE,       // on the SYSTEM page: which zone the real clock shows
+    TIME_ZONE,       // on the DESK MODE page: which zone the real clock shows
     DESK_MODE,       // opens the DESK MODE page
     DESK_OPEN,       // on the DESK MODE page: go to the desk
     DESK_BACKGROUND, // on the DESK MODE page: the desk's own scene

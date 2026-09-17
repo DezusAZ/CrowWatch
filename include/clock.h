@@ -20,7 +20,7 @@
 // the SD-card boot loop) does not lose it. Pulling the power does, until
 // the next boot check puts it back.
 //
-// The zone is the user's to pick (TIME ZONE on the SYSTEM page): a POSIX
+// The zone is the user's to pick (TIME ZONE on the DESK MODE page): a POSIX
 // rule per zone, so daylight saving flips itself.
 #pragma once
 #include <stdint.h>
