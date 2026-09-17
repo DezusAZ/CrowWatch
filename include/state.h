@@ -81,6 +81,13 @@ struct Detection {
     // Cleared the moment the device is seen again. Sits in what was padding,
     // so the log costs no more RAM than it did.
     uint8_t        restored;
+    // The signal a couple of seconds ago, and when that was in units of two
+    // seconds (wrapping every eight and a half minutes, which is far longer
+    // than a row stays fresh). The LOG's closer/further arrow reads these:
+    // comparing against the last ADVERT would only show the wobble a still
+    // device makes, which is why the raw scan's arrow samples too.
+    int8_t         prevRssi;
+    uint8_t        prevAt;
     // Who made it, when the match knew: a pointer into the signature
     // tables or a literal, never a copy. Every vendor string in this
     // firmware is a compile-time constant, so a log of two hundred rows

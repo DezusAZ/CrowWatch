@@ -101,6 +101,11 @@ static void seedDetections(DetectionEngine& eng) {
         d.lastSeen  = now - (uint32_t)i * 1200;
         d.hits      = seeds[i].hits;
         d.active    = true;
+        // Two of them stand in for rows the black box brought back from
+        // an earlier boot: faded, with no closer/further arrow.
+        d.restored  = (i >= 4) ? 1 : 0;
+        d.active    = (i >= 4) ? false : true;
+        d.prevRssi  = (int8_t)(d.rssi - (i % 3 == 0 ? 7 : (i % 3 == 1 ? -8 : 1)));
         eng.postBle(d);
     }
 

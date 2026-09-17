@@ -253,16 +253,21 @@ switch (Settings::background()) {
         // sun used to shine through.
         Theme::drawListRowPanel(t, w, y, rowH);
 
+        // A row the black box kept from an earlier boot is drawn faded: it
+        // is history, and it sat beside live rows looking exactly like one.
+        const bool kept = d->restored;
+        const uint16_t dim = Theme::W95_SHADOW;
+
         // Type label (colored)
         t.setTextSize(2);
-        t.setTextColor(Theme::colorFor(d->type), Theme::BG);
+        t.setTextColor(kept ? dim : Theme::colorFor(d->type), Theme::BG);
         t.setCursor(8, y + topPad);
         t.print(detectionTypeName(d->type));
         const int labelEnd = 8 + t.textWidth(detectionTypeName(d->type));
 
         // MAC + RSSI line
         t.setTextSize(1);
-        t.setTextColor(Theme::WHITE, Theme::BG);
+        t.setTextColor(kept ? dim : Theme::WHITE, Theme::BG);
         char mac[24];
         snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
                  d->mac[0], d->mac[1], d->mac[2],
@@ -273,12 +278,22 @@ switch (Settings::background()) {
         // RSSI — MAC above runs "XX:XX:XX:XX:XX:XX" (17 chars, 102px
         // at this font size) starting from x=8, so this column can't
         // start before ~114 without drawing on top of it.
-        t.setTextColor(Theme::CYAN, Theme::BG);
+        t.setTextColor(kept ? dim : Theme::CYAN, Theme::BG);
         t.setCursor(116, y + detailY);
         t.printf("%ddBm", d->rssi);
+        // Closer or further since a couple of seconds ago, for a row that is
+        // actually here: green up for nearer, red down for further, nothing
+        // for the few dB of wobble a still device makes. The same arrow, and
+        // the same deadband, as the raw scan's NEARBY list.
+        if (!kept && d->active) {
+            const int delta = (int)d->rssi - (int)d->prevRssi;
+            const int ax = 116 + t.textWidth("-100dBm") + 3, ay = y + detailY;
+            if (delta >= 4)       t.fillTriangle(ax, ay + 6, ax + 6, ay + 6, ax + 3, ay, Theme::GREEN);
+            else if (delta <= -4) t.fillTriangle(ax, ay, ax + 6, ay, ax + 3, ay + 6, Theme::RED);
+        }
 
         // Hits
-        t.setTextColor(Theme::VAPOR_PURPLE, Theme::BG);
+        t.setTextColor(kept ? dim : Theme::VAPOR_PURPLE, Theme::BG);
         t.setCursor(168, y + detailY);
         t.printf("x%u", d->hits);
 
@@ -293,7 +308,7 @@ switch (Settings::background()) {
         if (d->restored) Clock::formatEpochStamp(d->firstSeen, ts, sizeof(ts));
         else             Clock::formatStamp(d->firstSeen, ts, sizeof(ts));
         int tw = t.textWidth(ts);
-        t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
+        t.setTextColor(kept ? dim : Theme::VAPOR_PINK, Theme::BG);
         t.setCursor(w - tw - 14, y + topPad);
         t.print(ts);
 
@@ -319,7 +334,7 @@ switch (Settings::background()) {
                     // Centred against the size-2 type label beside it.
                     // Sharing its top edge would leave the small text
                     // hanging off the cap height of the big text.
-                    t.setTextColor(Theme::WHITE, Theme::BG);
+                    t.setTextColor(kept ? dim : Theme::WHITE, Theme::BG);
                     t.setCursor(nameX, y + topPad + (nameH - detailH) / 2);
                     t.print(nm);
                 }

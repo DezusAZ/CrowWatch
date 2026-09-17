@@ -1187,6 +1187,13 @@ void DetectionEngine::postBle(Detection d) {
             // nearby instead of meaning anything. rssi/lastSeen still
             // update on every packet regardless, since those drive
             // "is it still actually here" freshness, not the count.
+            {
+                const uint8_t nowAt = (uint8_t)(millis() >> 11);
+                if (_log[slot].prevAt != nowAt) {
+                    _log[slot].prevRssi = _log[slot].rssi;
+                    _log[slot].prevAt   = nowAt;
+                }
+            }
             _log[slot].rssi = d.rssi;
             _log[slot].lastSeen = millis();
             Bingo::note(d.type);
@@ -1617,6 +1624,13 @@ void DetectionEngine::processWiFiQ() {
                 bool reactivating = !_log[slot].active;
                 Bingo::note(t);
                 _log[slot].hits++;
+                {
+                    const uint8_t nowAt = (uint8_t)(millis() >> 11);
+                    if (_log[slot].prevAt != nowAt) {
+                        _log[slot].prevRssi = _log[slot].rssi;
+                        _log[slot].prevAt   = nowAt;
+                    }
+                }
                 _log[slot].rssi = e.rssi;
                 _log[slot].lastSeen = millis();
                 _log[slot].channel = e.channel;
@@ -1673,6 +1687,8 @@ void DetectionEngine::processWiFiQ() {
 
 void DetectionEngine::pushLog(const Detection& d) {
     _log[_logHead] = d;
+    _log[_logHead].prevRssi = d.rssi;                 // no trend on a first sight
+    _log[_logHead].prevAt   = (uint8_t)(millis() >> 11);
     _logHead = (_logHead + 1) % LOG_CAP;
     if (_logCount < LOG_CAP) _logCount++;
     _latest = &_log[(_logHead + LOG_CAP - 1) % LOG_CAP];
@@ -1813,6 +1829,8 @@ void DetectionEngine::restoreLog() {
         d.firstSeen = r.epoch;
         d.lastSeen  = 0;
         d.hits      = r.hits ? r.hits : 1;
+        d.prevRssi  = r.rssi;
+        d.prevAt    = 0;
         d.active    = false;
         d.restored  = 1;
         e._logCount++;
