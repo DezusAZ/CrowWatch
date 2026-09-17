@@ -5787,11 +5787,18 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     // not a fixed-size strip across the whole row. Covers "bubble went
     // away", "bubble changed to a shorter one", and the walkthrough's
     // last frame handing back off to the compact one-liner bubble.
+    //
+    // HIS rectangle, kept apart from lastBubble*: a visitor's bubble drawn
+    // through drawWaving() writes those too, and in a crowd he is drawn
+    // after the visitor -- so this erase used to land on the visitor's
+    // bubble from this very frame and black it out.
+    static int16_t ownX = 0, ownY = 0, ownW = 0, ownH = 0;
     bool showBubble = bubbleText && now < bubbleUntil;
     if (hadBubble) {
-        t.fillRect(lastBubbleX, lastBubbleY, lastBubbleW, lastBubbleH, Theme::BG);
+        t.fillRect(ownX, ownY, ownW, ownH, Theme::BG);
     }
     if (showBubble) {
+        lastBubbleW = 0; lastBubbleH = 0;
         if (s_onboardActive) drawOnboardBubble(t, cx, topY, bubbleText, s_onboardStep, ONBOARD_N);
         // Pointed at the BODY, not at cx: the two differ while he wanders,
         // and a tail that stays put while he walks out from under it is
@@ -5799,6 +5806,15 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         // confused with.
         else                 drawBubble(t, cx, topY, bubbleText, now, true,
                                         s_visiting ? bodyCx : NO_TAIL);
+    }
+    // Only what this call itself drew. A bubble that is held, or still
+    // popping in, returns before recording anything, and the rectangle
+    // left in lastBubble* is then somebody else's.
+    {
+        const bool drew = showBubble && !s_bubbleHeld;
+        if (drew) { ownX = (int16_t)lastBubbleX; ownY = (int16_t)lastBubbleY;
+                    ownW = (int16_t)lastBubbleW; ownH = (int16_t)lastBubbleH; }
+        else      { ownW = 0; ownH = 0; }
     }
     // Gated: hadBubble tracks "did we draw a bubble last FRAME" for the
     // erase above. drawBubble()/drawOnboardBubble() compute identical

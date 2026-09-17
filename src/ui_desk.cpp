@@ -60,14 +60,13 @@ void forEachSegment(int x, int y, int w, int h, int th, Fn fn) {
     fn(0x40, x + th + 1, mid,          w - 2 * th - 2, th);                // g
 }
 
-// `ghosts` false leaves the unlit segments out altogether, so whatever is
-// behind the clock shows through them.
-void drawDigit(TFT_eSPI& t, int x, int y, int w, int h, int th, int d, uint16_t on, uint16_t off,
-               bool ghosts = true) {
+// The lit segments only. The unlit ones used to be drawn too, in a dim
+// purple, and on the plain plate that "8" behind every digit read as black
+// text; over a backdrop it hid what was playing.
+void drawDigit(TFT_eSPI& t, int x, int y, int w, int h, int th, int d, uint16_t on) {
     const uint8_t s = (d >= 0 && d <= 9) ? SEG[d] : 0;
     forEachSegment(x, y, w, h, th, [&](uint8_t bit, int sx, int sy, int sw, int sh) {
-        if (s & bit)     t.fillRect(sx, sy, sw, sh, on);
-        else if (ghosts) t.fillRect(sx, sy, sw, sh, off);
+        if (s & bit) t.fillRect(sx, sy, sw, sh, on);
     });
 }
 
@@ -483,7 +482,6 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const int plateTop = 3;
     const int y = 26 + pad;
     const uint16_t on  = set ? Theme::VAPOR_PINK : Theme::W95_SHADOW;
-    const uint16_t off = Theme::blend(Theme::BG, Theme::VAPOR_PURPLE, 40);
 
     // The message box, first, so the plate drawn over it hides whatever
     // part is still behind the plate on its way in or out.
@@ -560,12 +558,11 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             }
         } else {
             if (backdrop) drawDigitOutline(t, x, y, dw, dh, th, d, 2, Theme::BG);
-            drawDigit(t, x, y, dw, dh, th, d, on, off, !backdrop);
+            drawDigit(t, x, y, dw, dh, th, d, on);
         }
         x += dw;
         if (colonAfter[i]) {
             const bool blink = ((now / 500) & 1) == 0;
-            const uint16_t cc = blink ? on : off;
             // Bangers leans, so its colon does too: the lower dot sits a
             // little left of the upper one.
             const int lean = bangers ? (int)(3.0f * k + 0.5f) : 0;
@@ -574,9 +571,9 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
                 t.fillRect(cx0 + lean - 2, y + dh / 3 - dot / 2 - 2, dot + 4, dot + 4, Theme::BG);
                 t.fillRect(cx0 - 2, y + 2 * dh / 3 - dot / 2 - 2, dot + 4, dot + 4, Theme::BG);
             }
-            if ((!bangers && !backdrop) || blink) {
-                t.fillRect(cx0 + lean, y + dh / 3 - dot / 2, dot, dot, cc);
-                t.fillRect(cx0, y + 2 * dh / 3 - dot / 2, dot, dot, cc);
+            if (blink) {
+                t.fillRect(cx0 + lean, y + dh / 3 - dot / 2, dot, dot, on);
+                t.fillRect(cx0, y + 2 * dh / 3 - dot / 2, dot, dot, on);
             }
             x += colonW;
         }
