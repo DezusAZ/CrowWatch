@@ -4002,7 +4002,10 @@ void drawFireflies(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         for (uint8_t i = 0; i < FF_NEAR; i++) hit(s_ffNear[i], 1);
     }
 
-    if (yEnd > yBot) t.fillRect(0, yBot, w, yEnd - yBot, BG);
+    // Below the scene's own floor, the soil carries on to the bottom of the
+    // band: the counters sit on dark plates of their own, and a black shelf
+    // under the grass read as the scene running out.
+    if (yEnd > yBot) t.fillRect(0, yBot, w, yEnd - yBot, t.color565(6, 30, 10));
 }
 
 // ---- tappable background bits -----------------------------------------
@@ -6591,7 +6594,10 @@ void drawSnowfall(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         if (yBot - gy > 3) t.fillRect(x0, gy + 3, colW, yBot - gy - 3, snowDim);
         if (s_trackD[i]) t.fillRect(x0, gy + 4, colW, 2, trackC);
     }
-    if (yEnd > yBot) t.fillRect(0, yBot, w, yEnd - yBot, BG);
+    // The hill's layout stops at the counters, but the snow runs on under
+    // them to the bottom of the band: the numbers have dark plates of their
+    // own now, so they read on snow.
+    if (yEnd > yBot) t.fillRect(0, yBot, w, yEnd - yBot, snowDim);
 
     // ---- action plane: props, then trees -----------------------------
     if (step) {

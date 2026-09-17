@@ -396,10 +396,13 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // and Squachy's usual chatter. A running block clears the scene so the
     // timer is the only thing moving.
     if (running) {
-        t.fillRect(0, 0, w, bar.y, Theme::BG);
+        t.fillRect(0, 0, w, h, Theme::BG);
     } else {
+        // To the bottom edge, around and under the buttons, as on the main
+        // screen. The floor stays above them: what stands on the ground
+        // still stands where it did.
         Theme::setBackgroundFloor(bar.y - 2);
-        Theme::drawActiveBackground(t, now, 0, bar.y, eng);
+        Theme::drawActiveBackground(t, now, 0, h, eng);
         Theme::clearBackgroundFloor();
     }
     // The block runs out on its own; the announcement is what the user is
@@ -691,17 +694,11 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     if (msgOn) drawPolaroid(t, y + dh + 18, msgP, now);
 #endif
 
-    // The buttons, on a cleared strip.
-    //
-    // The strip below the background's band is drawn by nothing else, and
-    // these two buttons are an outline and a word -- they have no fill to
-    // hide what is behind them. A background that draws outside the band it
-    // was handed therefore shows THROUGH them, which the starfield does:
-    // its tunnel rings ran past the band (clipped at the source now) and a
-    // piece of its space junk still does, since junk is only retired once
-    // it is FULLY outside and a piece straddling the edge draws in full.
-    // Clearing the strip contains all of it, whatever the background.
-    t.fillRect(0, bar.y, w, h - bar.y, Theme::BG);
+    // The buttons, over the background. It used to stop at the bar and the
+    // strip was cleared here, because the starfield's space junk drew past
+    // the band it was handed and showed round the buttons. The band is the
+    // whole screen now, so the edge of the panel clips the junk, and each
+    // button fills its own box.
     int tx, ty, tw, tth, bx, bw;
     timerRects(w, h, tx, ty, tw, tth, bx, bw);
     char lbl[16];

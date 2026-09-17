@@ -2543,8 +2543,16 @@ static void drawCounterLine(TFT_eSPI& t, int w, int y, const DetectionEngine& en
         off += snprintf(buf + off, sizeof(buf) - off, "%s:%u  ",
                         counterLabel(types[i]), counterCount(eng, types[i]));
     }
+    // The trailing gap is spacing between entries, not part of the last one.
+    while (off > 0 && buf[off - 1] == ' ') buf[--off] = '\0';
     int tw = t.textWidth(buf);
-    t.setCursor((w - tw) / 2, y);
+    const int x = (w - tw) / 2;
+    // A dark plate a few pixels past the text, not just the character cells:
+    // tight to the glyphs, the numbers read as cut out of whatever the
+    // background is doing behind them.
+    const int PAD_X = 4, PAD_Y = 2;
+    t.fillRect(x - PAD_X, y - PAD_Y, tw + 2 * PAD_X, t.fontHeight() + 2 * PAD_Y, Theme::BG);
+    t.setCursor(x, y);
     t.print(buf);
 }
 
@@ -2681,17 +2689,6 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     Theme::ButtonBarGeom bar = Theme::computeButtonBar(w, h);
     const int lineH          = 14;
     const int countersTop    = bar.y - counterRows * lineH - 6;
-    // bar.y - 1, not bar.y - 4. Those three rows were a real seam rather
-    // than spare margin: the animation repainted down to 209 and the button
-    // bar starts at 214, so 210-213 were painted once at boot and never
-    // touched again. On DIGITAL RAIN a flat black strip sat under the
-    // falling glyphs; on TERMINAL LOG the text stopped a few rows short of
-    // the buttons. Nothing draws there, so the animation may as well.
-    //
-    // It is also what lets the counter rows sit as low as they now do --
-    // see counterTextTop. They have to land inside the repainted region or
-    // they smear, and 209 was the wall.
-    const int countersBottom = bar.y - 1;
     // The counter rows alone sit 9px lower than countersTop, and nothing
     // else does. Measured off a rendered landscape frame before any of
     // this: the headline's ink ended at row 172, the two counter rows ran
@@ -2706,10 +2703,9 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // footer and leaving the headline up with Squachy says what goes with
     // what. 9 puts the last row's ink 4px off the button bar.
     //
-    // Not further: 13 would touch the buttons. The real ceiling was lower
-    // still until a moment ago -- the rows have to land inside the
-    // background's repaint or they smear, and that wall sat at 209, which
-    // is why countersBottom above had to move first.
+    // Not further: 13 would touch the buttons. (The rows also have to land
+    // inside the background's repaint or they smear; that runs to the bottom
+    // of the screen now, so it no longer sets the limit.)
     //
     // Deliberately NOT folded into countersTop, which would look like the
     // tidier fix. That value is the floor of everything above it: the
@@ -2770,14 +2766,11 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     const int squachyBottom = counterTextTop - 2;
 
     const int titleBottom  = 16;
-    // The animation runs all the way down to just above the button
-    // bar, covering Squachy's region, the text row, and the counters —
-    // everything below the title bar erases and repaints together
-    // every frame.
-    const int rainEnd      = countersBottom;
 
-    // Background animation, from below the title bar down to just
-    // above the button bar — style picked from the settings menu.
+    // Background animation, the whole screen top to bottom -- style picked
+    // from the settings menu. It used to stop just above the button bar and
+    // leave a black strip under it; the buttons fill their own boxes, so the
+    // animation runs on around and beneath them instead.
     // The counters get drawn over the band further down, so tell the
     // background where its usable floor really is before it places
     // anything that stands on the ground.
@@ -2795,7 +2788,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // Squachy is still told his band starts at titleBottom. He sizes himself
     // from the space he is given, so telling him about these rows would make
     // him a tenth bigger and move everything hanging off him.
-    Theme::drawActiveBackground(t, now, 0, rainEnd, eng, advance);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::clearBackgroundFloor();
 
     // Squachy: main character, reacts to events, cracks jokes when idle.
@@ -3068,8 +3061,8 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // the more compact two-row layout it has room for. Whole
     // label:count tokens only, so nothing ever breaks mid-word. No
     // flat clear here anymore — the background animation now fully
-    // repaints this whole row every frame (rainEnd extends down to
-    // countersBottom), the same "let the background do the erasing"
+    // repaints this whole row every frame (it runs to the bottom of the
+    // screen), the same "let the background do the erasing"
     // pattern already relied on for Squachy and the status line above.
     t.setTextSize(1);
     t.setTextColor(Theme::CYAN, Theme::BG);
@@ -3090,16 +3083,9 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         start += n;
     }
 
-    // Soft buttons. The background animation's own repaint stops at
-    // countersBottom (see rainEnd above) and each button only fills
-    // its own rect, so the row's margins/gaps around and between the
-    // three buttons were never actually touched by anything -- on
-    // cyd35 specifically (two-pass half-height rendering, see its
-    // CLEAR case in main.cpp) that let content from elsewhere in the
-    // shared sprite buffer show through there. An explicit flat clear
-    // of the whole remaining strip first guarantees it's always clean
-    // background before the buttons draw on top, regardless of cause.
-    t.fillRect(0, countersBottom, w, h - countersBottom, Theme::BG);
+    // Soft buttons, straight over the background: it repaints the whole
+    // strip under them every frame, margins and gaps included. Each
+    // button fills its own box, so the labels stay on a dark ground.
     Theme::drawButtonBar(t, ButtonId::NONE,
                          scanMenu ? Theme::ButtonBarMode::SCAN_PICKER : Theme::ButtonBarMode::MAIN);
 #if SQUACH_MESH
