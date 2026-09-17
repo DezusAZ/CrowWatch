@@ -2,6 +2,7 @@
 #include "detection.h"
 #include "signatures.h"
 #include "settings.h"
+#include "bingo.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -1185,6 +1186,7 @@ void DetectionEngine::postBle(Detection d) {
             // "is it still actually here" freshness, not the count.
             _log[slot].rssi = d.rssi;
             _log[slot].lastSeen = millis();
+            Bingo::note(d.type);
             if (reactivating) {
                 _log[slot].hits++;
                 _log[slot].active = true;
@@ -1608,6 +1610,7 @@ void DetectionEngine::processWiFiQ() {
             if (memcmp(_log[slot].mac, e.mac, 6) == 0 &&
                 _log[slot].type == t) {
                 bool reactivating = !_log[slot].active;
+                Bingo::note(t);
                 _log[slot].hits++;
                 _log[slot].rssi = e.rssi;
                 _log[slot].lastSeen = millis();
@@ -1676,6 +1679,7 @@ void DetectionEngine::pushLog(const Detection& d) {
     // per new detection on the task that receives the adverts was what let
     // a bench flood of new trackers back the radio up until the heap went.
     _lifetimeDirty = true;
+    Bingo::note(d.type);
     const uint8_t next = (uint8_t)((_sdQHead + 1) % SD_Q_CAP);
     if (next != _sdQTail) { _sdQ[_sdQHead] = d; _sdQHead = next; }
 }
