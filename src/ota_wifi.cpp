@@ -633,12 +633,23 @@ bool bootCheck(uint32_t budgetMs) {
     if (!s_n) return false;
     const uint32_t t0 = millis();
     WiFi.mode(WIFI_STA);
+    Serial.printf("[ota] boot check: radio up in %lu ms\n", (unsigned long)(millis() - t0));
     // More than one network saved: a quick scan says which are here, and the
     // one marked USE wins when it is, else the strongest of the rest. One
     // network: join it blind, as before, and keep the scan's two seconds.
     uint8_t pick = s_use;
     if (s_n > 1) {
-        const int found = WiFi.scanNetworks(false, false, false, 110);
+        // PASSIVE, 130 ms a channel: listen for beacons rather than ask.
+        // The active scan asked for 110 ms a channel and took 5.6 seconds on
+        // the soak board, twice in a row, so it was not a warm-up cost; it
+        // was most of a boot check that ran to thirteen. A passive scan
+        // keeps to the time it is given -- 1.5 s at 110 ms, measured -- and
+        // an access point beacons about every 102 ms, so 130 ms on each
+        // channel hears every network in range. Hidden networks were never
+        // shown by this scan anyway.
+        const uint32_t ts = millis();
+        const int found = WiFi.scanNetworks(false, false, true, 130);
+        Serial.printf("[ota] boot check: scan took %lu ms\n", (unsigned long)(millis() - ts));
         int8_t best = -1, bestRssi = -127;
         bool   seen[SAVED_MAX] = { false, false, false, false, false, false };
         Serial.printf("[ota] boot check: scan saw %d network(s)\n", found);
@@ -710,9 +721,6 @@ bool bootCheck(uint32_t budgetMs) {
     bool found = false;
     if (st == WL_CONNECTED) {
         Serial.printf("[ota] boot check: joined in %lu ms\n", (unsigned long)(millis() - t0));
-        // The clock, asked at the same time as the manifest so the two
-        // answers overlap; waited for below, briefly, once the manifest is in.
-        Clock::syncStart();
         uint8_t body[1024];
         size_t  len = 0;
         // From the join, like the join's own wait, and never below a second:
@@ -733,7 +741,9 @@ bool bootCheck(uint32_t budgetMs) {
         if (http.begin(plain, base + "manifest-" + OtaCore::buildName() + ".json")) {
             http.setConnectTimeout((int32_t)left);
             http.setTimeout((uint16_t)(left > 60000 ? 60000 : left));
+            const uint32_t tg = millis();
             const int code = http.GET();
+            Serial.printf("[ota] boot check: GET answered %d in %lu ms\n", code, (unsigned long)(millis() - tg));
             if (code == 200) {
                 WiFiClient* s = http.getStreamPtr();
                 const int total = http.getSize();     // the server keeps the connection open, so the
@@ -761,6 +771,13 @@ bool bootCheck(uint32_t budgetMs) {
             }
             http.end();
         }
+        // The clock, asked AFTER the manifest rather than alongside it. The
+        // two used to overlap to save a moment, and on two boots in three
+        // the manifest's GET then took 2.8-3.0 s instead of 70 ms: two name
+        // lookups at once, one of them waiting out a retry. Asked one after
+        // the other, the clock costs its own couple of hundred ms and the
+        // GET costs what it should.
+        Clock::syncStart();
     } else {
         Serial.printf("[ota] boot check: no join (%d) in %lu ms\n", (int)st, (unsigned long)(millis() - t0));
     }
@@ -780,10 +797,14 @@ bool bootCheck(uint32_t budgetMs) {
     Clock::syncStop();
     // Everything back the way it was: the driver torn down, so Bluetooth
     // starts into the heap it always had.
+    const uint32_t td = millis();
     WiFi.disconnect(true, true);
-    Serial.printf("[ota] boot check: disconnected (heap %lu, largest %lu)\n",
+    Serial.printf("[ota] boot check: disconnected in %lu ms (heap %lu, largest %lu)\n",
+                  (unsigned long)(millis() - td),
                   (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    const uint32_t to = millis();
     WiFi.mode(WIFI_OFF);
+    Serial.printf("[ota] boot check: radio off in %lu ms\n", (unsigned long)(millis() - to));
     Serial.printf("[ota] boot check done in %lu ms (heap %lu, largest %lu)\n", (unsigned long)(millis() - t0),
                   (unsigned long)ESP.getFreeHeap(),
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
