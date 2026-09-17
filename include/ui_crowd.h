@@ -1,12 +1,9 @@
-// SquachWatch-CYD — CROWD: how many SquachWatches share the screen, and
-// which screens they share.
+// SquachWatch-CYD — CROWD: how many SquachWatches share the main screen.
+// The desk has its own count, on Settings' DESK MODE page.
 //
-// This was one row on the SquachMesh menu that cycled a number. It became a
-// page of its own when the desk wanted a say: that menu is exactly full in
-// landscape -- seven rows end two pixels above the pinned BACK strip -- so
-// an eighth row would have meant shrinking every touch target on it, on a
-// resistive panel, to hold one switch. A page costs one more tap to reach
-// the number and leaves room to say what each choice does.
+// This was one row on the SquachMesh menu that cycled a number. A page has
+// room to say what each choice does; the desk's switch lived here for a
+// while too, before the desk got a page of its own.
 #pragma once
 #if SQUACH_MESH
 #include <TFT_eSPI.h>

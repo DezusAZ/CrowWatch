@@ -625,7 +625,6 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         Theme::drawButton(t, s_type.x, s_type.y, s_type.w, s_type.h, "[ TYPE ]", false);
         // "?" replays the tutorial. Top right, level with the title, where
         // nothing else on this screen can be reached for by mistake.
-        int pgRight = w - 4;
         if (!tut) {
             s_help = { (int16_t)(w - 4 - 30), 2, 30, 20 };
             Theme::drawButton(t, s_help.x, s_help.y, s_help.w, s_help.h, "?", false);
@@ -634,7 +633,6 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             // the one thing on this screen most people came for.
             s_emoteBtn = { (int16_t)(s_help.x - 6 - BW), 2, BW, 20 };
             Theme::drawButton(t, s_emoteBtn.x, s_emoteBtn.y, s_emoteBtn.w, s_emoteBtn.h, "[ EMOTE ]", true);
-            pgRight = s_emoteBtn.x - 6;
         }
     }
 

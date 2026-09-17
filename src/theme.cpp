@@ -3106,7 +3106,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         const int px = (int)(snowX[i] + sinf((float)now / 1400.0f + snowPh[i]) * 5.0f);
         const int py = (int)snowY[i];
         if (px < 0 || px >= w) continue;
-        const float d = (float)(py - yStart) / (float)bandH;
         const uint16_t waterC = aquaWaterAt(t, py, yStart, bandH);
         t.drawPixel(px, py, blend(waterC, rayCol, (uint8_t)(90 + (i % 5) * 26)));
     }
@@ -3138,7 +3137,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
             // Sand, seen through progressively more water toward the
             // back -- so the floor fades into the haze rather than
             // meeting the back wall at a hard line.
-            const float d = (float)(y - yStart) / (float)bandH;
             const uint16_t waterC = aquaWaterAt(t, y, yStart, bandH);
             // Grey-green rather than warm tan. Sand against teal water
             // was the single biggest hue clash in the tank -- two
@@ -3359,7 +3357,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         for (uint8_t i = 0; i < NS; i++) {
             const int fx = (int)shX[i], fy = (int)shY[i];
             if (fx < -6 || fx > w + 6 || fy < yStart || fy >= yEnd) continue;
-            const float dd = (float)(fy - yStart) / (float)bandH;
             const uint16_t waterC = aquaWaterAt(t, fy, yStart, bandH);
             const uint16_t c    = blend(waterC, t.color565(205, 232, 214), 205);
             const uint16_t cDim = blend(waterC, t.color565(205, 232, 214), 140);
@@ -8767,6 +8764,17 @@ int bangersGlyphAdvance(char c) {
     return g ? g->advance : 0;
 }
 
+int bangersGlyphInkLeft(char c) {
+    const BangersFont::Glyph* g = bangersFind(c, BangersSize::LG);
+    if (!g || !g->bitmap) return 0;
+    // The first column with any ink in it, plus the glyph's own offset.
+    const int rowBytes = (g->w + 7) / 8;
+    for (int col = 0; col < g->w; col++)
+        for (int row = 0; row < g->h; row++)
+            if ((g->bitmap[row * rowBytes + col / 8] >> (7 - (col % 8))) & 1) return g->xoff + col;
+    return g->xoff;
+}
+
 void bangersDigitInk(int& top, int& height) {
     int lo = 1000, hi = -1000;
     for (char c = '0'; c <= '9'; c++) {
@@ -8779,7 +8787,8 @@ void bangersDigitInk(int& top, int& height) {
     height = lo < hi ? hi - lo : 1;
 }
 
-void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color, float scale) {
+void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color, float scale,
+                            int outline, uint16_t outlineColor) {
     const BangersFont::Glyph* g = bangersFind(c, BangersSize::LG);
     if (!g || !g->bitmap || scale <= 0.0f) return;
     const int rowBytes = (g->w + 7) / 8;
@@ -8791,7 +8800,21 @@ void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color
     const int ox = x + (int)lroundf((float)g->xoff * scale);
     const int oy = yTop + (int)lroundf((float)g->yoff * scale);
     const float inv = 1.0f / scale;
+    // The ink as runs, a few per row, kept only when an outline wants them:
+    // a clock digit is two or three runs a row, and 120 rows of four is under
+    // a kilobyte of stack for as long as this call lasts.
+    const int RUN_ROWS = 120, RUNS = 4;
+    struct Row { uint8_t n; uint8_t s[RUNS], e[RUNS]; };
+    const bool keep = outline > 0 && dh <= RUN_ROWS && dw < 255;
+    Row rows[RUN_ROWS];
+    auto emit = [&](int dy, int from, int to) {
+        if (!keep) { t.drawFastHLine(ox + from, oy + dy, to - from, color); return; }
+        Row& r = rows[dy];
+        if (r.n < RUNS) { r.s[r.n] = (uint8_t)from; r.e[r.n] = (uint8_t)to; r.n++; }
+        else            r.e[RUNS - 1] = (uint8_t)to;          // one more: fold it into the last
+    };
     for (int dy = 0; dy < dh; dy++) {
+        if (keep) rows[dy].n = 0;
         const float sy = ((float)dy + 0.5f) * inv - 0.5f;
         const int   y0 = (int)floorf(sy);
         const float fy = sy - (float)y0;
@@ -8811,11 +8834,23 @@ void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color
             }
             if (on && runStart < 0) runStart = dx;
             if (!on && runStart >= 0) {
-                t.drawFastHLine(ox + runStart, oy + dy, dx - runStart, color);
+                emit(dy, runStart, dx);
                 runStart = -1;
             }
         }
     }
+    if (!keep) return;
+    // The keyline: every run, widened by `outline` and repeated on the rows
+    // `outline` above and below it -- a square brush, the same shape the
+    // eight offset copies used to make -- then the ink over it.
+    for (int dy = 0; dy < dh; dy++)
+        for (int k = 0; k < rows[dy].n; k++)
+            for (int oyy = -outline; oyy <= outline; oyy++)
+                t.drawFastHLine(ox + rows[dy].s[k] - outline, oy + dy + oyy,
+                                rows[dy].e[k] - rows[dy].s[k] + 2 * outline, outlineColor);
+    for (int dy = 0; dy < dh; dy++)
+        for (int k = 0; k < rows[dy].n; k++)
+            t.drawFastHLine(ox + rows[dy].s[k], oy + dy, rows[dy].e[k] - rows[dy].s[k], color);
 }
 
 // ---- the desk clock's backdrops --------------------------------------------
@@ -8918,8 +8953,15 @@ void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, ui
         const uint8_t HOT = 36;
         // A fixed 60 ms step, however fast the screen is drawn, so the flames
         // rise at the same speed on every board.
+        // After a pause (Settings, an alert) it catches up at most three
+        // steps, starting three steps back from now -- so the clock it keeps
+        // lands exactly on `now`, and never runs ahead of it. Setting it TO
+        // now before adding the steps left it 180 ms in the future, and the
+        // next frame's subtraction wrapped round to three steps again, for
+        // good: the flames ran at three times their speed.
+        if ((int32_t)(now - s_cfStep) < 0) s_cfStep = now;
         int steps = (int)((now - s_cfStep) / 60U);
-        if (steps > 3) { steps = 3; s_cfStep = now; }
+        if (steps > 3) { steps = 3; s_cfStep = now - 180U; }
         for (int n = 0; n < steps; n++) {
             s_cfStep += 60U;
             // The seed row flickers: mostly hot, with a few cold gaps that

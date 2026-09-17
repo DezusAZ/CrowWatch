@@ -20,14 +20,14 @@ void geom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
 }
 
 void drawRow(TFT_eSPI& t, int w, int y, int hgt, const char* label,
-             const char* value, uint16_t valueCol, bool dimmed) {
+             const char* value, uint16_t valueCol) {
     Theme::drawListRowPanel(t, w, y, hgt);
     t.setTextSize(2);
     t.setTextWrap(false);
-    t.setTextColor(dimmed ? Theme::blend(Theme::BG, Theme::CYAN, 110) : Theme::CYAN, Theme::BG);
+    t.setTextColor(Theme::CYAN, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(label);
-    t.setTextColor(dimmed ? Theme::blend(Theme::BG, valueCol, 110) : valueCol, Theme::BG);
+    t.setTextColor(valueCol, Theme::BG);
     t.setCursor(w - 18 - t.textWidth(value), y + (hgt - t.fontHeight()) / 2);
     t.print(value);
 }
@@ -61,7 +61,7 @@ void uiCrowdTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
 
     const bool many = Settings::meshCrowd() > 1;
     drawRow(t, w, top, rowH, "HOW MANY", Settings::meshCrowdLabel(),
-            many ? Theme::GREEN : Theme::W95_SHADOW, false);
+            many ? Theme::GREEN : Theme::W95_SHADOW);
 
     int y = top + rowH + 6;
     if (many) note(t, y, bodyBottom, "They roam, and shrink to fit.");

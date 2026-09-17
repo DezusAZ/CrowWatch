@@ -83,8 +83,8 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     row(t, w, top + 2 * rowH, rowH, "MESSAGES",
         !st ? "ERR" : (Settings::messagesOn() ? "ON" : "OFF"),
         !st ? Theme::RED : (Settings::messagesOn() ? Theme::GREEN : Theme::W95_SHADOW));
-    // How many of them may be on screen at once, whether they roam, and
-    // which screens they turn up on. An arrow, not a bare value: every row
+    // How many of them may be on the main screen at once. An arrow, not a
+    // bare value: every row
     // on this list that says ON or OFF is a switch, and the ones that open
     // a screen show something that cannot be mistaken for a switch state.
     char cw[16];

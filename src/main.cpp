@@ -564,10 +564,10 @@ uint32_t            lastAlertHits = 1; // times this exact MAC+type has ever mat
 int8_t              lastAlertRssi = 0; // signal strength of that hit — scales how hard Squachy reacts to it
 const uint16_t      TOUCH_DEBOUNCE_MS = 200;
 
-// Hidden "unlock every Squachy outfit" gesture: hold CLR for
-// CLR_UNLOCK_HOLD_MS on the CLEAR screen (see the CLEAR case's touch
-// handling in loop()) -- replaces a fragile 11-tap sequence (CLR x9,
-// SCAN x1, CLR x1) that broke once SCAN stopped being a no-op there.
+// Hidden "unlock every Squachy outfit" gesture: hold the third button (DESK)
+// for CLR_UNLOCK_HOLD_MS on the CLEAR screen (see the CLEAR case's touch
+// handling in loop()) -- replaces a fragile 11-tap sequence that broke once
+// SCAN stopped being a no-op there. The name is from when that button was CLR.
 // The ALERT screen carries real information (type, confidence, MAC,
 // RSSI) — tapping it away is the expected dismiss, but the automatic
 // fallback still needs to actually clear itself in a reasonable time
@@ -1294,6 +1294,17 @@ static void enterLocked();
 // is dismissed, not to CLEAR. Set in enterAlert(), spent here.
 static bool s_backToDesk = false;
 static void enterDesk();
+
+// The screens that run the raw scan, which switches detection off while it
+// runs. Leaving one by anything but its own BACK -- the lock icon, the gear,
+// an auto-lock -- has to stop it, or detection stays off until a restart.
+static bool onRawScanScreen() {
+    return state == AppState::RAWSCAN || state == AppState::WIFI_ADD
+#if SQUACH_MESH
+        || state == AppState::SQUAD_UPDATE
+#endif
+        ;
+}
 static void enterClear() {
     if (Security::locked()) { enterLocked(); return; }
     if (s_backToDesk) { s_backToDesk = false; enterDesk(); return; }
@@ -1425,6 +1436,7 @@ static void enterRawScan(bool isBle) {
 
 static void enterSettings() {
     Settings::deskActive(false);
+    Theme::releaseClockBackdrop();
     state = AppState::SETTINGS;
     transitionStart = millis();
     uiSettingsInit(*canvas);
@@ -1445,6 +1457,7 @@ static void enterDiagnostics() {
 }
 
 static void enterUpdate() {
+    Theme::releaseClockBackdrop();   // the download wants every byte
     state = AppState::UPDATE;
     transitionStart = millis();
     uiUpdateInit(*canvas);
@@ -2486,7 +2499,7 @@ void loop() {
          state == AppState::DESK) &&
         Theme::lockButtonHit(tp.x, tp.y, tft.width())) {
         lastTouch = now;
-        if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
+        if (onRawScanScreen()) engine.stopRawScan();
         Security::lock();
         enterLocked();
         s_swallowTouch = true;
@@ -2612,16 +2625,14 @@ void loop() {
             // -- otherwise the raw scan (and the continuous detection
             // scan it's pausing) would just sit there indefinitely
             // while the user is off in Settings.
-            if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
+            if (onRawScanScreen()) engine.stopRawScan();
             // From the desk, Settings' BACK comes back to the desk, the way
             // the alert card's does. The gear drew on the desk from the day
             // desk mode shipped and this is the first time it did anything.
-            const bool fromDesk = (state == AppState::DESK);
-            if (fromDesk) s_backToDesk = true;
+            if (state == AppState::DESK) s_backToDesk = true;
+            // The main list, as from every other screen. The desk's own page
+            // is the gear at the bottom left of the desk.
             enterSettings();
-            // ...and opens on the desk's own page, which is what the gear on
-            // the desk is most likely to be after. UP from it is the rest.
-            if (fromDesk) uiSettingsOpenPage(SettingsPage::DESK);
         }
     }
 
@@ -2630,7 +2641,7 @@ void loop() {
     // hold on the middle of the button bar on CLEAR/LOG recalibrates touch.
     //
     // It lands on the LOG button, which is deliberate rather than awkward:
-    // the CLR button beside it already carries a four second hold for the
+    // the DESK button beside it already carries a four second hold for the
     // outfit unlock, so this follows a gesture the same bar already has
     // instead of inventing one. LOG had no hold of its own.
     //
@@ -2726,6 +2737,21 @@ void loop() {
         }
 #endif
         case AppState::SYS_PROPS: {
+            // A detection still takes the screen. The window can open on a
+            // board nobody is watching -- a squad member's hello brings the
+            // news -- and it has no timeout, so without this it held every
+            // alert back until somebody happened to tap it.
+            {
+                const Detection* latest = engine.latest();
+                if (latest && (now - latest->firstSeen) < 200 &&
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac)) {
+                    uiAlertSetRedacted(false);
+                    enterAlert(*latest);
+                    s_backToDesk = Settings::deskWanted();   // dismissed, back where the window was over
+                    break;
+                }
+                if (engine.watchHitPending()) { enterWatchAlert(); break; }
+            }
             uiSysPropsTick(*canvas, now, engine);
             if (touchJustDown) {
                 switch (uiSysPropsTouch(*canvas, tp.x, tp.y)) {
@@ -3160,7 +3186,10 @@ void loop() {
             // thing being cleared is in front of you.
             if (touchJustUp && clrHoldActive) {
                 clrHoldActive = false;
-                if (!clrHoldFired) enterDesk();
+                // Only a press that started on THIS screen. One that began
+                // before an alert or the update window took over, and lifts
+                // after it handed back, is not a tap on DESK.
+                if (!clrHoldFired && clrHoldStart >= transitionStart) enterDesk();
             }
             break;
         }
@@ -3931,8 +3960,8 @@ void loop() {
                         case SettingsRow::VIEW_DIARY:   enterDiary(); break;
                         case SettingsRow::APPEARANCE:  uiSettingsOpenAppearance(true); break;
                         case SettingsRow::TOP_HAT:     Settings::toggleTopHat(); break;
-                        // From the APPEARANCE page, back to the main list;
-                        // from the main list, out.
+                        // From a sub-page, back to the main list; from the
+                        // main list, out.
                         case SettingsRow::BACK:
                             if (uiSettingsCurrentPage() != SettingsPage::MAIN) uiSettingsOpenPage(SettingsPage::MAIN);
                             else                                               enterClear();
@@ -4770,7 +4799,10 @@ void loop() {
             }
             uiDeskTick(*canvas, now, engine);
             Theme::drawToast(*canvas, now);
-            if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
+            // A fresh press only. A finger still down from the screen before
+            // -- LATER on the update window opens the desk under it -- used to
+            // land on BACK or the timer the moment the debounce ran out.
+            if (touchJustDown && tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
                 // The same edge slivers CLEAR uses, below the title bar and
                 // above the buttons: left edge back, right edge forward.
                 const int ez = tft.width() / 10;
@@ -4786,8 +4818,8 @@ void loop() {
                     lastTouch = now;
                     enterClear();   // BACK means the main screen, not the settings it came through
                 } else if (uiDeskHitSettings(tp.x, tp.y, tft.width(), tft.height())) {
-                    // The same place the title bar's icon goes: the desk's own
-                    // page, and back to the desk on the way out.
+                    // The desk's own page in Settings, and back to the desk on
+                    // the way out. (The title bar's icon opens the main list.)
                     lastTouch = now;
                     s_backToDesk = true;
                     enterSettings();
@@ -5019,7 +5051,7 @@ void loop() {
             state != AppState::ALERT && state != AppState::WATCH_ALERT) {
             const uint32_t lockMs = Security::autoLockIdleMs();
             if ((lockMs && idleMs >= lockMs) || (Security::autoLockOnSleep() && s_screenDimmed)) {
-                if (state == AppState::RAWSCAN || state == AppState::WIFI_ADD) engine.stopRawScan();
+                if (onRawScanScreen()) engine.stopRawScan();
                 Security::lock();
                 enterLocked();
             }

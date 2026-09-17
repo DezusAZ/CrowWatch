@@ -90,8 +90,8 @@ const char* releaseName();        // "" when none came with it
 uint8_t     newsCount();          // 0..NEWS_MAX
 const char* newsAt(uint8_t i);
 constexpr uint8_t NEWS_MAX = 4;
-// The one-line notice for Squachy, once per version. nullptr once said.
-const char* takeAvailableNotice();
+// True once per newer version heard of: the moment to open the update window.
+bool        takeAvailableNotice();
 const char* buildName();        // the PlatformIO environment, e.g. "cyd-fast"
 uint32_t    maxImageSize();
 

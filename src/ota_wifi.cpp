@@ -44,7 +44,6 @@ uint8_t s_netN = 0;
 char    s_ssid[33]  = "";
 char    s_pass[65]  = "";
 bool    s_save      = false;
-char    s_saved[33] = "";      // the one marked USE, for the callers that want one name
 bool    s_savedRead = false;
 bool    s_autoJoin  = false;    // begin() with networks saved: join the best one after the scan
 struct Saved { char ssid[33]; SavedResult result; };
@@ -58,11 +57,6 @@ TaskHandle_t s_task       = nullptr;
 bool         s_btReleased = false;
 
 void key(char* out, const char* k, uint8_t i) { snprintf(out, 4, "%s%u", k, (unsigned)i); }
-
-void cacheUse() {
-    strncpy(s_saved, s_n ? s_list[s_use].ssid : "", sizeof s_saved - 1);
-    s_saved[sizeof s_saved - 1] = '\0';
-}
 
 // Keys: n, use, s0..s5 (names), p0..p5 (passwords), r0..r5 (how the last try
 // went). A board from before the list had one network under ssid/pass; it
@@ -99,7 +93,6 @@ void readSaved() {
         p.remove("pass");
     }
     p.end();
-    cacheUse();
 }
 
 void writeList() {
@@ -114,7 +107,6 @@ void writeList() {
         }
         p.end();
     }
-    cacheUse();
 }
 
 bool passAt(uint8_t i, char* out, size_t cap) {
@@ -274,38 +266,58 @@ bool parseVersion(const char* body, char* out, size_t cap) {
 // optional: "release_name", and "whats_new" as an array of short strings.
 // Everything else in that file is for the browser flasher, which ignores
 // what it does not know, exactly as this does.
+// One JSON string, from its opening quote. Escapes are read, not copied: the
+// workflow writes these with json.dump, which turns a quote into \" and
+// anything past ASCII into \uXXXX -- taken raw, a quote ended the line early
+// and scrambled every line after it. The board's fonts are ASCII, so an
+// escaped character past it comes out as '?'. Copies what fits into `out`
+// and returns the character after the closing quote, or nullptr.
+static const char* jsonString(const char* q, char* out, size_t cap) {
+    if (!q || *q != '"' || !cap) return nullptr;
+    size_t o = 0;
+    for (const char* p = q + 1; *p; p++) {
+        char c = *p;
+        if (c == '"') { out[o] = '\0'; return p + 1; }
+        if (c == '\\') {
+            const char e = *++p;
+            if (!e) break;
+            if (e == 'u') {
+                int v = 0, d = 0;
+                for (; d < 4 && isxdigit((unsigned char)p[1]); d++, p++)
+                    v = v * 16 + (isdigit((unsigned char)p[1]) ? p[1] - '0' : (tolower((unsigned char)p[1]) - 'a' + 10));
+                c = (d == 4 && v >= 0x20 && v < 0x7F) ? (char)v : '?';
+            } else {
+                c = (e == 'n' || e == 't' || e == 'r') ? ' ' : e;   // \" \\ \/ are the character itself
+            }
+        }
+        if (o + 1 < cap) out[o++] = c;
+    }
+    out[o] = '\0';
+    return nullptr;
+}
+
 void parseRelease(const char* body) {
     char name[20] = "";
-    const char* k = strstr(body, "\"release_name\"");
-    if (k) {
-        const char* q = strchr(k + 14, '"');
-        const char* e = q ? strchr(q + 1, '"') : nullptr;
-        if (q && e && e > q + 1) {
-            size_t n = (size_t)(e - (q + 1));
-            if (n >= sizeof name) n = sizeof name - 1;
-            memcpy(name, q + 1, n);
-            name[n] = '\0';
-        }
+    if (const char* k = strstr(body, "\"release_name\"")) {
+        const char* p = k + 14;
+        while (*p == ' ' || *p == ':') p++;
+        jsonString(p, name, sizeof name);
     }
     char lines[OtaCore::NEWS_MAX][40];
     const char* ptr[OtaCore::NEWS_MAX];
     uint8_t n = 0;
-    const char* a = strstr(body, "\"whats_new\"");
-    if (a) {
+    if (const char* a = strstr(body, "\"whats_new\"")) {
         const char* p = strchr(a + 11, '[');
-        const char* end = p ? strchr(p, ']') : nullptr;
-        while (p && end && n < OtaCore::NEWS_MAX) {
-            const char* q = strchr(p + 1, '"');
-            if (!q || q > end) break;
-            const char* e = strchr(q + 1, '"');
-            if (!e || e > end) break;
-            size_t len = (size_t)(e - (q + 1));
-            if (len >= sizeof lines[0]) len = sizeof lines[0] - 1;
-            memcpy(lines[n], q + 1, len);
-            lines[n][len] = '\0';
+        // String by string, not "everything before the first ]": a bracket
+        // inside a line of the notes is part of the line.
+        while (p && n < OtaCore::NEWS_MAX) {
+            p++;
+            while (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r' || *p == '\t') p++;
+            if (*p != '"') break;
+            p = jsonString(p, lines[n], sizeof lines[0]);
             ptr[n] = lines[n];
             n++;
-            p = e + 1;
+            if (p) p--;                   // the loop steps over it
         }
     }
     if (name[0] || n) OtaCore::noteRelease(name, ptr, n);
@@ -507,15 +519,12 @@ uint8_t    netCount() { return s_netN; }
 const Net* net(uint8_t i) { return i < s_netN ? &s_nets[i] : nullptr; }
 
 bool hasSaved() { readSaved(); return s_n > 0; }
-bool savedPass(char* out, size_t cap) { readSaved(); return passAt(s_use, out, cap); }
 bool savedPassAt(uint8_t i, char* out, size_t cap) { readSaved(); return i < s_n && passAt(i, out, cap); }
-const char* savedSsid() { readSaved(); return s_saved; }
 
 void forget() {
     Preferences p;
     if (p.begin(NVS_NS, false)) { p.clear(); p.end(); }
     s_n = 0; s_use = 0;
-    s_saved[0] = '\0';
     s_savedRead = true;
 }
 
@@ -633,7 +642,6 @@ bool bootCheck(uint32_t budgetMs) {
     if (!s_n) return false;
     const uint32_t t0 = millis();
     WiFi.mode(WIFI_STA);
-    Serial.printf("[ota] boot check: radio up in %lu ms\n", (unsigned long)(millis() - t0));
     // More than one network saved: a quick scan says which are here, and the
     // one marked USE wins when it is, else the strongest of the rest. One
     // network: join it blind, as before, and keep the scan's two seconds.
@@ -649,27 +657,26 @@ bool bootCheck(uint32_t budgetMs) {
         // shown by this scan anyway.
         const uint32_t ts = millis();
         const int found = WiFi.scanNetworks(false, false, true, 130);
-        Serial.printf("[ota] boot check: scan took %lu ms\n", (unsigned long)(millis() - ts));
         int8_t best = -1, bestRssi = -127;
         bool   seen[SAVED_MAX] = { false, false, false, false, false, false };
-        Serial.printf("[ota] boot check: scan saw %d network(s)\n", found);
+        uint8_t inRange = 0;
         for (int j = 0; j < found; j++) {
             const int8_t k = savedIndexOf(WiFi.SSID(j).c_str());
             if (k < 0) continue;
-            // Never the name: the index into the saved list, and what the
-            // radio made of it. A join that times out on a network the scan
-            // can see is signal, channel or security, and this is which.
-            Serial.printf("[ota] boot check: saved %d in range, %d dBm, ch %d, auth %d\n",
-                          (int)k, (int)WiFi.RSSI(j), (int)WiFi.channel(j), (int)WiFi.encryptionType(j));
+            if (!seen[k]) inRange++;
             seen[k] = true;
             if (k == (int8_t)s_use) { best = k; bestRssi = 127; }
             else if (WiFi.RSSI(j) > bestRssi) { bestRssi = (int8_t)WiFi.RSSI(j); best = k; }
         }
         WiFi.scanDelete();
+        Serial.printf("[ota] boot check: scan %lu ms, %d network(s), %u of %u saved in range\n",
+                      (unsigned long)(millis() - ts), found, (unsigned)inRange, (unsigned)s_n);
         for (uint8_t i = 0; i < s_n; i++) if (!seen[i]) setResult((int8_t)i, SavedResult::NOT_FOUND);
         if (best < 0) {
-            Serial.printf("[ota] boot check: none of the %u saved networks in range (%lu ms)\n",
-                          (unsigned)s_n, (unsigned long)(millis() - t0));
+            // The radio off on the way out, as the end of this does: the
+            // station mode switched on above held the WiFi driver's heap
+            // through the whole of the boot that followed.
+            WiFi.mode(WIFI_OFF);
             return false;
         }
         pick = (uint8_t)best;
@@ -698,8 +705,6 @@ bool bootCheck(uint32_t budgetMs) {
     // strong went unjoined boot after boot. A board with one saved network
     // skips the scan, which is why it never showed there.
     const uint32_t tj = millis();
-    Serial.printf("[ota] boot check: saved %u picked, join starts %lu ms in\n",
-                  (unsigned)pick, (unsigned long)(tj - t0));
     WiFi.begin(ssid, pass[0] ? pass : nullptr);
     wl_status_t st = WiFi.status();
     // Two thirds of the budget for the join, the rest for the fetch.
@@ -741,9 +746,7 @@ bool bootCheck(uint32_t budgetMs) {
         if (http.begin(plain, base + "manifest-" + OtaCore::buildName() + ".json")) {
             http.setConnectTimeout((int32_t)left);
             http.setTimeout((uint16_t)(left > 60000 ? 60000 : left));
-            const uint32_t tg = millis();
             const int code = http.GET();
-            Serial.printf("[ota] boot check: GET answered %d in %lu ms\n", code, (unsigned long)(millis() - tg));
             if (code == 200) {
                 WiFiClient* s = http.getStreamPtr();
                 const int total = http.getSize();     // the server keeps the connection open, so the
@@ -797,14 +800,8 @@ bool bootCheck(uint32_t budgetMs) {
     Clock::syncStop();
     // Everything back the way it was: the driver torn down, so Bluetooth
     // starts into the heap it always had.
-    const uint32_t td = millis();
     WiFi.disconnect(true, true);
-    Serial.printf("[ota] boot check: disconnected in %lu ms (heap %lu, largest %lu)\n",
-                  (unsigned long)(millis() - td),
-                  (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    const uint32_t to = millis();
     WiFi.mode(WIFI_OFF);
-    Serial.printf("[ota] boot check: radio off in %lu ms\n", (unsigned long)(millis() - to));
     Serial.printf("[ota] boot check done in %lu ms (heap %lu, largest %lu)\n", (unsigned long)(millis() - t0),
                   (unsigned long)ESP.getFreeHeap(),
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));

@@ -62,19 +62,15 @@ uint8_t     netCount();
 const Net*  net(uint8_t i);
 
 bool        hasSaved();
-const char* savedSsid();
-// The saved password, for the squad update nudge to share. Into the
-// caller's buffer, which the caller wipes.
-bool        savedPass(char* out, size_t cap);
-// ...and any of them by index, for the squad nudge: the one it shares is
-// whichever saved network is actually in the room, not whichever is first.
+// A saved network's password by index, for the squad nudge to share: the one
+// it shares is whichever saved network is actually in the room, not whichever
+// is first. Into the caller's buffer, which the caller wipes.
 bool        savedPassAt(uint8_t i, char* out, size_t cap);
 void        forget();
 
 // The list behind those: up to SAVED_MAX networks, managed on the WIFI
-// NETWORKS screen. savedSsid() and savedPass() above are the one marked USE:
-// the boot check tries it first when it is in range, and the squad update
-// nudge shares it. A network added on the board is not checked by joining --
+// NETWORKS screen. The one marked USE is the one the boot check tries first
+// when it is in range. A network added on the board is not checked by joining --
 // joining means giving Bluetooth up until a restart -- so its password is
 // tried at the next boot check, and savedResult() says how that went.
 static const uint8_t SAVED_MAX = 6;

@@ -110,7 +110,8 @@ static const SettingsRow DESK_ROWS[] = {
 };
 static const uint8_t DESK_ROWS_N = sizeof(DESK_ROWS) / sizeof(DESK_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
-// The display buffers below are sized off the longest of the three lists.
+// The display buffers below are sized off the longest of the lists (the
+// DESK MODE page's is checked against it just below).
 // It used to be the main one, until that list lost its NICKNAME row and
 // the APPEARANCE page outgrew it.
 static const uint8_t LIST_MAX_N = APPEARANCE_ROWS_N > ALL_ROWS_N ? APPEARANCE_ROWS_N : ALL_ROWS_N;
@@ -239,7 +240,6 @@ struct DisplayItem {
 static uint8_t buildDisplayList(DisplayItem* out) {
     SettingsRow rows[LIST_MAX_N + 2];   // + the two tracking rows
     uint8_t n = 0;
-    bool boring = Settings::boringMode();
     const SettingsRow* src = ALL_ROWS;
     uint8_t            srcN = ALL_ROWS_N;
     if (s_page == SettingsPage::APPEARANCE) { src = APPEARANCE_ROWS; srcN = APPEARANCE_ROWS_N; }
@@ -497,8 +497,6 @@ SettingsPage uiSettingsCurrentPage() { return s_page; }
 void uiSettingsOpenAppearance(bool open) {
     uiSettingsOpenPage(open ? SettingsPage::APPEARANCE : SettingsPage::MAIN);
 }
-
-bool uiSettingsInAppearance() { return s_page == SettingsPage::APPEARANCE; }
 
 // True when a mode has switched this row off. main.cpp asks so a tap on a
 // greyed row says why instead of doing nothing.

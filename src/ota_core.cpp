@@ -98,7 +98,6 @@ const char* runningSlot() {
 const char* runningVersion() { return FIRMWARE_VERSION; }
 static char     s_avail[16]  = "";
 static char     s_availFrom[13] = "";
-static char     s_availLine[48] = "";
 static bool     s_availSaid = true;
 // The release's own words, from the manifest. Sized for the window that
 // shows them: thirty-six characters is what the NOTES tab fits in portrait,
@@ -129,8 +128,6 @@ void noteAvailable(const char* version, const char* who) {
     if (strcmp(s_avail, version) != 0) { s_relName[0] = '\0'; s_newsN = 0; }
     snprintf(s_avail, sizeof s_avail, "%s", version);
     snprintf(s_availFrom, sizeof s_availFrom, "%s", who ? who : "");
-    if (s_availFrom[0]) snprintf(s_availLine, sizeof s_availLine, "%s is on %s. SYSTEM > UPDATE.", s_availFrom, s_avail);
-    else                snprintf(s_availLine, sizeof s_availLine, "v%s is out. SYSTEM > UPDATE.", s_avail);
     s_availSaid = false;
     Serial.printf("[ota] newer release known: %s%s%s\n", s_avail, s_availFrom[0] ? " via " : "", s_availFrom);
 }
@@ -144,10 +141,10 @@ const char* releaseName() { return s_relName; }
 uint8_t     newsCount()   { return s_newsN; }
 const char* newsAt(uint8_t i) { return i < s_newsN ? s_news[i] : ""; }
 const char* availableFrom()    { return s_availFrom; }
-const char* takeAvailableNotice() {
-    if (s_availSaid || !s_avail[0]) return nullptr;
+bool takeAvailableNotice() {
+    if (s_availSaid || !s_avail[0]) return false;
     s_availSaid = true;
-    return s_availLine;
+    return true;
 }
 
 const char* buildName()      { return SQW_ENV; }

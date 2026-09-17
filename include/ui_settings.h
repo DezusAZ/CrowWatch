@@ -73,7 +73,6 @@ SettingsPage uiSettingsCurrentPage();
 
 // Kept so existing callers read the same. APPEARANCE only.
 void uiSettingsOpenAppearance(bool open);
-bool uiSettingsInAppearance();
 
 // A tap on a group heading folds that group away, turning a list that runs
 // four screens deep into a short menu. Returns true if (x,y) hit a heading and

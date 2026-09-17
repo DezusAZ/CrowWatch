@@ -208,7 +208,7 @@ namespace Theme {
     void drawWin95Button(TFT_eSPI& t, int x, int y, int w, int h,
                          const char* label, bool sunken);
 
-    // Bottom [SCAN][LOG][CLR] button bar, laid out from the current
+    // Bottom [SCAN][LOG][DESK] button bar, laid out from the current
     // screen width/height so it adapts to any rotation (landscape or
     // portrait). Button height is a fixed finger-sized touch target,
     // independent of screen size. Settings lives in the title bar (see
@@ -219,7 +219,7 @@ namespace Theme {
     };
     ButtonBarGeom computeButtonBar(int screenW, int screenH);
 
-    // MAIN is the normal [SCAN][LOG][CLR] bar. SCAN_PICKER relabels the
+    // MAIN is the normal [SCAN][LOG][DESK] bar. SCAN_PICKER relabels the
     // exact same three slots as [BLE][WIFI][BACK] -- CLEAR's SCAN
     // button opens this in place rather than switching screens, so the
     // slot positions (and hitTestButtonBar's ButtonId::SCAN/LOG/CLR
@@ -508,8 +508,14 @@ namespace Theme {
     // turning to steps; and never glitched -- a clock that tears is a clock
     // you cannot read. (x, yTop) is the top-left of the glyph's ascender box,
     // as for drawBangersText.
-    void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color, float scale);
+    // `outline` > 0 first draws a keyline that many pixels wide in
+    // `outlineColor`, from the same sampling: the glyph is sampled once and
+    // the outline built from its rows, rather than the whole glyph being
+    // sampled again at every offset.
+    void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color, float scale,
+                                int outline = 0, uint16_t outlineColor = 0);
     int  bangersGlyphAdvance(char c);    // LG, unscaled
+    int  bangersGlyphInkLeft(char c);    // LG, unscaled: where its ink starts past the pen
     // The digits' ink, unscaled: its top row inside the ascender box and its
     // height, so a caller can size a digit by what actually shows.
     void bangersDigitInk(int& top, int& height);

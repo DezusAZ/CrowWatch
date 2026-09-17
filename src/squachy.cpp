@@ -229,7 +229,7 @@ static const char* const ONBOARD_LINES[] = {
     "SquachWatch listens for surveillance nearby -- cameras, plate readers, trackers like AirTags.",
     "No magic. Just WiFi and Bluetooth, matching known hardware as it passes by.",
     "All zeroes down there means nothing's around. It flips to a big flashing ALERT the second something matches.",
-    "Down there: SCAN rescans, LOG shows history, CLR wipes it.",
+    "Down there: SCAN rescans, LOG shows history, DESK is a big clock.",
 #if defined(AWOK)
     "Up top left: Settings. The far left/right edges of the screen swap backgrounds, one swap per tap.",
 #else

@@ -175,6 +175,7 @@ static void usage() {
         "  --peer N          draw a visiting SquachMesh peer in outfit N\n"
         "  --peername NAME   give that visitor a custom name\n"
         "  --crowd N         clear screen: N squad members in range, roaming with ours\n"
+        "  --ondesk          desk screen: the squad under the clock (DESK MODE > SQUAD ON DESK)\n"
         "  --tab N           sysprops screen: 0 update, 1 notes, 2 board\n"
         "  --beacons         turn IBEACON on, which gives it a counter column\n"
         "  --from NAME       sysprops screen: heard from that squad member, not the site\n"
@@ -374,8 +375,6 @@ int main(int argc, char** argv) {
         MeshTalk::tick(millis());
     }
 
-    // Off by default on the board, so the counter column only exists when
-    // somebody has asked for the type.
     // Set rather than toggled: the NVS shim may remember a previous run.
     if (onDesk != Settings::deskSquad()) Settings::toggleDeskSquad();
     // The desk's HOW MANY follows --crowd, the way the main screen's does.
@@ -389,6 +388,8 @@ int main(int argc, char** argv) {
         for (int g = 0; g < 4 && Settings::clockSize() != z; g++)     Settings::cycleClockSize();
         for (int g = 0; g < 8 && Settings::clockBackdrop() != b; g++) Settings::cycleClockBackdrop();
     }
+    // Off by default on the board, so the counter column only exists when
+    // somebody has asked for the type.
     if (beacons && !Settings::typeEnabled(DetectionType::IBEACON))
         Settings::toggleType(DetectionType::IBEACON);
 

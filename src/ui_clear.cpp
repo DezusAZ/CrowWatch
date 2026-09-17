@@ -1019,6 +1019,13 @@ static void emoteStart(uint32_t now) {
     }
 }
 
+// Whether the visitor is saying hello: walking in, through the hellos,
+// walking out, or waved at. He waves then, and only then.
+static bool guestGreeting() {
+    return s_vp == VisitPhase::ARRIVING || s_vp == VisitPhase::MEETING ||
+           s_vp == VisitPhase::LEAVING || s_piece == Piece::WAVE;
+}
+
 // What the guest is doing this frame, beyond standing and talking.
 static Squachy::VisitPose guestPose(uint32_t now) {
     typedef Squachy::VisitPose P;
@@ -1956,10 +1963,8 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
         // whole visit. The visitor waves while he is saying hello, the same
         // as on the ground; the rest give a wave now and then, each on his
         // own clock -- three seconds in every twenty-five.
-        const bool waving = isGuest
-            ? (s_vp == VisitPhase::ARRIVING || s_vp == VisitPhase::MEETING ||
-               s_vp == VisitPhase::LEAVING || s_piece == Piece::WAVE)
-            : ((now + (uint32_t)i * 8111u) % 25000u) < 3000u;
+        const bool waving = isGuest ? guestGreeting()
+                                    : ((now + (uint32_t)i * 8111u) % 25000u) < 3000u;
         Squachy::drawWaving(t, cx, baseY, now + (uint32_t)i * 137u, s, line,
                             line != nullptr, 0, waving, gap, isGuest && now < s_guestLaughUntil,
                             isGuest && !s_guestTurn, line != nullptr,
@@ -2593,10 +2598,7 @@ static void drawVisit(TFT_eSPI& t, uint32_t now, const SquachMesh::Peer* guest,
     // Waves while walking in and through the hellos, then settles.
     // A guest who never stops waving reads as a stuck frame rather
     // than as a greeting once he has been there half a minute.
-    const bool stillGreeting = (s_vp == VisitPhase::ARRIVING ||
-                                s_vp == VisitPhase::MEETING ||
-                                s_vp == VisitPhase::LEAVING ||
-                                s_piece == Piece::WAVE);    // and when waved at
+    const bool stillGreeting = guestGreeting();
     // His name, on a sticker on his chest. It used to take turns with
     // his bubble in the row above his head; on the chest the two never
     // meet, so he is named for the whole visit, talking or not.

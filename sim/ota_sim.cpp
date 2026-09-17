@@ -39,13 +39,11 @@ void        tick(uint32_t now)                 { if (s_restart && now >= s_resta
 const char* takeBootNote(const char**, bool*)  { return nullptr; }
 const char* runningSlot()                      { return "app0"; }
 const char* runningVersion()                   { return "v1.7.1"; }   // reads naturally in the release clip
-static char s_avail[16] = "", s_availFrom[13] = "", s_availLine[48] = "";
+static char s_avail[16] = "", s_availFrom[13] = "";
 static bool s_availSaid = true;
 void noteAvailable(const char* v, const char* who) {
     snprintf(s_avail, sizeof s_avail, "%s", (v && (*v == 'v')) ? v + 1 : (v ? v : ""));
     snprintf(s_availFrom, sizeof s_availFrom, "%s", who ? who : "");
-    if (s_availFrom[0]) snprintf(s_availLine, sizeof s_availLine, "%s is on %s. SYSTEM > UPDATE.", s_availFrom, s_avail);
-    else                snprintf(s_availLine, sizeof s_availLine, "v%s is out. SYSTEM > UPDATE.", s_avail);
     s_availSaid = false;
 }
 static char    s_relName[20] = "";
@@ -61,7 +59,7 @@ uint8_t     newsCount()          { return s_newsN; }
 const char* newsAt(uint8_t i)    { return i < s_newsN ? s_news[i] : ""; }
 const char* availableVersion()   { return s_avail; }
 const char* availableFrom()      { return s_availFrom; }
-const char* takeAvailableNotice(){ if (s_availSaid || !s_avail[0]) return nullptr; s_availSaid = true; return s_availLine; }
+bool        takeAvailableNotice(){ if (s_availSaid || !s_avail[0]) return false; s_availSaid = true; return true; }
 const char* buildName()                        { return "sim"; }
 uint32_t    maxImageSize()                     { return 1966080; }
 void        refreshOther()                     {}
@@ -162,8 +160,6 @@ static SimSaved s_list[SAVED_MAX] = {
 static uint8_t s_n = 3, s_use = 0;
 bool        hasSaved()  { return s_saved && s_n > 0; }
 bool        bootCheck(uint32_t) { return false; }
-const char* savedSsid() { return hasSaved() ? s_list[s_use].ssid : ""; }
-bool        savedPass(char* out, size_t cap) { if (!hasSaved() || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
 bool        savedPassAt(uint8_t i, char* out, size_t cap) { if (i >= savedCount() || !cap) return false; snprintf(out, cap, "hunter2"); return true; }
 void        forget()    { s_saved = false; s_n = 0; }
 uint8_t     savedCount()           { return s_saved ? s_n : 0; }

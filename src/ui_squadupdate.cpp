@@ -114,7 +114,6 @@ void uiSquadUpdateTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     pickShareNetwork(eng);
     if (s_shareIdx < 0)        s_share = false;   // nothing to share: the row cannot be on
     else if (!s_shareSet)      s_share = true;    // the scan found one: on, until said otherwise
-    (void)eng;
     const int w = t.width(), h = t.height();
     t.fillRect(0, 0, w, h, Theme::BG);
     Theme::drawListHeading(t, "UPDATE SQUAD", Theme::VAPOR_PINK);

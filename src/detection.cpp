@@ -462,7 +462,6 @@ bool DetectionEngine::init() {
         // addr1 (DA, offset 4), addr2 (SA, offset 10), addr3 (BSSID, offset 16)
         const uint8_t* frame = pkt->payload;
         uint8_t fc0 = frame[0];
-        uint8_t fc1 = frame[1];
         uint8_t type  = (fc0 & 0x0C) >> 2;
         uint8_t subtype = (fc0 & 0xF0) >> 4;
         // Management frame probe request: type=0, subtype=4
