@@ -118,9 +118,10 @@ int main() {
             }
         ck("and every type has at least one", types);
         bool fits = true;
+        // The name is copied into the Detection's own buffer, so it has to
+        // fit. The vendor is not: it is a pointer to the profile's string.
         for (size_t p = 0; p < kSimProfileCount; p++)
-            if (strlen(kSimProfiles[p].vendor) >= sizeof(Detection::vendor) ||
-                strlen(kSimProfiles[p].name) >= sizeof(Detection::name)) {
+            if (strlen(kSimProfiles[p].name) >= sizeof(Detection::name)) {
                 printf("    profile %s overflows a Detection field\n", kSimProfiles[p].label);
                 fits = false;
             }
