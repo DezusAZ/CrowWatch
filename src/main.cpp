@@ -1298,6 +1298,7 @@ static void enterClear() {
     if (Security::locked()) { enterLocked(); return; }
     if (s_backToDesk) { s_backToDesk = false; enterDesk(); return; }
     Settings::deskActive(false);
+    Theme::releaseClockBackdrop();   // the clock fire's heat, if the desk had one
     state = AppState::CLEAR;
     transitionStart = millis();
     s_scanPickerOpen = false;
@@ -2601,10 +2602,10 @@ void loop() {
             state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER ||
             state == AppState::SECURITY) enterSettings();
         else if (state == AppState::SETTINGS) {
-            // The gear on the APPEARANCE page goes back up a level, the way
-            // it does from every other screen Settings opens.
-            if (uiSettingsInAppearance()) uiSettingsOpenAppearance(false);
-            else                          enterClear();
+            // The gear on a sub-page goes back up a level, the way it does
+            // from every other screen Settings opens.
+            if (uiSettingsCurrentPage() != SettingsPage::MAIN) uiSettingsOpenPage(SettingsPage::MAIN);
+            else                                               enterClear();
         }
         else {
             // Leaving RAWSCAN via the settings icon, same as BACK does
@@ -2615,8 +2616,12 @@ void loop() {
             // From the desk, Settings' BACK comes back to the desk, the way
             // the alert card's does. The gear drew on the desk from the day
             // desk mode shipped and this is the first time it did anything.
-            if (state == AppState::DESK) s_backToDesk = true;
+            const bool fromDesk = (state == AppState::DESK);
+            if (fromDesk) s_backToDesk = true;
             enterSettings();
+            // ...and opens on the desk's own page, which is what the gear on
+            // the desk is most likely to be after. UP from it is the rest.
+            if (fromDesk) uiSettingsOpenPage(SettingsPage::DESK);
         }
     }
 
@@ -2712,7 +2717,6 @@ void loop() {
             if (touchJustDown) {
                 switch (uiCrowdHitTest(*canvas, tp.x, tp.y, tft.width(), tft.height())) {
                     case CrowdRow::HOW_MANY: Settings::cycleMeshCrowd();      break;
-                    case CrowdRow::ON_DESK:  Settings::toggleMeshCrowdDesk(); break;
                     default: break;
                 }
                 if (Theme::pinnedBackHit(tp.x, tp.y, tft.width(), tft.height())) enterMeshMenu();
@@ -2932,7 +2936,8 @@ void loop() {
             constexpr int32_t  SQ_MOVE_PX = 12;
             constexpr int32_t  SQ_MOVE_PX_SQ = SQ_MOVE_PX * SQ_MOVE_PX;
 
-            // Hidden outfit-unlock gesture: hold CLR (not tap it) for
+            // Hidden outfit-unlock gesture: hold the third button -- DESK
+            // now, CLR when this was written -- (not tap it) for
             // CLR_UNLOCK_HOLD_MS. Same tracked-across-frames shape as
             // Squachy's own HELD/PETTED just below -- a touch that
             // starts on CLR is armed for that touch's whole lifetime,
@@ -3150,15 +3155,12 @@ void loop() {
                 }
                 sqActive = false;
             }
-            // CLR released before the hold threshold -- a normal tap,
-            // same "clear log" action it's always done.
+            // Released before the hold threshold -- a normal tap on DESK.
+            // Clearing the log moved to the LOG screen's own CLR, where the
+            // thing being cleared is in front of you.
             if (touchJustUp && clrHoldActive) {
-                if (!clrHoldFired) {
-                    engine.clearLog();
-                    Squachy::trigger(Squachy::Event::LOG_CLEARED);
-                    enterClear();
-                }
                 clrHoldActive = false;
+                if (!clrHoldFired) enterDesk();
             }
             break;
         }
@@ -3506,7 +3508,11 @@ void loop() {
                     lastTouch = now;
                     ButtonId b = Theme::hitTestButtonBar(gestureStartX, gestureStartY, tft.width(), tft.height());
                     if (b == ButtonId::SCAN) { enterClear(); }
-                    if (b == ButtonId::CLR)  { engine.clearLog(); enterClear(); }
+                    if (b == ButtonId::CLR)  {
+                        engine.clearLog();
+                        Squachy::trigger(Squachy::Event::LOG_CLEARED);
+                        enterClear();
+                    }
                     if (b == ButtonId::LOG)  { enterClear(); }   // toggle off
                 }
                 gestureActive = false;
@@ -3786,6 +3792,14 @@ void loop() {
                     // The pinned strip along the bottom: up a level from a
                     // sub-page, out of Settings from the main list. Reachable
                     // from anywhere in the list, which is the point of it.
+                    // OK on the DESK MODE page: out, to the desk if that is
+                    // where Settings was opened from (enterClear() honours
+                    // that), otherwise the main screen.
+                    if (uiSettingsTapPinnedOk(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                        enterClear();
+                        gestureActive = false;
+                        break;
+                    }
                     if (uiSettingsTapPinnedBack(*canvas, gestureStartX, gestureStartY,
                                                  tft.width(), tft.height())) {
                         if (uiSettingsCurrentPage() != SettingsPage::MAIN)
@@ -3884,7 +3898,26 @@ void loop() {
                         case SettingsRow::CHECK_COLORS: enterColorCheck(true); break;
                         case SettingsRow::DIAGNOSTICS:  enterDiagnostics(); break;
                         case SettingsRow::WIFI_NETWORKS: enterWifiNets(); break;
-                        case SettingsRow::DESK_MODE:    enterDesk(); break;
+                        case SettingsRow::DESK_MODE:    uiSettingsOpenPage(SettingsPage::DESK); break;
+                        case SettingsRow::DESK_OPEN:
+                            // Settings' BACK from the desk comes back to it;
+                            // having just been sent there, that is not a
+                            // detour anybody wants on the way out.
+                            s_backToDesk = false;
+                            enterDesk();
+                            break;
+                        case SettingsRow::DESK_BACKGROUND:
+                            if (gestureStartX < tft.width() / 2) Settings::cyclePrevDeskBackground();
+                            else                                 Settings::cycleDeskBackground();
+                            break;
+                        case SettingsRow::CLOCK_FONT:     Settings::cycleClockFont();     break;
+                        case SettingsRow::CLOCK_SIZE:     Settings::cycleClockSize();     break;
+                        case SettingsRow::CLOCK_BACKDROP: Settings::cycleClockBackdrop(); break;
+#if SQUACH_MESH
+                        case SettingsRow::DESK_SQUAD:   Settings::toggleDeskSquad();     break;
+                        case SettingsRow::DESK_CROWD:   Settings::cycleDeskCrowd();      break;
+                        case SettingsRow::DESK_VISIT:   Settings::toggleDeskFullVisit(); break;
+#endif
                         case SettingsRow::UPDATE_FIRMWARE: enterUpdate(); break;
                         case SettingsRow::SHOW_OFF:
                             Squachy::startShowOff();
@@ -3901,8 +3934,8 @@ void loop() {
                         // From the APPEARANCE page, back to the main list;
                         // from the main list, out.
                         case SettingsRow::BACK:
-                            if (uiSettingsInAppearance()) uiSettingsOpenAppearance(false);
-                            else                          enterClear();
+                            if (uiSettingsCurrentPage() != SettingsPage::MAIN) uiSettingsOpenPage(SettingsPage::MAIN);
+                            else                                               enterClear();
                             break;
                         default: break;
                     }
@@ -4752,9 +4785,23 @@ void loop() {
                 } else if (uiDeskHitBack(tp.x, tp.y, tft.width(), tft.height())) {
                     lastTouch = now;
                     enterClear();   // BACK means the main screen, not the settings it came through
+                } else if (uiDeskHitSettings(tp.x, tp.y, tft.width(), tft.height())) {
+                    // The same place the title bar's icon goes: the desk's own
+                    // page, and back to the desk on the way out.
+                    lastTouch = now;
+                    s_backToDesk = true;
+                    enterSettings();
+                    uiSettingsOpenPage(SettingsPage::DESK);
                 } else if (uiDeskHitTimer(tp.x, tp.y, tft.width(), tft.height())) {
                     lastTouch = now;
                     uiDeskTapTimer(now);
+                } else if (touchJustDown && uiDeskHitClockEdge(tp.x, tp.y) != 0) {
+                    // The clock's own background turns over the same way the
+                    // scene's does: right fifth forward, left fifth back.
+                    lastTouch = now;
+                    if (uiDeskHitClockEdge(tp.x, tp.y) > 0) Settings::cycleClockBackdrop();
+                    else                                    Settings::cyclePrevClockBackdrop();
+                    Theme::showToast(Settings::clockBackdropName(), "CLOCK BG", Theme::CYAN);
                 } else if (edge && touchJustDown && !Settings::backgroundLocked()) {
                     lastTouch = now;
                     if (tp.x < ez) Settings::cyclePrevDeskBackground();

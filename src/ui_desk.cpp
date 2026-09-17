@@ -16,6 +16,9 @@
 namespace {
 
 enum class Timer : uint8_t { IDLE, FOCUS, BREAK };
+// Where the clock's plate was last drawn, for the taps that change what
+// plays inside it.
+int16_t s_plateX = 0, s_plateY = 0, s_plateW = 0, s_plateH = 0;
 Timer    s_timer   = Timer::IDLE;
 uint32_t s_timerEnd = 0;      // millis() when the running block ends
 uint32_t s_chimeAt  = 0;      // when the last block ended, for the light
@@ -42,18 +45,59 @@ constexpr uint32_t CHIME_MS = 6000;
 // f top-left, g middle.
 const uint8_t SEG[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F };
 
-void drawDigit(TFT_eSPI& t, int x, int y, int w, int h, int th, int d, uint16_t on, uint16_t off) {
+// `ghosts` false leaves the unlit segments out altogether, so whatever is
+// behind the clock shows through them.
+void drawDigit(TFT_eSPI& t, int x, int y, int w, int h, int th, int d, uint16_t on, uint16_t off,
+               bool ghosts = true) {
     const uint8_t s = (d >= 0 && d <= 9) ? SEG[d] : 0;
     const int mid = y + h / 2 - th / 2;
+    auto seg = [&](uint8_t bit, int sx, int sy, int sw, int sh) {
+        if (s & bit)     t.fillRect(sx, sy, sw, sh, on);
+        else if (ghosts) t.fillRect(sx, sy, sw, sh, off);
+    };
     // A pixel of air between segments so the corners read as a digit and
     // not a block.
-    t.fillRect(x + th + 1, y,              w - 2 * th - 2, th, (s & 0x01) ? on : off);   // a
-    t.fillRect(x + w - th, y + th + 1,     th, h / 2 - th - 2,  (s & 0x02) ? on : off);   // b
-    t.fillRect(x + w - th, mid + th + 1,   th, h / 2 - th - 2,  (s & 0x04) ? on : off);   // c
-    t.fillRect(x + th + 1, y + h - th,     w - 2 * th - 2, th, (s & 0x08) ? on : off);   // d
-    t.fillRect(x,          mid + th + 1,   th, h / 2 - th - 2,  (s & 0x10) ? on : off);   // e
-    t.fillRect(x,          y + th + 1,     th, h / 2 - th - 2,  (s & 0x20) ? on : off);   // f
-    t.fillRect(x + th + 1, mid,            w - 2 * th - 2, th, (s & 0x40) ? on : off);   // g
+    seg(0x01, x + th + 1, y,              w - 2 * th - 2, th);                // a
+    seg(0x02, x + w - th, y + th + 1,     th, h / 2 - th - 2);                // b
+    seg(0x04, x + w - th, mid + th + 1,   th, h / 2 - th - 2);                // c
+    seg(0x08, x + th + 1, y + h - th,     w - 2 * th - 2, th);                // d
+    seg(0x10, x,          mid + th + 1,   th, h / 2 - th - 2);                // e
+    seg(0x20, x,          y + th + 1,     th, h / 2 - th - 2);                // f
+    seg(0x40, x + th + 1, mid,            w - 2 * th - 2, th);                // g
+}
+
+// The LIT segments of digit `d`, each grown by `o` on every side and filled
+// in `col`: drawn first, it is the outline that keeps a digit legible over
+// whatever plays behind the clock. Unlit segments get none, so nothing dark
+// stands in the backdrop where no ink is.
+void drawDigitOutline(TFT_eSPI& t, int x, int y, int w, int h, int th, int d, int o, uint16_t col) {
+    const uint8_t s = (d >= 0 && d <= 9) ? SEG[d] : 0;
+    const int mid = y + h / 2 - th / 2;
+    auto seg = [&](uint8_t bit, int sx, int sy, int sw, int sh) {
+        if (s & bit) t.fillRect(sx - o, sy - o, sw + 2 * o, sh + 2 * o, col);
+    };
+    seg(0x01, x + th + 1, y,            w - 2 * th - 2, th);
+    seg(0x02, x + w - th, y + th + 1,   th, h / 2 - th - 2);
+    seg(0x04, x + w - th, mid + th + 1, th, h / 2 - th - 2);
+    seg(0x08, x + th + 1, y + h - th,   w - 2 * th - 2, th);
+    seg(0x10, x,          mid + th + 1, th, h / 2 - th - 2);
+    seg(0x20, x,          y + th + 1,   th, h / 2 - th - 2);
+    seg(0x40, x + th + 1, mid,          w - 2 * th - 2, th);
+}
+
+// Text with no box behind it: a one-pixel dark keyline, then the colour on
+// top. For the date and AM/PM over a clock backdrop.
+void printOutlined(TFT_eSPI& t, int x, int y, const char* s, uint16_t col) {
+    t.setTextColor(Theme::BG);
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            t.setCursor(x + dx, y + dy);
+            t.print(s);
+        }
+    t.setTextColor(col);
+    t.setCursor(x, y);
+    t.print(s);
 }
 
 void timerRects(int screenW, int screenH, int& tx, int& ty, int& tw, int& th, int& bx, int& bw) {
@@ -63,6 +107,29 @@ void timerRects(int screenW, int screenH, int& tx, int& ty, int& tw, int& th, in
     // BACK the third, so the thing you tap most is the bigger target.
     tx = g.x[0]; tw = g.x[1] + g.w[1] - g.x[0];
     bx = g.x[2]; bw = g.w[2];
+    // ...less a square on the left for the settings gear, with the same gap
+    // the bar leaves between its own buttons.
+    const int gap = g.x[1] - (g.x[0] + g.w[0]);
+    tx += th + gap;
+    tw -= th + gap;
+}
+
+// The gear's square: the bar's height, at the bar's left edge.
+void gearRect(int screenW, int screenH, int& x, int& y, int& s) {
+    const Theme::ButtonBarGeom g = Theme::computeButtonBar(screenW, screenH);
+    x = g.x[0]; y = g.y; s = g.h;
+}
+
+// A cog: eight teeth round a ring, with a hole through the middle.
+void drawGear(TFT_eSPI& t, int cx, int cy, int r, uint16_t col, uint16_t bg) {
+    for (int k = 0; k < 8; k++) {
+        const float a = (float)k * 0.785398f;
+        const int tx = cx + (int)lroundf(cosf(a) * (float)r);
+        const int ty = cy + (int)lroundf(sinf(a) * (float)r);
+        t.fillRect(tx - 1, ty - 1, 3, 3, col);
+    }
+    t.fillCircle(cx, cy, r - 1, col);
+    t.fillCircle(cx, cy, r / 3 + 1, bg);
 }
 
 void timerLabel(char* out, size_t n, uint32_t now) {
@@ -359,7 +426,28 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     char tm[8];
     Clock::formatTime(tm, sizeof tm, true, &pm);
     const bool set = Clock::trusted();
-    const int dh = 42, dw = 30, th = 7, gap = 6, colonW = 10;
+    // SIZE scales every measurement of the clock together. LARGE is held back
+    // wherever it would not fit across the screen with its AM/PM and plate.
+    static const float CLOCK_K[3] = { 0.78f, 1.0f, 1.3f };
+    float k = CLOCK_K[Settings::clockSize() < 3 ? Settings::clockSize() : 1];
+    const bool bangers = Settings::clockFont() == 1;
+    // A backdrop gets a few more pixels of plate round the time, so the
+    // digits are framed by it rather than sitting on its edge.
+    const int  backdrop = running ? 0 : Settings::clockBackdrop();
+    const int  pad = backdrop ? 5 : 0;
+    {
+        // The widest the plate gets: a two-digit hour, AM/PM reserved both
+        // sides, its air and its padding. It has to fit between the corner
+        // icons, since it reaches up into their row; a size that would not
+        // is held back to one that does, so nothing ends up on the border.
+        const float scaled = 4.0f * 30.0f + 3.0f * 6.0f + 10.0f + 28.0f;
+        const float fixedW = 8.0f + 2.0f * (float)pad;
+        const float room   = (float)(w - (2 * Theme::TITLE_ICON_W + 2));
+        if (k * scaled + fixedW > room) k = (room - fixedW) / scaled;
+    }
+    const int dh = (int)(42.0f * k + 0.5f), dw = (int)(30.0f * k + 0.5f);
+    const int th = (int)(7.0f * k + 0.5f) < 3 ? 3 : (int)(7.0f * k + 0.5f);
+    const int gap = (int)(6.0f * k + 0.5f), colonW = (int)(10.0f * k + 0.5f);
     // "H:MM" or "HH:MM": lay the digits out from the string so the leading
     // hour digit is simply absent, not a dark ghost.
     int n = 0; char digits[4]; bool colonAfter[4] = {false, false, false, false};
@@ -367,19 +455,25 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         if (*p == ':') { if (n) colonAfter[n - 1] = true; continue; }
         digits[n++] = *p;
     }
-    int totalW = n * dw + (n - 1) * gap + colonW + 30;
-    int x = (w - totalW) / 2;
+    // The DIGITS are what is centred. The half of the day hangs off the right
+    // of them in its own 14 px, and the plate reserves the same 14 on the left
+    // so it stays centred too. Centring digits and AM as one run put the time
+    // itself 15 px left of the middle, which is what it looked like.
+    const int digitsW = n * dw + (n - 1) * gap + colonW;
+    const int AMPM_W  = 14;
+    const int totalW  = digitsW + 2 * AMPM_W;
+    int x = (w - digitsW) / 2;
     // The plate sits high -- 3 px under the top edge, digits from 26 -- so
     // the room under it is Squachy's, with a little air between his bubble
     // and the clock's foot rather than the overlap the first cut had.
     const int plateTop = 3;
-    const int y = 26;
+    const int y = 26 + pad;
     const uint16_t on  = set ? Theme::VAPOR_PINK : Theme::W95_SHADOW;
     const uint16_t off = Theme::blend(Theme::BG, Theme::VAPOR_PURPLE, 40);
 
     // The message box, first, so the plate drawn over it hides whatever
     // part is still behind the plate on its way in or out.
-    const int plateBottom = y + dh + 5;
+    const int plateBottom = y + dh + 5 + pad;
     float msgP = 0.0f;
     int   boxH = 0;
 #if SQUACH_MESH
@@ -398,7 +492,10 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     Clock::formatDate(date, sizeof date);
     t.setTextSize(2);
     const int dateW = t.textWidth(date);
-    int pw = (dateW > totalW ? dateW : totalW) + 20;
+    // Four px of air a side, not ten: the plate hugs the time. It still grows
+    // when the hour gets its second digit at ten, but by the digit alone, and
+    // in portrait a two-digit hour no longer runs it into the corner icons.
+    int pw = (dateW > totalW ? dateW : totalW) + 8 + 2 * pad;
     // The title bar's corner icons are painted after the plate and blank
     // their own boxes at each end of the top rows; a plate that reaches
     // up into that band stays between them (portrait with a two-digit
@@ -407,33 +504,95 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     if (plateTop < Theme::TITLE_ICON_BAND_H && pw > w - iconsW) pw = w - iconsW;
     const int px = (w - pw) / 2;
     const int plateH = plateBottom - plateTop;
+    s_plateX = (int16_t)px; s_plateY = (int16_t)plateTop;
+    s_plateW = (int16_t)pw; s_plateH = (int16_t)plateH;
     if (!running) {
         t.fillRoundRect(px, plateTop, pw, plateH, 5, Theme::BG);
+        // Inside the outline, and under everything written on the plate.
+        if (backdrop) Theme::drawClockBackdrop(t, now, px + 2, plateTop + 2, pw - 4, plateH - 4, (uint8_t)backdrop);
         t.drawRoundRect(px, plateTop, pw, plateH, 5, Theme::VAPOR_PURPLE);
     }
     if (running) t.fillRect(px, plateTop, pw, plateH, Theme::BG);   // over the box, on a plain ground
-    t.setTextColor(Theme::CYAN, Theme::BG);
-    t.setCursor((w - dateW) / 2, plateTop + 3);
-    t.print(date);
+    // Over a backdrop the date keeps a dark strip behind it; the digits get
+    // an outline of their own below.
+    // Again: the rain draws its glyphs at size 1 and leaves it there, which
+    // printed the date small on that backdrop.
+    t.setTextSize(2);
+    if (backdrop) {
+        printOutlined(t, (w - dateW) / 2, plateTop + 3 + pad, date, Theme::CYAN);
+    } else {
+        t.setTextColor(Theme::CYAN, Theme::BG);
+        t.setCursor((w - dateW) / 2, plateTop + 3 + pad);
+        t.print(date);
+    }
     t.setTextSize(1);
     Theme::drawTitleBar(t, ">> DESK <<");
 
+    // Bangers draws into the same cells the segments use, so the plate, the
+    // AM/PM and everything measured off them stay where they are. Each digit
+    // is centred in its cell: a proportional 1 would shuffle the time sideways
+    // every minute it came and went.
+    int   bInkTop = 0, bInkH = 1;
+    float bScale  = 1.0f;
+    if (bangers) {
+        Theme::bangersDigitInk(bInkTop, bInkH);
+        bScale = (float)dh / (float)bInkH;
+    }
+    const int dot = (int)(6.0f * k + 0.5f) < 3 ? 3 : (int)(6.0f * k + 0.5f);
     for (int i = 0; i < n; i++) {
         const int d = (digits[i] >= '0' && digits[i] <= '9') ? digits[i] - '0' : -1;
-        drawDigit(t, x, y, dw, dh, th, d, on, off);
+        if (bangers) {
+            if (d >= 0) {
+                const char ch = digits[i];
+                const int gw = (int)((float)Theme::bangersGlyphAdvance(ch) * bScale + 0.5f);
+                const int gx = x + (dw - gw) / 2;
+                const int gy = y - (int)((float)bInkTop * bScale + 0.5f);
+                // A dark keyline first, so the digit reads over a backdrop.
+                if (backdrop) {
+                    static const int8_t O[8][2] = { { -2, 0 }, { 2, 0 }, { 0, -2 }, { 0, 2 },
+                                                    { -2, -2 }, { 2, -2 }, { -2, 2 }, { 2, 2 } };
+                    for (const auto& o : O)
+                        Theme::drawBangersGlyphScaled(t, gx + o[0], gy + o[1], ch, Theme::BG, bScale);
+                }
+                Theme::drawBangersGlyphScaled(t, gx, gy, ch, on, bScale);
+            }
+        } else {
+            if (backdrop) drawDigitOutline(t, x, y, dw, dh, th, d, 2, Theme::BG);
+            drawDigit(t, x, y, dw, dh, th, d, on, off, !backdrop);
+        }
         x += dw;
         if (colonAfter[i]) {
             const bool blink = ((now / 500) & 1) == 0;
-            t.fillRect(x + 2, y + dh / 3 - 3, 6, 6, blink ? on : off);
-            t.fillRect(x + 2, y + 2 * dh / 3 - 3, 6, 6, blink ? on : off);
+            const uint16_t cc = blink ? on : off;
+            // Bangers leans, so its colon does too: the lower dot sits a
+            // little left of the upper one.
+            const int lean = bangers ? (int)(3.0f * k + 0.5f) : 0;
+            const int cx0 = x + (colonW - dot) / 2;
+            const bool lit = blink;
+            if (backdrop && lit) {
+                t.fillRect(cx0 + lean - 2, y + dh / 3 - dot / 2 - 2, dot + 4, dot + 4, Theme::BG);
+                t.fillRect(cx0 - 2, y + 2 * dh / 3 - dot / 2 - 2, dot + 4, dot + 4, Theme::BG);
+            }
+            if ((!bangers && !backdrop) || lit) {
+                t.fillRect(cx0 + lean, y + dh / 3 - dot / 2, dot, dot, cc);
+                t.fillRect(cx0, y + 2 * dh / 3 - dot / 2, dot, dot, cc);
+            }
             x += colonW;
         }
         x += gap;
     }
     // AM / PM beside the last digit, at its foot.
-    t.setTextColor(set ? Theme::VAPOR_YELLOW : Theme::W95_SHADOW, Theme::BG);
-    t.setCursor(x - gap + 4, y + dh - 8);
-    t.print(set ? (pm ? "PM" : "AM") : "--");
+    {
+        const uint16_t ac = set ? Theme::VAPOR_YELLOW : Theme::W95_SHADOW;
+        const char* half = set ? (pm ? "PM" : "AM") : "--";
+        if (backdrop) {
+            printOutlined(t, x - gap + 2, y + dh - 8, half, ac);
+        } else {
+            t.setTextColor(ac, Theme::BG);
+            t.setCursor(x - gap + 2, y + dh - 8);
+            t.print(half);
+        }
+    }
 
     if (!set) {
         const char* m = Clock::guessed() ? "NOT SINCE THE POWER WENT. WIFI AT BOOT SETS IT"
@@ -471,7 +630,7 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // Beside the box his bubble would lie across it, so it waits.
     Squachy::holdBubble(side);
 #if SQUACH_MESH
-    // The squad under the clock, when the CROWD page says so. It is the band
+    // The squad under the clock, when the DESK MODE page says so. It is the band
     // Squachy would have had to himself, and he is in it -- the layout keeps
     // the most central seat for him, which is what makes him findable in a
     // crowd where everything else is drifting. Never over a focus block:
@@ -485,17 +644,34 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // is up to N bodies, ours among them. The desk used to require more
     // than ONE, so a board set to ONE showed Squachy alone under the clock
     // while the main screen beside it showed him with company.
-    if (!running && Settings::meshCrowdDesk()) {
-        const uint8_t bodies = Settings::meshCrowd() > 8 ? 8 : Settings::meshCrowd();
+    const bool squadOn = !running && Settings::deskSquad();
+    if (squadOn) {
+        const uint8_t bodies = Settings::deskCrowd() > 8 ? 8 : Settings::deskCrowd();
         const uint8_t peers  = bodies > 1 ? (uint8_t)(bodies - 1) : 1;
         crowdN = Mesh::squadList(now, crowd, peers);
+        // The main screen's visit machine: who is visiting, what they say,
+        // when they laugh. Without it the visitor had nothing to do on the
+        // desk but stand there waving.
+        uiClearVisitTick(now);
     }
     // From ONE member up. The main screen waits for two because a single
     // visitor gets the ordinary visit there, with its set pieces; the desk
     // has no visit, so with the bar at two a squad of two boards -- each
     // seeing one -- never showed up under the clock at all.
-    if (crowdN >= 1) {
-        uiClearDrawCrowd(t, now, crowd, crowdN, top, feet, true, false, 0);
+    // One visitor with VISITOR set to FULL VISIT: the main screen's own visit,
+    // walk-in, high five, set pieces and all, standing on the desk's floor.
+    if (squadOn && crowdN == 1 && Settings::deskFullVisit() &&
+        uiClearDrawVisit(t, now, top, feet, true)) {
+        Theme::drawBackgroundOverlay(t, now);
+    } else if (crowdN >= 1) {
+        // Just the two of them: a fifth bigger, and what they say goes up on
+        // the clock, the lower half of the plate, with the tails reaching
+        // down to them. Their bubbles no longer need the room over their
+        // heads, which is the room the extra size takes.
+        const bool pair = crowdN == 1;
+        const int  bubY = plateBottom - (Theme::bubbleTextH() + 6) - 2;
+        uiClearDrawCrowd(t, now, crowd, crowdN, top, feet, true, false, 0,
+                         pair ? 1.2f : 1.0f, pair ? bubY : -1);
         Theme::drawBackgroundOverlay(t, now);
     } else
 #endif
@@ -534,6 +710,12 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     timerLabel(lbl, sizeof lbl, now);
     Theme::drawButton(t, tx, ty, tw, tth, lbl, s_timer != Timer::IDLE);
     Theme::drawButton(t, bx, ty, bw, tth, "BACK", false);
+    {
+        int gx, gy, gs;
+        gearRect(w, h, gx, gy, gs);
+        Theme::drawButton(t, gx, gy, gs, gs, "", false);
+        drawGear(t, gx + gs / 2, gy + gs / 2, gs / 2 - 5, Theme::CYAN, Theme::BG);
+    }
 
     // Over everything, so it is never behind his bubble. Bottom left is
     // clear of the polaroid and of the box in either rotation.
@@ -559,6 +741,20 @@ bool uiDeskHitTimer(int x, int y, int screenW, int screenH) {
     int tx, ty, tw, th, bx, bw;
     timerRects(screenW, screenH, tx, ty, tw, th, bx, bw);
     return x >= tx && x <= tx + tw && y >= ty && y <= ty + th;
+}
+
+int uiDeskHitClockEdge(int x, int y) {
+    if (s_plateW <= 0 || y < s_plateY || y >= s_plateY + s_plateH) return 0;
+    const int edge = s_plateW / 5;
+    if (x >= s_plateX && x < s_plateX + edge) return -1;
+    if (x >= s_plateX + s_plateW - edge && x < s_plateX + s_plateW) return 1;
+    return 0;
+}
+
+bool uiDeskHitSettings(int x, int y, int screenW, int screenH) {
+    int gx, gy, gs;
+    gearRect(screenW, screenH, gx, gy, gs);
+    return x >= gx && x <= gx + gs && y >= gy && y <= gy + gs;
 }
 
 bool uiDeskHitBack(int x, int y, int screenW, int screenH) {

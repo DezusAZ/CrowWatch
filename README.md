@@ -116,7 +116,8 @@ A full beginner-friendly walkthrough is in [docs/BUILD.md](docs/BUILD.md).
 4. The three soft buttons at the bottom:
    - **`[ SCAN ]`** — return to the main (idle) screen.
    - **`[ LOG ]`** — open the rolling 200-entry detection log.
-   - **`[ CLR ]`** — wipe the log and return.
+   - **`[ DESK ]`** — desk mode: the big clock, with Squachy under it.
+   - On the LOG screen the third button is **`[ CLR ]`** — wipe the log and return.
 5. When something is detected, the device **flashes a full-screen ALERT**:
    a header strip in the detection's own colour with the type in the
    Bangers face, a data plate with the vendor, the device's own name where

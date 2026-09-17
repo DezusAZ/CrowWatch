@@ -20,7 +20,7 @@ static const int TOP_MARGIN = 32;
 
 // One scroll position per page, not one shared: see SettingsPage in the header.
 static SettingsPage s_page = SettingsPage::MAIN;
-static int g_scrollFor[3] = { 0, 0, 0 };
+static int g_scrollFor[4] = { 0, 0, 0, 0 };
 #define g_scroll (g_scrollFor[(uint8_t)s_page])
 
 // BACK is pinned along the bottom now. Height of that strip, reserved out of
@@ -29,7 +29,7 @@ static const int PINNED_BACK_H = 26;
 
 // Which groups are folded shut. Session-only on purpose: a fold is a "get this
 // out of my way for a minute", not a preference worth surviving a reboot.
-static bool s_folded[4] = { false, false, false, false };
+static bool s_folded[6] = { false, false, false, false, false, false };
 
 // Whether a watch/hunt target exists. Set every tick from the engine, read by
 // buildDisplayList() -- which has no engine of its own, and is called by the
@@ -97,12 +97,25 @@ static const SettingsRow SYSTEM_ROWS[] = {
     SettingsRow::RESET_STATS,
 };
 static const uint8_t SYSTEM_ROWS_N = sizeof(SYSTEM_ROWS) / sizeof(SYSTEM_ROWS[0]);
+
+// The DESK MODE page: everything about the desk in one place, so it can grow.
+// The way in comes first; then how it looks; then who is on it.
+static const SettingsRow DESK_ROWS[] = {
+    SettingsRow::DESK_OPEN, SettingsRow::DESK_BACKGROUND,
+    SettingsRow::CLOCK_FONT, SettingsRow::CLOCK_SIZE, SettingsRow::CLOCK_BACKDROP,
+    SettingsRow::TIME_ZONE,
+#if SQUACH_MESH
+    SettingsRow::DESK_SQUAD, SettingsRow::DESK_CROWD, SettingsRow::DESK_VISIT,
+#endif
+};
+static const uint8_t DESK_ROWS_N = sizeof(DESK_ROWS) / sizeof(DESK_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
 // The display buffers below are sized off the longest of the three lists.
 // It used to be the main one, until that list lost its NICKNAME row and
 // the APPEARANCE page outgrew it.
 static const uint8_t LIST_MAX_N = APPEARANCE_ROWS_N > ALL_ROWS_N ? APPEARANCE_ROWS_N : ALL_ROWS_N;
 static_assert(SYSTEM_ROWS_N <= LIST_MAX_N, "the display list is sized off LIST_MAX_N");
+static_assert(DESK_ROWS_N <= LIST_MAX_N, "the display list is sized off LIST_MAX_N");
 // Kept as a thin shim over s_page so nothing that reads it has to change.
 #define s_appearance (s_page == SettingsPage::APPEARANCE)
 
@@ -128,7 +141,7 @@ static bool isSquachyOnlyRow(SettingsRow r) {
            r == SettingsRow::PET || r == SettingsRow::TOP_HAT;
 }
 
-enum class RowGroupId : uint8_t { APPEARANCE, BEHAVIOR, SQUACHY, SYSTEM };
+enum class RowGroupId : uint8_t { APPEARANCE, BEHAVIOR, SQUACHY, SYSTEM, DESK, SQUAD };
 
 static RowGroupId groupFor(SettingsRow r) {
     // Appearance sits with the Squachy rows because that is where it was asked
@@ -138,7 +151,19 @@ static RowGroupId groupFor(SettingsRow r) {
     // a leftover. It goes to SYSTEM there -- still reachable, which is the
     // part that matters, since the display rows live behind it.
     if (r == SettingsRow::APPEARANCE && Settings::boringMode()) return RowGroupId::SYSTEM;
+    // TIME ZONE lives on two pages: the clock's, and the machinery's.
+    if (r == SettingsRow::TIME_ZONE && s_page == SettingsPage::DESK) return RowGroupId::DESK;
     switch (r) {
+        case SettingsRow::DESK_OPEN:
+        case SettingsRow::DESK_BACKGROUND:
+        case SettingsRow::CLOCK_FONT:
+        case SettingsRow::CLOCK_SIZE:
+        case SettingsRow::CLOCK_BACKDROP:
+            return RowGroupId::DESK;
+        case SettingsRow::DESK_SQUAD:
+        case SettingsRow::DESK_CROWD:
+        case SettingsRow::DESK_VISIT:
+            return RowGroupId::SQUAD;
         case SettingsRow::THEME:
         case SettingsRow::BACKGROUND:
         case SettingsRow::BACKGROUND_LOCK:
@@ -180,6 +205,8 @@ static const char* groupName(RowGroupId g) {
         case RowGroupId::APPEARANCE: return "APPEARANCE";
         case RowGroupId::BEHAVIOR:   return "BEHAVIOR";
         case RowGroupId::SQUACHY:    return "SQUACHY";
+        case RowGroupId::DESK:       return "DESK";
+        case RowGroupId::SQUAD:      return "SQUAD";
         default:                     return "SYSTEM";
     }
 }
@@ -192,6 +219,8 @@ static uint16_t groupColor(RowGroupId g) {
         case RowGroupId::APPEARANCE: return Theme::CYAN;
         case RowGroupId::BEHAVIOR:   return Theme::AMBER;
         case RowGroupId::SQUACHY:    return Theme::VAPOR_PINK;
+        case RowGroupId::DESK:       return Theme::CYAN;
+        case RowGroupId::SQUAD:      return Theme::GREEN;
         default:                     return Theme::VAPOR_PURPLE;
     }
 }
@@ -215,6 +244,7 @@ static uint8_t buildDisplayList(DisplayItem* out) {
     uint8_t            srcN = ALL_ROWS_N;
     if (s_page == SettingsPage::APPEARANCE) { src = APPEARANCE_ROWS; srcN = APPEARANCE_ROWS_N; }
     else if (s_page == SettingsPage::SYSTEM) { src = SYSTEM_ROWS;    srcN = SYSTEM_ROWS_N; }
+    else if (s_page == SettingsPage::DESK)   { src = DESK_ROWS;      srcN = DESK_ROWS_N; }
     // The tracking rows come first on the main page, and only when a target is
     // actually set -- the whole point is that a watch stops being invisible.
     if (s_page == SettingsPage::MAIN) {
@@ -288,7 +318,8 @@ static uint8_t buildDisplayList(DisplayItem* out) {
 // Giving the value its own line makes that impossible for any name, now or
 // later, which is why this beats shrinking the text or truncating it.
 static bool isTwoLineRow(SettingsRow r) {
-    return r == SettingsRow::BACKGROUND || r == SettingsRow::OUTFIT;
+    return r == SettingsRow::BACKGROUND || r == SettingsRow::DESK_BACKGROUND ||
+           r == SettingsRow::OUTFIT;
 }
 
 static int itemHeight(const DisplayItem& it, int rowH, int headerH, int tallH) {
@@ -323,8 +354,8 @@ void uiSettingsInit(TFT_eSPI& t) {
     // visit -- carrying it across a fresh entry would drop you mid-list with
     // no idea why.
     s_page = SettingsPage::MAIN;
-    for (uint8_t i = 0; i < 3; i++) g_scrollFor[i] = 0;
-    for (uint8_t i = 0; i < 4; i++) s_folded[i] = false;
+    for (uint8_t i = 0; i < 4; i++) g_scrollFor[i] = 0;
+    for (uint8_t i = 0; i < 6; i++) s_folded[i] = false;
     // Any pending question dies with the screen. Coming back to Settings and
     // finding a confirm panel still up from last time would be answering
     // something you no longer remember asking.
@@ -489,10 +520,29 @@ static void drawPinnedBack(TFT_eSPI& t, int screenW, int screenH) {
     t.fillRect(x, y, w, h, Theme::BG);
     t.drawFastHLine(x, y, w, Theme::PURPLE);
     t.setTextSize(2);
-    const char* lbl = (s_page == SettingsPage::MAIN) ? "[ BACK ]" : "[ UP ]";
     t.setTextColor(Theme::CYAN, Theme::BG);
+    // The DESK MODE page splits the strip: OK on the left goes straight out
+    // to wherever Settings was opened from, the desk or the main screen; UP
+    // on the right is the usual one level up.
+    if (s_page == SettingsPage::DESK) {
+        const int half = w / 2;
+        t.drawFastVLine(x + half, y + 4, h - 8, Theme::PURPLE);
+        t.setCursor(x + (half - t.textWidth("[ OK ]")) / 2, y + (h - t.fontHeight()) / 2);
+        t.print("[ OK ]");
+        t.setCursor(x + half + (half - t.textWidth("[ UP ]")) / 2, y + (h - t.fontHeight()) / 2);
+        t.print("[ UP ]");
+        return;
+    }
+    const char* lbl = (s_page == SettingsPage::MAIN) ? "[ BACK ]" : "[ UP ]";
     t.setCursor(x + (w - t.textWidth(lbl)) / 2, y + (h - t.fontHeight()) / 2);
     t.print(lbl);
+}
+
+bool uiSettingsTapPinnedOk(int x, int y, int screenW, int screenH) {
+    if (s_page != SettingsPage::DESK) return false;
+    int bx, by, bw, bh;
+    pinnedBackRect(screenW, screenH, bx, by, bw, bh);
+    return x >= bx && x < bx + bw / 2 && y >= by && y < by + bh;
 }
 
 bool uiSettingsTapPinnedBack(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
@@ -636,6 +686,33 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
         case SettingsRow::BACKGROUND:
             label = "BACKGROUND"; value = Settings::backgroundName(Settings::background());
             break;
+        case SettingsRow::DESK_OPEN:
+            label = "OPEN DESK"; value = ">";
+            break;
+        case SettingsRow::DESK_BACKGROUND:
+            label = "BACKGROUND"; value = Settings::backgroundName(Settings::deskBackground());
+            break;
+        case SettingsRow::CLOCK_FONT:
+            label = "CLOCK FONT"; value = Settings::clockFontName();
+            break;
+        case SettingsRow::CLOCK_SIZE:
+            label = "CLOCK SIZE"; value = Settings::clockSizeName();
+            break;
+        case SettingsRow::CLOCK_BACKDROP:
+            label = "CLOCK BG"; value = Settings::clockBackdropName();
+            break;
+#if SQUACH_MESH
+        case SettingsRow::DESK_SQUAD:
+            label = "SQUAD ON DESK"; value = Settings::deskSquad() ? "ON" : "OFF";
+            break;
+        case SettingsRow::DESK_CROWD:
+            label = "HOW MANY"; value = Settings::deskCrowdLabel();
+            break;
+        // With one visitor. A crowd of them always chats, as on the main screen.
+        case SettingsRow::DESK_VISIT:
+            label = "VISITOR"; value = Settings::deskFullVisit() ? "FULL VISIT" : "CHATS";
+            break;
+#endif
         case SettingsRow::BACKGROUND_LOCK:
             label = "LOCK BACKGROUND"; value = Settings::backgroundLocked() ? "ON" : "OFF";
             break;
@@ -840,6 +917,7 @@ switch (Settings::background()) {
     const char* pageTitle = ">> SETTINGS <<";
     if (s_page == SettingsPage::APPEARANCE) pageTitle = ">> APPEARANCE <<";
     else if (s_page == SettingsPage::SYSTEM) pageTitle = ">> SYSTEM <<";
+    else if (s_page == SettingsPage::DESK)   pageTitle = ">> DESK MODE <<";
     Theme::drawTitleBar(t, pageTitle);
 
     // +6, not +4: four group headers plus the two tracking rows.
@@ -867,7 +945,8 @@ switch (Settings::background()) {
                 drawRow(t, w, y, itemH, label, "boring mode", false, Theme::W95_SHADOW, h > w);
             } else if (isTwoLineRow(items[idx].row)) {
                 drawTwoLineRow(t, w, y, itemH, label, value, groupColor(items[idx].group),
-                               items[idx].row == SettingsRow::BACKGROUND);
+                               items[idx].row == SettingsRow::BACKGROUND ||
+                               items[idx].row == SettingsRow::DESK_BACKGROUND);
             } else {
                 drawRow(t, w, y, itemH, label, value, danger, groupColor(items[idx].group),
                         h > w);

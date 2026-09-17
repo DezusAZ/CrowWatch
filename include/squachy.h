@@ -278,6 +278,14 @@ namespace Squachy {
     void setVisiting(bool v);
     bool visiting();
 
+    // Set around tick() while other Squachys share the scene (a visit, a
+    // crowd). His size then ignores what he is wearing: no shrinking so a
+    // hat, a horn, the werewolf's ears or a parka's hood stays under the top
+    // edge. Everybody in the scene is sized alike, and a costume poking past
+    // the top is the better trade than one Squachy -- and so all of them --
+    // coming out smaller because of a hat.
+    void setCompany(bool on);
+
     // True while the OTHER one is the one talking. It buys a slow nod, which
     // is the difference between a Squachy standing near a conversation and a
     // Squachy in one. Cleared with setVisiting(false)'s caller.

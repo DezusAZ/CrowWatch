@@ -20,6 +20,11 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
 // BACK. Returns true when the tap did something.
 bool uiDeskHitTimer(int x, int y, int screenW, int screenH);
 bool uiDeskHitBack(int x, int y, int screenW, int screenH);
+// A tap on the clock's left or right fifth: -1 or +1, the way an edge tap
+// turns the background over; 0 anywhere else.
+int  uiDeskHitClockEdge(int x, int y);
+// The gear at the bottom left: the DESK MODE page in Settings.
+bool uiDeskHitSettings(int x, int y, int screenW, int screenH);
 void uiDeskTapTimer(uint32_t now);
 
 // A detection while the desk is up: a small card beside the clock for a

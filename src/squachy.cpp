@@ -2153,6 +2153,8 @@ static const char* const WINK_LINES[] = {
 // two speech bubbles on a 240px-tall screen is not a conversation, it is a
 // pile-up; taking turns is what makes it read as talking.
 void setVisiting(bool v) { s_visiting = v; }
+static bool s_company = false;
+void setCompany(bool on) { s_company = on; }
 bool visiting() { return s_visiting; }
 void setListening(bool v) { s_listening = v; }
 
@@ -5426,7 +5428,8 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     // It only ever raises headroom, never lowers it, so the per-outfit drops
     // above still win where they are larger, and every screen whose band is
     // too small for this to bite is left exactly as it was.
-    {
+    // Neither guard runs with company on screen -- see setCompany().
+    if (!s_company) {
         const int A    = availHeight - bubbleRowH;
         const int Cy   = topY + bubbleRowH;
         // A Legend's top hat is held to the same line as his crest -- all of
@@ -5464,7 +5467,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     // bottom. A costume too tall for the screen therefore shrinks from the
     // top and stays anchored on the detection bar, which is the only way
     // this could be done without him bouncing up and down as outfits change.
-    {
+    if (!s_company) {
         const int R    = outfitReach(currentOutfit());
         const int A    = availHeight - bubbleRowH;
         const int Cy   = topY + bubbleRowH;
@@ -5524,16 +5527,27 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         // so the range never pushes him somewhere he'd clip off the
         // edge or stand past his own hit box -- this is the actual
         // screen edge, not a token wander distance.
+        //
+        // Measured from where he STANDS, each way separately. It used to be
+        // half the screen either side of him, which is the edge only when he
+        // stands in the middle -- and with a visitor he stands in the left
+        // quarter, so every sweep took him clean off the screen.
+        //
+        // He is allowed to lean a third of himself past the edge at the far
+        // end of a sweep -- peeking out of frame is funny, vanishing is not.
         int halfW = (int)(24 * scale);
-        float maxRange = (float)(t.width() / 2 - halfW - 4);
-        if (maxRange < 0) maxRange = 0;
+        float roomL = (float)(cx - halfW / 3);
+        float roomR = (float)(t.width() - cx - halfW / 3);
+        if (roomL < 0) roomL = 0;
+        if (roomR < 0) roomR = 0;
         // WALK_CYCLES full sine cycles instead of one: 0 at the start,
         // out to one full edge, back through center, out to the other
         // full edge, then back to 0 -- repeated WALK_CYCLES times -- an
         // actual edge-to-edge patrol that still starts and ends exactly
         // at center, so there's no teleport when WALK expires back to
         // idle.
-        bodyCx = cx + (int)(sinf(walkT * 6.2831853f * WALK_CYCLES) * maxRange * s_walkDir);
+        const float sweep = sinf(walkT * 6.2831853f * WALK_CYCLES) * (float)s_walkDir;
+        bodyCx = cx + (int)(sweep * (sweep < 0.0f ? roomL : roomR));
 
         // One beat per sweep, at the far end of it. cf is how far through
         // the current cycle he is; 0.25 and 0.75 are the two extremes,
@@ -5746,6 +5760,10 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     // through instead of a box. (Party mode is the one exception —
     // when it's active the wash above already repaints this whole
     // region every frame, same guarantee, just with extra flair.)
+    // Whatever moved him -- a patrol, a double-take, a dart -- at least half
+    // of him stays on the screen. Hanging off an edge is allowed; gone is not.
+    if (bodyCx < 0)         bodyCx = 0;
+    if (bodyCx > t.width()) bodyCx = t.width();
     s_reachDir = 1;                   // he stands on the left; see s_reachDir
     s_reachLevel = s_hostReachLevel;
     s_actPose    = s_hostAct;

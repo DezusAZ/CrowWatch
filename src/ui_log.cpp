@@ -217,7 +217,7 @@ switch (Settings::background()) {
         t.setCursor((w - sw) / 2, bodyTop + bodyH / 3 + 35);
         t.print(sub);
 
-        Theme::drawButtonBar(t, ButtonId::LOG);
+        Theme::drawButtonBar(t, ButtonId::LOG, Theme::ButtonBarMode::LOG);
         if (infoPending)        Theme::drawInfoPanel(t, w, h, now, infoTypeName, infoText);
         else if (confirmPending) drawConfirmPanel(t, w, h, confirmLabel, confirmWatched, confirmHunted);
         return;
@@ -333,7 +333,7 @@ switch (Settings::background()) {
     Theme::drawScrollbar(t, w - 4, bodyTop, bodyH, count, max, g_scroll);
 
     // Bottom soft buttons
-    Theme::drawButtonBar(t, ButtonId::LOG);
+    Theme::drawButtonBar(t, ButtonId::LOG, Theme::ButtonBarMode::LOG);
 
     if (infoPending)        Theme::drawInfoPanel(t, w, h, now, infoTypeName, infoText);
     else if (confirmPending) drawConfirmPanel(t, w, h, confirmLabel, confirmWatched, confirmHunted);

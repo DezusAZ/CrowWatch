@@ -49,6 +49,24 @@ namespace Settings {
     bool       deskWanted();
     void       cycleDeskBackground();
     void       cyclePrevDeskBackground();
+    // The desk's own pick, for the DESK MODE page's row -- background() only
+    // answers with it while the desk is actually up.
+    Background deskBackground();
+
+    // The desk clock. FONT: 0 the segment digits, 1 Bangers. SIZE: 0 small,
+    // 1 medium (the size it has always been), 2 large. BACKDROP: what plays
+    // inside its plate -- 0 plain, 1 digital rain, 2 snow, 3 flying toasters,
+    // 4 fire, 5 starfield, 6 fireflies.
+    uint8_t     clockFont();
+    const char* clockFontName();
+    void        cycleClockFont();
+    uint8_t     clockSize();
+    const char* clockSizeName();
+    void        cycleClockSize();
+    uint8_t     clockBackdrop();
+    const char* clockBackdropName();
+    void        cycleClockBackdrop();
+    void        cyclePrevClockBackdrop();
     void       cyclePrevBackground(); // same, but backward
 
     // Disables the two CLEAR-screen gestures that cycle background
@@ -306,14 +324,25 @@ namespace Settings {
     // Up to four share one row; past four they take two or three, because
     // five across reads as a queue and four across still reads as a group.
     uint8_t     meshCrowd();
-    // ...and whether the desk clock gets them too. Off by default: the
-    // desk is a clock, and somebody who wants a crowd on the main screen
-    // does not necessarily want one under the time. Set on the CROWD
-    // page (see ui_crowd.h), which is where meshCrowd() is set as well.
-    bool        meshCrowdDesk();
-    void        toggleMeshCrowdDesk();
     const char* meshCrowdLabel();
     void        cycleMeshCrowd();
+    // The DESK MODE page's own squad settings, apart from the main screen's.
+    //
+    // deskSquad: whether the squad turns up under the clock at all. Off by
+    // default: the desk is a clock, and somebody who wants a crowd on the
+    // main screen does not necessarily want one under the time.
+    // deskCrowd: HOW MANY for the desk, the same values as meshCrowd(). Until
+    // it is set it follows the main screen's, which is what it used to share.
+    // deskFullVisit: with one visitor, the main screen's whole visit (walk
+    // in, high five, set pieces, emotes) rather than the two of them chatting
+    // in place, bigger, with their words up on the clock.
+    bool        deskSquad();
+    void        toggleDeskSquad();
+    uint8_t     deskCrowd();
+    const char* deskCrowdLabel();
+    void        cycleDeskCrowd();
+    bool        deskFullVisit();
+    void        toggleDeskFullVisit();
     void        cycleMeshDetect();
     void        cycleMeshTransmit();
     // For the one-line summary on the Settings row that opens the menu.

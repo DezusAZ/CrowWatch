@@ -62,20 +62,14 @@ void uiCrowdTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const bool many = Settings::meshCrowd() > 1;
     drawRow(t, w, top, rowH, "HOW MANY", Settings::meshCrowdLabel(),
             many ? Theme::GREEN : Theme::W95_SHADOW, false);
-    // Never greyed: ONE puts a visitor on the desk as well, the same as on
-    // the main screen, so the switch means something at every count.
-    drawRow(t, w, top + rowH, rowH, "ON DESK",
-            Settings::meshCrowdDesk() ? "ON" : "OFF",
-            Settings::meshCrowdDesk() ? Theme::GREEN : Theme::W95_SHADOW, false);
 
-    int y = top + 2 * rowH + 6;
+    int y = top + rowH + 6;
     if (many) note(t, y, bodyBottom, "They roam, and shrink to fit.");
     else      note(t, y, bodyBottom, "ONE is the ordinary visit: one guest,");
     if (!many) note(t, y, bodyBottom, "both on the ground, with the set pieces.");
     y += 4;
-    note(t, y, bodyBottom, Settings::meshCrowdDesk()
-                           ? "On the desk they stand under the clock."
-                           : "The desk keeps just Squachy and the clock.");
+    // The desk has its own, since it got a page of its own.
+    note(t, y, bodyBottom, "The desk has its own: Settings, DESK MODE.");
 
     Theme::drawPinnedBack(t, "[ BACK ]");
 }

@@ -42,7 +42,15 @@ enum class SettingsRow : uint8_t {
     STATUS_LIGHT,    // on the APPEARANCE page: opens the RGB LED's screen
     BANTER,          // on the APPEARANCE page: how much he talks when nothing is happening
     TIME_ZONE,       // on the SYSTEM page: which zone the real clock shows
-    DESK_MODE,       // opens desk mode: the clock, the date, the focus timer
+    DESK_MODE,       // opens the DESK MODE page
+    DESK_OPEN,       // on the DESK MODE page: go to the desk
+    DESK_BACKGROUND, // on the DESK MODE page: the desk's own scene
+    DESK_SQUAD,      // on the DESK MODE page: the squad under the clock, on or off
+    DESK_CROWD,      // on the DESK MODE page: how many of them
+    DESK_VISIT,      // on the DESK MODE page: one visitor chats, or does the whole visit
+    CLOCK_FONT,      // on the DESK MODE page: segments or Bangers
+    CLOCK_SIZE,      // on the DESK MODE page: small, medium, large
+    CLOCK_BACKDROP,  // on the DESK MODE page: what plays inside the clock
     BACK,
     COUNT,
     NONE = 255
@@ -59,7 +67,7 @@ void uiSettingsScroll(int delta);     // positive = scroll down
 // Each page keeps its OWN scroll position, so leaving a page and coming back
 // puts you where you were instead of at the top -- the list is long enough
 // that losing your place was the most-felt annoyance on this screen.
-enum class SettingsPage : uint8_t { MAIN = 0, APPEARANCE = 1, SYSTEM = 2 };
+enum class SettingsPage : uint8_t { MAIN = 0, APPEARANCE = 1, SYSTEM = 2, DESK = 3 };
 void         uiSettingsOpenPage(SettingsPage p);
 SettingsPage uiSettingsCurrentPage();
 
@@ -81,6 +89,9 @@ bool        uiSettingsRowIsOff(SettingsRow r);
 // so leaving never means scrolling to find the way out. True when (x,y) is on
 // it -- checked before the row hit test, which cannot see it.
 bool uiSettingsTapPinnedBack(TFT_eSPI& t, int x, int y, int screenW, int screenH);
+// The DESK MODE page's strip has OK on its left half: out of Settings to the
+// desk or the main screen, whichever it was opened from. Check before BACK.
+bool uiSettingsTapPinnedOk(int x, int y, int screenW, int screenH);
 
 // Row layout matches whatever uiSettingsTick just drew (same geometry
 // function underneath), so call this only against a screen that's

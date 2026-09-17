@@ -377,7 +377,18 @@ int main(int argc, char** argv) {
     // Off by default on the board, so the counter column only exists when
     // somebody has asked for the type.
     // Set rather than toggled: the NVS shim may remember a previous run.
-    if (onDesk != Settings::meshCrowdDesk()) Settings::toggleMeshCrowdDesk();
+    if (onDesk != Settings::deskSquad()) Settings::toggleDeskSquad();
+    // The desk's HOW MANY follows --crowd, the way the main screen's does.
+    for (int g = 0; g < 10 && Settings::deskCrowd() != Settings::meshCrowd(); g++) Settings::cycleDeskCrowd();
+    if (getenv("SQUACHSIM_FULLVISIT") && !Settings::deskFullVisit()) Settings::toggleDeskFullVisit();
+    // SQUACHSIM_CLOCK="font,size,backdrop", e.g. "1,2,3" for large Bangers over toasters.
+    if (const char* ck = getenv("SQUACHSIM_CLOCK")) {
+        int f = 0, z = 1, b = 0;
+        sscanf(ck, "%d,%d,%d", &f, &z, &b);
+        for (int g = 0; g < 4 && Settings::clockFont() != f; g++)     Settings::cycleClockFont();
+        for (int g = 0; g < 4 && Settings::clockSize() != z; g++)     Settings::cycleClockSize();
+        for (int g = 0; g < 8 && Settings::clockBackdrop() != b; g++) Settings::cycleClockBackdrop();
+    }
     if (beacons && !Settings::typeEnabled(DetectionType::IBEACON))
         Settings::toggleType(DetectionType::IBEACON);
 
@@ -514,12 +525,19 @@ int main(int argc, char** argv) {
     // Per-screen init, where the screen has one.
     if      (screen == "clear" || screen == "zonecard") uiClearInit(frame);
     else if (screen == "log")        uiLogInit(frame);
-    else if (screen == "settings")   uiSettingsInit(frame);
+    else if (screen == "settings")   {
+        uiSettingsInit(frame);
+        // SQUACHSIM_PAGE=N opens a sub-page: 1 appearance, 2 system, 3 desk.
+        if (const char* pg = getenv("SQUACHSIM_PAGE")) uiSettingsOpenPage((SettingsPage)atoi(pg));
+    }
     else if (screen == "detfilter")  uiDetFilterInit(frame);
     else if (screen == "diary")      uiDiaryInit(frame);
     else if (screen == "desk")       {
         uiDeskInit(frame);
         if (getenv("SQUACH_TIMER")) uiDeskTapTimer(now);
+        // SQUACHSIM_EPOCH=<unix seconds> sets the clock, for rendering a
+        // particular time (a two-digit hour, a PM).
+        if (const char* ep = getenv("SQUACHSIM_EPOCH")) Clock::setEpoch((uint32_t)strtoul(ep, nullptr, 10));
         if (getenv("SQUACH_ALERT") && engine.logAt(0)) uiDeskAlert(*engine.logAt(0), now);
     }
     else if (screen == "rawscan")    uiRawScanInit(frame, true);

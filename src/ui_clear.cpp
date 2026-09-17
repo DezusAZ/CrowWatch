@@ -1772,8 +1772,10 @@ static uint8_t  s_crowdMac[8][6];
 
 void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
                       uint8_t n, int top, int floorY, bool advance, bool msgFresh,
-                      int bottomInset) {
+                      int bottomInset, float grow, int bubbleY) {
     const int w = t.width();
+    // Read by the emotes and the set pieces, which stand down for a crowd.
+    s_crowdDrawn = true;
     // Ours plus theirs. squadList() reports the peers it can hear and NEVER
     // this board, so the body count is one higher than the list is long.
     // Sizing the screen for `n` and then spending slot zero on ourselves is
@@ -1783,34 +1785,24 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     // has neither under its band, so it asks for none.
     const int bottom = floorY - bottomInset;
 
-    // The shape is a RULE, not a search. Up to four stand in one row; past
-    // four they take two, the back row full and the front row holding
-    // whatever is left over:
+    // The shape is chosen, not fixed: one, two or three rows, whichever lets
+    // them stand LARGEST, and never more than four across -- five across
+    // reads as a queue where four still reads as a group. The back rows are
+    // full and the front row holds whatever is left over, centred.
     //
-    //     4 -> 4            5 -> 3 behind, 2 in front
-    //     6 -> 3 and 3      7 -> 4 behind, 3 in front      8 -> 4 and 4
+    // Rows OVERLAP, the way a group photo does: the row in front stands over
+    // the legs of the row behind, never over a face. Two rows used to share
+    // the band half and half with a gap between them, which is what held a
+    // landscape crowd of five at x1.0 while one on his own stands at x1.9.
     //
-    // Five across reads as a queue where four across still reads as a group,
-    // and a search that was left to work it out for itself put five in a line
-    // because a single row scored 1.54 against two rows' 1.40.
-    const int rows = total <= 4 ? 1 : 2;
-    const int cols = ((int)total + rows - 1) / rows;
-    const float cw = (float)(w - 8) / (float)cols;
-    const float ch = (float)(bottom - top) / (float)rows;
-
-    // ...and then they are drawn as LARGE as that shape can carry. Each count
-    // gets its own size: two of them have room to be nearly full height, eight
-    // of them do not, and pinning every count to one size made the small
-    // crowds needlessly tiny.
-    //
-    // A body is 56 wide and 74 tall in scale units. It used to be kept to 70%
-    // of its cell's width and 80% of its height so that neighbours never met
-    // even at the far end of their wander (15% of a cell either side, 10%
-    // vertically) -- and three of them stood at x1.3 where one stands at
-    // x1.9, which read as small. Now a body may be wider than its cell: they
-    // stand shoulder to shoulder and pass in front of one another as they
-    // drift, the way a group does. Three land at x1.9 in landscape, four at
-    // x1.6. Chosen from the emulator's renders of four sizes side by side.
+    // A body is 56 wide and 74 tall in scale units. A body may be wider than
+    // its cell: they stand shoulder to shoulder and pass in front of one
+    // another as they drift. `sMax` is the size he stands at alone, so a
+    // small crowd never outgrows him.
+    const float OVERLAP = 0.35f;   // of a body's height, covered by the row in front
+    // No room is kept above the back row for hats and horns: a horn in the
+    // title bar is a better trade than the whole crowd standing smaller.
+    const float bandH = (float)(bottom - top);
     const float sMax = (float)(floorY - top) / 91.0f;
     float fitW = 1.15f, fitH = 1.00f;
 #ifndef ARDUINO
@@ -1818,52 +1810,103 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     // for rendering the choices side by side before one of them ships.
     if (const char* fit = getenv("SQUACHSIM_CROWDFIT")) sscanf(fit, "%f,%f", &fitW, &fitH);
 #endif
-    float s = fminf(fitW * cw / 56.0f, fitH * ch / 74.0f);
-    if (s > sMax) s = sMax;
+    int rows = 1, cols = total;
+    float s = 0.0f;
+    for (int r = 1; r <= 3; r++) {
+        const int c = ((int)total + r - 1) / r;
+        if (c > 4) continue;
+        if ((r - 1) * c >= (int)total) break;          // a row with nobody in it
+        const float stack = 1.0f + (float)(r - 1) * (1.0f - OVERLAP);
+        float sr = fminf(fitW * ((float)(w - 8) / (float)c) / 56.0f,
+                         fitH * bandH / (74.0f * stack));
+        if (sr > sMax) sr = sMax;
+        // A clear win or nothing: at a tie the fewer rows read better.
+        if (sr > s * 1.03f) { s = sr; rows = r; cols = c; }
+    }
+    const float cw = (float)(w - 8) / (float)cols;
+    // Asked to stand bigger than the band would choose: past the size he
+    // stands at alone, but never taller than the band, and never so wide
+    // they stand in each other rather than beside each other.
+    if (grow > 1.0f) {
+        s = fminf(s * grow, fminf(bandH / 74.0f, 1.3f * cw / 56.0f));
+    }
+    const float bodyH = 74.0f * s, pitch = bodyH * (1.0f - OVERLAP);
+    const float used = bodyH + (float)(rows - 1) * pitch;
+    // The back row's feet, with the band's spare height split above and below.
+    const float feet0 = (float)top + (bandH - used) * 0.5f + bodyH;
+    // How far they bob: a tenth of the band when there is one row, a tenth of
+    // the step between rows when there are more, so a row never walks into
+    // the faces behind it.
+    const float bob = 0.10f * (rows == 1 ? bandH : pitch);
 
     // Where a cell sits, and how far its occupant has wandered off the middle
     // of it. `drift` is what ours is denied.
     // Half a body each way: for keeping them on the screen, and for standing
     // them in the middle of their own patch of it.
-    const int halfW = (int)(28.0f * s), halfH = (int)(37.0f * s);
+    const int halfW = (int)(28.0f * s);
+    const int lastRow = rows - 1;
+    const int inLast = (int)total - cols * lastRow;
     auto cellX = [&](int k, int i, bool drift) {
         const float dx = drift ? sinf((float)now / 1900.0f + (float)i * 1.7f) * cw * 0.15f : 0.0f;
-        int x = 4 + (int)(((float)(k % cols) + 0.5f) * cw + dx);
+        // A short front row stands centred, in the gaps of the row behind.
+        const float shift = (k / cols == lastRow) ? (float)(cols - inLast) * cw * 0.5f : 0.0f;
+        int x = 4 + (int)(((float)(k % cols) + 0.5f) * cw + shift + dx);
         // Nobody drifts off an edge. The left-hand cell was taking his box to
         // x=-2, which is half a Squachy hanging off the side of the screen.
         if (x < halfW + 2)     x = halfW + 2;
         if (x > w - halfW - 2) x = w - halfW - 2;
         return x;
     };
-    // His FEET -- placed so the body stands in the MIDDLE of its cell rather
-    // than on the floor of it. With a single row that difference is the whole
-    // feature: feet at the bottom of the band put everybody along the bottom
-    // edge, standing in a line, which is exactly what roaming replaces.
+    // His FEET. With one row that puts the body in the middle of the band
+    // rather than along the bottom of it, which is the whole of roaming.
     auto cellY = [&](int k, int i, bool drift) {
-        const float dy = drift ? sinf((float)now / 2600.0f + (float)i * 0.9f) * ch * 0.10f : 0.0f;
-        return top + (int)(((float)(k / cols) + 0.5f) * ch + (float)halfH + dy);
+        const float dy = drift ? sinf((float)now / 2600.0f + (float)i * 0.9f) * bob : 0.0f;
+        return (int)(feet0 + (float)(k / cols) * pitch + dy);
     };
 
-    // Ours takes the most central cell there is and holds it. In a crowd where
-    // everything is moving, the one you actually control is the one you have to
-    // be able to pick out, and a seat that never moves picks itself out.
-    // Measured against the middle of the screen rather than assumed, because
-    // the middle of a 3x3 and the middle of a 4x2 are not the same cell.
-    int selfIdx = 0;
+    // Who is visiting, if anybody. He keeps the conversation -- his line, his
+    // nodding, his laugh -- and the rest are company.
+    int guestI = -1;
+    for (uint8_t i = 0; i < n; i++)
+        if (Mesh::peer() && memcmp(Mesh::peerMac(), crowd[i].mac, 6) == 0) { guestI = (int)i; break; }
+
+    // Ours takes the FRONT row's most central cell and holds it. In a crowd
+    // where everything is moving, the one you actually control is the one you
+    // have to be able to pick out, and a seat that never moves -- and that
+    // nobody stands in front of -- picks itself out. The visitor stands in
+    // the front row beside him, because he and ours are drawn last (they
+    // hold the bubbles) and a back-row body drawn last would stand over the
+    // faces in front of it.
+    auto nearest = [&](const bool* taken, float toX, bool frontOnly) {
+        int best = -1; float bestD = 0.0f;
+        for (int k = frontOnly ? cols * lastRow : 0; k < (int)total; k++) {
+            if (taken[k]) continue;
+            const float d = fabsf((float)cellX(k, 0, false) - toX);
+            if (best < 0 || d < bestD) { best = k; bestD = d; }
+        }
+        return best;
+    };
+    bool taken[8] = { false };
+    const int selfIdx = nearest(taken, (float)w * 0.5f, true);
+    taken[selfIdx] = true;
+    int cellOf[8] = { 0 };
+    if (guestI >= 0) {
+        int g = nearest(taken, (float)cellX(selfIdx, 0, false), true);
+        if (g < 0) g = nearest(taken, (float)cellX(selfIdx, 0, false), false);
+        cellOf[guestI] = g;
+        taken[g] = true;
+    }
     {
-        float bestD = -1.0f;
-        const float mx = (float)w * 0.5f, my = (float)(top + bottom) * 0.5f;
-        for (int k = 0; k < (int)total; k++) {
-            const float x = 4.0f + ((float)(k % cols) + 0.5f) * cw;
-            // The middle of the cell, which is now the middle of the body in
-            // it: cellY() stands him in his patch rather than on its floor.
-            const float y = (float)top + ((float)(k / cols) + 0.5f) * ch;
-            const float d = (x - mx) * (x - mx) + (y - my) * (y - my);
-            if (bestD < 0.0f || d < bestD) { bestD = d; selfIdx = k; }
+        int k = 0;
+        for (uint8_t i = 0; i < n; i++) {
+            if ((int)i == guestI) continue;
+            while (taken[k]) k++;
+            cellOf[i] = k;
+            taken[k] = true;
         }
     }
-    // Which cell peer `i` gets: everybody shuffles past the seat ours is in.
-    auto peerCell = [&](uint8_t i) { return (int)i < selfIdx ? (int)i : (int)i + 1; };
+    // Which cell peer `i` gets.
+    auto peerCell = [&](uint8_t i) { return cellOf[i]; };
 
 #ifndef ARDUINO
     // Emulator only: the geometry itself, not where bodies happened to land.
@@ -1871,17 +1914,11 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     // screen, which means the numbers are not what they are being read as.
     if (getenv("SQUACHSIM_CROWDBOX"))
         fprintf(stderr, "[crowdgeom] total=%u cols=%d rows=%d s=%.3f top=%d bottom=%d "
-                        "cw=%.1f ch=%.1f selfIdx=%d selfX=%d selfY=%d\n",
+                        "cw=%.1f pitch=%.1f selfIdx=%d selfX=%d selfY=%d\n",
                 (unsigned)total, cols, rows, (double)s, top, bottom,
-                (double)cw, (double)ch, selfIdx,
+                (double)cw, (double)pitch, selfIdx,
                 cellX(selfIdx, 0, false), cellY(selfIdx, 0, false));
 #endif
-
-    // Who is visiting, if anybody. He keeps the conversation -- his line, his
-    // nodding, his laugh -- and the rest are company.
-    int guestI = -1;
-    for (uint8_t i = 0; i < n; i++)
-        if (Mesh::peer() && memcmp(Mesh::peerMac(), crowd[i].mac, 6) == 0) { guestI = (int)i; break; }
 
     // Nameplates stop being labels and start being clutter somewhere around
     // five: past that they come off, and a tap puts one back for a few
@@ -1910,8 +1947,21 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
         // one who was tapped, for a few seconds.
         Squachy::setNameTag(wantsName(i) ? peerName(i) : nullptr);
         const char* line = (isGuest && !msgFresh) ? s_visitGuestLine : nullptr;
+        // His bubble hangs from the caller's row when it names one; the gap
+        // is taken from where his head is this frame, so the bubble holds
+        // still while he drifts.
+        const int gap = bubbleY >= 0 ? (baseY - (int)(58.0f * s)) - bubbleY : 18;
+        // Nobody waves for ever. A third of them used to, every frame, which
+        // with a single visitor meant him: he stood there waving for the
+        // whole visit. The visitor waves while he is saying hello, the same
+        // as on the ground; the rest give a wave now and then, each on his
+        // own clock -- three seconds in every twenty-five.
+        const bool waving = isGuest
+            ? (s_vp == VisitPhase::ARRIVING || s_vp == VisitPhase::MEETING ||
+               s_vp == VisitPhase::LEAVING || s_piece == Piece::WAVE)
+            : ((now + (uint32_t)i * 8111u) % 25000u) < 3000u;
         Squachy::drawWaving(t, cx, baseY, now + (uint32_t)i * 137u, s, line,
-                            line != nullptr, 0, i % 3 == 0, 18, isGuest && now < s_guestLaughUntil,
+                            line != nullptr, 0, waving, gap, isGuest && now < s_guestLaughUntil,
                             isGuest && !s_guestTurn, line != nullptr,
                             isGuest ? guestPose(now) : Squachy::VisitPose::NONE);
         Squachy::setNameTag(nullptr);
@@ -1957,7 +2007,8 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
     // So: the silent ones go down first, then the only two who can be holding
     // a bubble -- the visitor, and ours. Names ride on the bodies now.
 
-    // 1. everybody who is neither talking nor us.
+    // 1. everybody who is neither talking nor us -- back row first, so the
+    //    row in front stands over its legs. Their cells rise with `i`.
     for (uint8_t i = 0; i < n; i++) {
         if ((int)i == guestI) continue;
         const int k = peerCell(i);
@@ -1987,19 +2038,35 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
         // out at last frame, and the percentage is nudged toward whatever
         // lands him on the crowd's scale. It settles within a few frames
         // and survives anything tick() changes about its own sizing.
+        //
+        // Only while he is off by more than one step of that percentage. He
+        // can only land on whole steps, so he is never exactly on the crowd's
+        // size; chasing the leftover sliver crept the correction along until
+        // the rounding flipped, and every eighth frame or so he shrank for a
+        // frame and popped back -- the twitch the desk showed, worst there
+        // because a pair stands big enough for one step to be a pixel.
         static float corr = 0.85f;
+        static int   lastPct = 100;
         const float got = Squachy::lastScale();
-        if (got > 0.05f && s > 0.05f) {
+        const float tol = 1.2f / (float)(lastPct > 10 ? lastPct : 10);
+        if (got > 0.05f && s > 0.05f && fabsf(got / s - 1.0f) > tol) {
             float want = corr * s / got;
             if (want < 0.2f) want = 0.2f;
             if (want > 3.0f) want = 3.0f;
             corr += (want - corr) * 0.35f;
         }
-        const int band = baseY - top;
+        // His bubble rises 16 above the top of the band he is handed, so a
+        // caller's bubble row moves that top up to match. The size is a
+        // percentage of the band, so it follows along.
+        const int bandTop = bubbleY >= 0 ? bubbleY + 16 : top;
+        const int band = baseY - bandTop;
         int pct = band > 1 ? (int)(corr * s * 56.0f * 100.0f / (float)band) : 100;
         if (pct < 10)  pct = 10;
         if (pct > 100) pct = 100;
-        Squachy::tick(t, cx, top, band, now, advance, 0.3f, false, 0, (uint8_t)pct);
+        lastPct = pct;
+        Squachy::setCompany(true);
+        Squachy::tick(t, cx, bandTop, band, now, advance, 0.3f, false, 0, (uint8_t)pct);
+        Squachy::setCompany(false);
     }
 }
 
@@ -2009,7 +2076,9 @@ void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
 // question anybody has.
 bool uiClearCrowdTap(int x, int y, uint32_t now) {
     if (Settings::boringMode()) return false;
-    for (uint8_t i = 0; i < s_crowdN; i++) {
+    // Newest drawn first: where two overlap, the one in front is the one
+    // the finger is on.
+    for (int i = (int)s_crowdN - 1; i >= 0; i--) {
         if (x < s_crowdX[i] - s_crowdHalf[i] || x > s_crowdX[i] + s_crowdHalf[i]) continue;
         if (y < s_crowdTop[i] || y > s_crowdBot[i]) continue;
         memcpy(s_tapMac, s_crowdMac[i], 6);
@@ -2261,7 +2330,7 @@ static void visitTick(uint32_t now) {
                 // Not while a crowd is on screen: every set piece puts the two
                 // of them on marks on the ground, and in a crowd there is no
                 // ground -- they are drifting. The conversation carries on.
-                if (s_hangStep == 0 && s_nextPieceAt && Settings::meshCrowd() <= 1 &&
+                if (s_hangStep == 0 && s_nextPieceAt && !s_crowdDrawn &&
                     (int32_t)(now - s_nextPieceAt) >= 0)
                     pieceStart(now);
                 else
@@ -2474,6 +2543,129 @@ static void drawCounterLine(TFT_eSPI& t, int w, int y, const DetectionEngine& en
     t.print(buf);
 }
 
+#if SQUACH_MESH
+// The ordinary visit: ours on the left at SMALL, the guest walking in on the
+// right, the high five, the conversation and the set pieces. Drawn into the
+// band from `titleBottom` to `squachyBottom`, which is the main screen's
+// Squachy band there and the room under the clock on the desk.
+static void drawVisit(TFT_eSPI& t, uint32_t now, const SquachMesh::Peer* guest,
+                      int titleBottom, int squachyBottom, bool advance, bool msgFresh) {
+    const int w = t.width();
+    const int SMALL_PCT = 70;
+    const int gap  = w / 4;
+    const int homeX = w / 2 + gap;     // where the guest stands
+    const int offX  = w + 40;          // off the right edge
+
+    Squachy::setCompany(true);
+    Squachy::tick(t, w / 2 - gap + hostLeanPx(), titleBottom,
+                  squachyBottom - titleBottom,
+                  now, advance, 1.0f, false, 0, SMALL_PCT);
+    Squachy::setCompany(false);
+
+    // The visitor is drawn, not ticked: tick() owns mood, quip timers
+    // and the walk state, all of which are file-static singletons
+    // describing OUR Squachy. Calling it twice would have the guest
+    // driving the host's animation. drawWaving is the same body with
+    // none of that -- it is what the alert screen's cameo already uses.
+    //
+    // Both previews are the existing overrides the unlock popup uses
+    // to show a costume nobody owns yet. Set them, draw, clear them:
+    // left set they would silently redress our own Squachy everywhere.
+    Squachy::setOutfitPreview((int8_t)guest->outfit);
+    Squachy::setShadesPreview((int8_t)guest->shade);
+    // The scale tick() actually used, not SMALL_PCT again: tick
+    // derives its scale from the height it was given, so the two
+    // numbers are different units and passing 0.7 here drew a
+    // visitor less than half the host's size.
+    const float gs = Squachy::lastScale();
+    // The lean rides on top of the walk rather than replacing it:
+    // visitGuestX returns homeX once he has arrived, and it is only
+    // then that the lean is non-zero.
+    // Where he stands for the high five: close enough that the two
+    // reaching hands meet. The host is not leaning yet -- that only
+    // starts once the talking does -- so his centre is where it sits.
+    const int   meetX = (w / 2 - gap) + (int)(REACH_K * gs);
+    const int   gx = visitGuestX(now, homeX, offX, meetX, (int)(8.0f * gs), gs) + guestLeanPx();
+    // wanderRangePx is what animates his legs. Walking in with it at 0
+    // slid him across the floor like furniture; a couple of pixels of
+    // wander is enough to put a walk cycle under the movement without
+    // reading as a stagger.
+    // Waves while walking in and through the hellos, then settles.
+    // A guest who never stops waving reads as a stuck frame rather
+    // than as a greeting once he has been there half a minute.
+    const bool stillGreeting = (s_vp == VisitPhase::ARRIVING ||
+                                s_vp == VisitPhase::MEETING ||
+                                s_vp == VisitPhase::LEAVING ||
+                                s_piece == Piece::WAVE);    // and when waved at
+    // His name, on a sticker on his chest. It used to take turns with
+    // his bubble in the row above his head; on the chest the two never
+    // meet, so he is named for the whole visit, talking or not.
+    Squachy::setNameTag((guest->custom && guest->name[0]) ? guest->name
+                                                          : Squachy::nicknameAt(guest->nick));
+    Squachy::drawWaving(t, gx, squachyBottom - scriptGuestLift(now, gs,
+                            squachyBottom - (int)(58.0f * gs) - 20), now, gs,
+                        msgFresh ? nullptr : s_visitGuestLine,
+                        // Mouthing it while the red bubble is up.
+                        msgFresh || s_visitGuestLine != nullptr,
+                        (visitWalking() || fiveWalking(now) || scriptWalking(now)) ? 2 : 0,
+                        stillGreeting,
+                        // Just above his own head, not the boot
+                        // splash's 34 -- that lands in the host's
+                        // bubble row and the two paint over each
+                        // other. Higher by a hat, when he has one.
+                        20 + scriptHatPx(gs),
+                        // Cracking up at whatever the host just said.
+                        // The host gets the same thing through his
+                        // mood machine; this cameo has none.
+                        now < s_guestLaughUntil,
+                        // Nodding along while the host has the floor.
+                        !s_guestTurn && (s_vp == VisitPhase::MEETING ||
+                                         s_vp == VisitPhase::HANGING),
+                        // And his bubble says so.
+                        true,
+                        guestPose(now));
+    Squachy::setNameTag(nullptr);
+    Squachy::setShadesPreview(-1);
+    Squachy::setOutfitPreview(-1);
+
+    // The slap. Where the two hands meet -- S(30) in from each of them
+    // -- at the height the HIGHFIVE arm ends, for a flash either side
+    // of the moment they touch.
+    if (s_vp == VisitPhase::HIGH_FIVE) {
+        const uint32_t e = now - s_vpAt, st = e / s_fiveStepMs, se = e % s_fiveStepMs;
+        if (st < s_fiveSteps && se >= s_fiveHitMs && se < s_fiveHitMs + 320) {
+            const float   k   = (float)(se - s_fiveHitMs) / 320.0f;
+            const uint8_t lvl = (s_fiveSteps < 3 || st == 0) ? 0 : (st == 1 ? 1 : 2);
+            const int     sx  = meetX - (int)(REACH_K * 0.5f * gs);
+            const int     sy  = squachyBottom - (int)(58.0f * gs) + (int)(REACH_Y[lvl] * gs);
+            drawSpark(t, sx, sy, k, gs);
+        }
+    }
+    drawPieceFx(t, now, w / 2 - gap + hostLeanPx(), gx,
+                squachyBottom - (int)(58.0f * gs), gs);
+
+    // Where he is this frame, for the message bubble and its button.
+    s_msgGuestOn = true;
+    s_msgGx      = gx;
+    s_msgHeadTop = squachyBottom - (int)(58.0f * gs);
+}
+
+void uiClearVisitTick(uint32_t now) {
+    visitTick(now);
+    // Whoever draws this frame says again whether a crowd is up; until then,
+    // nobody has.
+    s_crowdDrawn = false;
+}
+
+bool uiClearDrawVisit(TFT_eSPI& t, uint32_t now, int top, int floorY, bool advance) {
+    const SquachMesh::Peer* guest = visitHosting();
+    if (!guest) return false;
+    s_msgGuestOn = false;
+    drawVisit(t, now, guest, top, floorY, advance, false);
+    return true;
+}
+#endif
+
 void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance, bool scanMenu) {
     int w = t.width();
     int h = t.height();
@@ -2681,104 +2873,9 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         const uint8_t peerCap = (uint8_t)((crowdMax > 8 ? 8 : crowdMax) - 1);
         if (crowdMax > 1) crowdN = Mesh::squadList(now, crowd, peerCap);
         if (crowdMax > 1 && crowdN >= 2) {
-            s_crowdDrawn = true;
             uiClearDrawCrowd(t, now, crowd, crowdN, titleBottom, squachyBottom, advance, msgFresh, 22);
         } else if (guest) {
-            const int SMALL_PCT = 70;
-            const int gap  = w / 4;
-            const int homeX = w / 2 + gap;     // where the guest stands
-            const int offX  = w + 40;          // off the right edge
-
-            Squachy::tick(t, w / 2 - gap + hostLeanPx(), titleBottom,
-                          squachyBottom - titleBottom,
-                          now, advance, 1.0f, false, 0, SMALL_PCT);
-
-            // The visitor is drawn, not ticked: tick() owns mood, quip timers
-            // and the walk state, all of which are file-static singletons
-            // describing OUR Squachy. Calling it twice would have the guest
-            // driving the host's animation. drawWaving is the same body with
-            // none of that -- it is what the alert screen's cameo already uses.
-            //
-            // Both previews are the existing overrides the unlock popup uses
-            // to show a costume nobody owns yet. Set them, draw, clear them:
-            // left set they would silently redress our own Squachy everywhere.
-            Squachy::setOutfitPreview((int8_t)guest->outfit);
-            Squachy::setShadesPreview((int8_t)guest->shade);
-            // The scale tick() actually used, not SMALL_PCT again: tick
-            // derives its scale from the height it was given, so the two
-            // numbers are different units and passing 0.7 here drew a
-            // visitor less than half the host's size.
-            const float gs = Squachy::lastScale();
-            // The lean rides on top of the walk rather than replacing it:
-            // visitGuestX returns homeX once he has arrived, and it is only
-            // then that the lean is non-zero.
-            // Where he stands for the high five: close enough that the two
-            // reaching hands meet. The host is not leaning yet -- that only
-            // starts once the talking does -- so his centre is where it sits.
-            const int   meetX = (w / 2 - gap) + (int)(REACH_K * gs);
-            const int   gx = visitGuestX(now, homeX, offX, meetX, (int)(8.0f * gs), gs) + guestLeanPx();
-            // wanderRangePx is what animates his legs. Walking in with it at 0
-            // slid him across the floor like furniture; a couple of pixels of
-            // wander is enough to put a walk cycle under the movement without
-            // reading as a stagger.
-            // Waves while walking in and through the hellos, then settles.
-            // A guest who never stops waving reads as a stuck frame rather
-            // than as a greeting once he has been there half a minute.
-            const bool stillGreeting = (s_vp == VisitPhase::ARRIVING ||
-                                        s_vp == VisitPhase::MEETING ||
-                                        s_vp == VisitPhase::LEAVING ||
-                                        s_piece == Piece::WAVE);    // and when waved at
-            // His name, on a sticker on his chest. It used to take turns with
-            // his bubble in the row above his head; on the chest the two never
-            // meet, so he is named for the whole visit, talking or not.
-            Squachy::setNameTag((guest->custom && guest->name[0]) ? guest->name
-                                                                  : Squachy::nicknameAt(guest->nick));
-            Squachy::drawWaving(t, gx, squachyBottom - scriptGuestLift(now, gs,
-                                    squachyBottom - (int)(58.0f * gs) - 20), now, gs,
-                                msgFresh ? nullptr : s_visitGuestLine,
-                                // Mouthing it while the red bubble is up.
-                                msgFresh || s_visitGuestLine != nullptr,
-                                (visitWalking() || fiveWalking(now) || scriptWalking(now)) ? 2 : 0,
-                                stillGreeting,
-                                // Just above his own head, not the boot
-                                // splash's 34 -- that lands in the host's
-                                // bubble row and the two paint over each
-                                // other. Higher by a hat, when he has one.
-                                20 + scriptHatPx(gs),
-                                // Cracking up at whatever the host just said.
-                                // The host gets the same thing through his
-                                // mood machine; this cameo has none.
-                                now < s_guestLaughUntil,
-                                // Nodding along while the host has the floor.
-                                !s_guestTurn && (s_vp == VisitPhase::MEETING ||
-                                                 s_vp == VisitPhase::HANGING),
-                                // And his bubble says so.
-                                true,
-                                guestPose(now));
-            Squachy::setNameTag(nullptr);
-            Squachy::setShadesPreview(-1);
-            Squachy::setOutfitPreview(-1);
-
-            // The slap. Where the two hands meet -- S(30) in from each of them
-            // -- at the height the HIGHFIVE arm ends, for a flash either side
-            // of the moment they touch.
-            if (s_vp == VisitPhase::HIGH_FIVE) {
-                const uint32_t e = now - s_vpAt, st = e / s_fiveStepMs, se = e % s_fiveStepMs;
-                if (st < s_fiveSteps && se >= s_fiveHitMs && se < s_fiveHitMs + 320) {
-                    const float   k   = (float)(se - s_fiveHitMs) / 320.0f;
-                    const uint8_t lvl = (s_fiveSteps < 3 || st == 0) ? 0 : (st == 1 ? 1 : 2);
-                    const int     sx  = meetX - (int)(REACH_K * 0.5f * gs);
-                    const int     sy  = squachyBottom - (int)(58.0f * gs) + (int)(REACH_Y[lvl] * gs);
-                    drawSpark(t, sx, sy, k, gs);
-                }
-            }
-            drawPieceFx(t, now, w / 2 - gap + hostLeanPx(), gx,
-                        squachyBottom - (int)(58.0f * gs), gs);
-
-            // Where he is this frame, for the message bubble and its button.
-            s_msgGuestOn = true;
-            s_msgGx      = gx;
-            s_msgHeadTop = squachyBottom - (int)(58.0f * gs);
+            drawVisit(t, now, guest, titleBottom, squachyBottom, advance, msgFresh);
         } else
 #endif
         Squachy::tick(t, w / 2, titleBottom, squachyBottom - titleBottom, now, advance,

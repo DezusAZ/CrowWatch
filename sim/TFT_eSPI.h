@@ -128,6 +128,11 @@ public:
             if (++_winCurX > _winX1) { _winCurX = _winX0; _winCurY++; }
         }
     }
+    // Viewports, as the real library has them on TFT_eSPI itself -- so code
+    // holding a TFT_eSPI& can clip. Only the sprite below honours them, and
+    // the sprite is what every screen draws into.
+    virtual void setViewport(int32_t, int32_t, int32_t, int32_t, bool = true) {}
+    virtual void resetViewport() {}
     virtual void begin_nin_write() {}
     virtual void end_nin_write() {}
 
@@ -520,7 +525,7 @@ public:
     // dimensions. If resizeInPlace() ever stops ending with this call,
     // rotation visibly stops resizing here -- a loud failure, not a
     // silently wrong one.
-    void setViewport(int32_t x, int32_t y, int32_t w, int32_t h, bool = true) {
+    void setViewport(int32_t x, int32_t y, int32_t w, int32_t h, bool datum = true) override {
         if (_created && x == 0 && y == 0 && w > 0 && h > 0 && (w != _w || h != _h)) {
             _w = w; _h = h;
             _buf.assign((size_t)w * h, 0x0000);
@@ -528,9 +533,9 @@ public:
             _vpActive = false;
             return;
         }
-        _vpX = x; _vpY = y; _vpW = w; _vpH = h; _vpActive = true;
+        _vpX = x; _vpY = y; _vpW = w; _vpH = h; _vpActive = true; _vpDatum = datum;
     }
-    void resetViewport() { _vpActive = false; }
+    void resetViewport() override { _vpActive = false; }
 
     void setPivot(int16_t, int16_t) {}
 
@@ -553,7 +558,13 @@ public:
     }
 
     void drawPixel(int32_t x, int32_t y, uint32_t color) override {
-        if (_vpActive) { x += _vpX; y += _vpY; if (x < 0 || y < 0 || x >= _vpW + _vpX || y >= _vpH + _vpY) return; }
+        if (_vpActive) {
+            // With the datum on the viewport, coordinates are relative to it;
+            // without, they stay the screen's and the viewport only clips.
+            if (_vpDatum) { x += _vpX; y += _vpY; if (x < 0 || y < 0) return; }
+            else if (x < _vpX || y < _vpY) return;
+            if (x >= _vpW + _vpX || y >= _vpH + _vpY) return;
+        }
         if (x < 0 || y < 0 || x >= _w || y >= _h) return;
         _buf[(size_t)y * _w + x] =
             (_depth == 8) ? quantise332((uint16_t)color) : (uint16_t)color;
@@ -585,5 +596,6 @@ private:
     TFT_eSPI* _parent;
     uint8_t _depth = 16;
     int32_t _vpX = 0, _vpY = 0, _vpW = 0, _vpH = 0;
+    bool    _vpDatum = true;
     bool _vpActive = false;
 };

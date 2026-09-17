@@ -88,8 +88,7 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // on this list that says ON or OFF is a switch, and the ones that open
     // a screen show something that cannot be mistaken for a switch state.
     char cw[16];
-    snprintf(cw, sizeof cw, "%s%s >", Settings::meshCrowdLabel(),
-             Settings::meshCrowdDesk() ? "+D" : "");
+    snprintf(cw, sizeof cw, "%s >", Settings::meshCrowdLabel());
     row(t, w, top + 3 * rowH, rowH, "CROWD", cw,
         Settings::meshCrowd() > 1 ? Theme::GREEN : Theme::W95_SHADOW);
     // Everybody who has ever held the phrase, here or not.

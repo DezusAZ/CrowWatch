@@ -31,11 +31,17 @@ static bool        s_topHat = true;
 // the screen would still show eight.
 static const uint8_t CROWD_MAX = 8;
 static uint8_t     s_meshCrowd = 1;   // how many on screen at once, 1..CROWD_MAX
-static bool        s_meshCrowdDesk = false;   // ...and on the desk clock as well
+static bool        s_deskSquad     = false;   // the squad on the desk clock as well
+static uint8_t     s_deskCrowd     = 1;       // the desk's own HOW MANY
+static bool        s_deskFullVisit = false;   // one visitor: the whole visit, not a chat
 static uint8_t     s_rotation = 1;
 static bool        s_backgroundLocked = false;
 static uint8_t     s_deskBg     = 255;     // 255: not picked yet, follow s_background
 static bool        s_deskActive = false;
+static uint8_t     s_clockFont     = 0;   // 0 segments, 1 Bangers
+static uint8_t     s_clockSize     = 1;   // 0 small, 1 medium, 2 large
+static uint8_t     s_clockBackdrop = 0;   // 0 plain, 1 rain, 2 snow, 3 toasters, 4 fire, 5 stars, 6 fireflies
+static const uint8_t CLOCK_BG_N  = 7;
 // Bit N = DetectionType N enabled. UNKNOWN (0) is never included -- see
 // Types that arrive switched OFF, on a fresh install and on upgrade alike.
 //
@@ -198,7 +204,12 @@ void load() {
     // could not have stored it, but a hand-edited NVS can, and a setting that
     // does nothing is worse than one that moved.
     if (s_meshCrowd == 2) s_meshCrowd = 3;
-    s_meshCrowdDesk = s_prefs.getBool("crwdesk", false);
+    s_deskSquad     = s_prefs.getBool("crwdesk", false);
+    // Follows the main screen's until the desk has one of its own: the two
+    // were one setting, and a board upgraded mid-use should look the same.
+    s_deskCrowd     = s_prefs.getUChar("dskcrwd", s_meshCrowd);
+    if (s_deskCrowd < 1 || s_deskCrowd > CROWD_MAX || s_deskCrowd == 2) s_deskCrowd = s_meshCrowd;
+    s_deskFullVisit = s_prefs.getBool("dskvisit", false);
     s_meshTransmit = s_prefs.getBool("meshtx", false);
     s_meshConsent  = s_prefs.getBool("meshok", false);
     s_phoneQwerty  = s_prefs.getBool("qwerty", false);
@@ -212,6 +223,12 @@ void load() {
     if (s_rotation > 3) s_rotation = 1;
     s_backgroundLocked = s_prefs.getBool("bglock", false);
     s_deskBg = s_prefs.getUChar("deskBg", 255);
+    s_clockFont     = s_prefs.getUChar("clkfont", 0);
+    s_clockSize     = s_prefs.getUChar("clksize", 1);
+    s_clockBackdrop = s_prefs.getUChar("clkbg", 0);
+    if (s_clockFont > 1)     s_clockFont = 0;
+    if (s_clockSize > 2)     s_clockSize = 1;
+    if (s_clockBackdrop >= CLOCK_BG_N) s_clockBackdrop = 0;
     if (s_deskBg != 255 && s_deskBg >= BACKGROUND_COUNT) s_deskBg = 255;
     s_brightness = s_prefs.getUChar("bri", 255);
     if (s_brightness < 32) s_brightness = 32;
@@ -317,6 +334,24 @@ static void stepDeskBackground(int dir) {
     }
     s_deskBg = b;
     s_prefs.putUChar("deskBg", s_deskBg);
+}
+uint8_t     clockFont()         { return s_clockFont; }
+const char* clockFontName()     { return s_clockFont ? "BANGERS" : "DIGITAL"; }
+void        cycleClockFont()    { s_clockFont = (uint8_t)((s_clockFont + 1) % 2); s_prefs.putUChar("clkfont", s_clockFont); }
+uint8_t     clockSize()         { return s_clockSize; }
+const char* clockSizeName()     { static const char* const N[3] = { "SMALL", "MEDIUM", "LARGE" }; return N[s_clockSize]; }
+void        cycleClockSize()    { s_clockSize = (uint8_t)((s_clockSize + 1) % 3); s_prefs.putUChar("clksize", s_clockSize); }
+uint8_t     clockBackdrop()     { return s_clockBackdrop; }
+const char* clockBackdropName() {
+    static const char* const N[CLOCK_BG_N] = { "PLAIN", "RAIN", "SNOW", "TOASTERS", "FIRE", "STARFIELD", "FIREFLIES" };
+    return N[s_clockBackdrop];
+}
+void        cycleClockBackdrop() { s_clockBackdrop = (uint8_t)((s_clockBackdrop + 1) % CLOCK_BG_N); s_prefs.putUChar("clkbg", s_clockBackdrop); }
+void        cyclePrevClockBackdrop() { s_clockBackdrop = (uint8_t)((s_clockBackdrop + CLOCK_BG_N - 1) % CLOCK_BG_N); s_prefs.putUChar("clkbg", s_clockBackdrop); }
+
+Background deskBackground() {
+    if (s_deskBg != 255 && backgroundSelectable((Background)s_deskBg)) return (Background)s_deskBg;
+    return s_background;
 }
 void cycleDeskBackground()     { stepDeskBackground(1); }
 void cyclePrevDeskBackground() { stepDeskBackground(-1); }
@@ -522,20 +557,28 @@ const char* meshDetectLabel()   { return s_meshDetect   ? "ON" : "OFF"; }
 // nothing is going out.
 const char* meshTransmitLabel() { return meshTransmit() ? "ON" : "OFF"; }
 uint8_t meshCrowd() { return s_meshCrowd; }
-bool    meshCrowdDesk() { return s_meshCrowdDesk; }
-void    toggleMeshCrowdDesk() {
-    s_meshCrowdDesk = !s_meshCrowdDesk;
-    s_prefs.putBool("crwdesk", s_meshCrowdDesk);
+bool    deskSquad() { return s_deskSquad; }
+void    toggleDeskSquad() {
+    s_deskSquad = !s_deskSquad;
+    s_prefs.putBool("crwdesk", s_deskSquad);
 }
+bool    deskFullVisit() { return s_deskFullVisit; }
+void    toggleDeskFullVisit() {
+    s_deskFullVisit = !s_deskFullVisit;
+    s_prefs.putBool("dskvisit", s_deskFullVisit);
+}
+uint8_t deskCrowd() { return s_deskCrowd; }
 
-const char* meshCrowdLabel() {
+static const char* crowdLabel(uint8_t n) {
     // ONE is a different thing, not a count of one: it is the ordinary visit,
     // with the set pieces and the emotes that a crowd stands down.
-    if (s_meshCrowd <= 1) return "ONE";
+    if (n <= 1) return "ONE";
     static char b[10];
-    snprintf(b, sizeof b, "UP TO %u", (unsigned)s_meshCrowd);
+    snprintf(b, sizeof b, "UP TO %u", (unsigned)n);
     return b;
 }
+const char* meshCrowdLabel() { return crowdLabel(s_meshCrowd); }
+const char* deskCrowdLabel() { return crowdLabel(s_deskCrowd); }
 
 // Every number from one to eight, one per tap, wrapping -- except two. It used
 // to offer only 1, 4 and 8 on the grounds that eight values would be eight
@@ -548,11 +591,18 @@ const char* meshCrowdLabel() {
 // arrivals, the high fives, the rock-paper-scissors and every other set piece
 // written for exactly two Squachys, all of which a crowd stands down. A menu
 // value that silently does nothing reads as a bug.
-void cycleMeshCrowd() {
-    uint8_t n = (uint8_t)(s_meshCrowd >= CROWD_MAX ? 1 : s_meshCrowd + 1);
+static uint8_t nextCrowd(uint8_t c) {
+    uint8_t n = (uint8_t)(c >= CROWD_MAX ? 1 : c + 1);
     if (n == 2) n = 3;
-    s_meshCrowd = n;
+    return n;
+}
+void cycleMeshCrowd() {
+    s_meshCrowd = nextCrowd(s_meshCrowd);
     s_prefs.putUChar("crowd", s_meshCrowd);
+}
+void cycleDeskCrowd() {
+    s_deskCrowd = nextCrowd(s_deskCrowd);
+    s_prefs.putUChar("dskcrwd", s_deskCrowd);
 }
 
 void cycleMeshDetect()   { s_meshDetect   = !s_meshDetect;   s_prefs.putBool("meshrx", s_meshDetect); }

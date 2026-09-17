@@ -51,9 +51,23 @@ bool uiClearCrowdTap(int x, int y, uint32_t now);
 // live here. `bottomInset` is what the caller keeps clear under the band
 // -- 22 on the main screen for the squad badge and the counters, 0 on the
 // desk, which has neither.
+//
+// `grow` enlarges them past the size the band would pick (still no taller
+// than the band); `bubbleY`, when not -1, is the row the speech bubbles
+// hang from instead of just over their heads. The desk uses both for a pair:
+// bigger, with their words up on the clock.
 void uiClearDrawCrowd(TFT_eSPI& t, uint32_t now, const Mesh::SquadMember* crowd,
                       uint8_t n, int top, int floorY, bool advance, bool msgFresh,
-                      int bottomInset);
+                      int bottomInset, float grow = 1.0f, int bubbleY = -1);
+
+// The visit machine, for a screen other than the main one that has the squad
+// on it (the desk): who is visiting, whose turn it is to talk, the laughs and
+// the set pieces. Once a frame, before drawing.
+void uiClearVisitTick(uint32_t now);
+// The main screen's ordinary visit -- ours on the left, the visitor walking
+// in on the right -- drawn into the band from `top` to `floorY`. False, and
+// nothing drawn, when nobody is visiting.
+bool uiClearDrawVisit(TFT_eSPI& t, uint32_t now, int top, int floorY, bool advance);
 #endif
 // An emote (MeshMsg::Emote) and its setup: one this board just sent, or one from the
 // visitor's board (fromGuest). The two of them act it out at the next free

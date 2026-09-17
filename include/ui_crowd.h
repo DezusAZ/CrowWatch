@@ -15,7 +15,6 @@ class DetectionEngine;
 
 enum class CrowdRow : uint8_t {
     HOW_MANY = 0,   // one visitor, or up to N of them roaming
-    ON_DESK,        // ...and whether they turn up on the desk clock too
     COUNT,
     NONE = 255
 };

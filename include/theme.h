@@ -225,7 +225,10 @@ namespace Theme {
     // slot positions (and hitTestButtonBar's ButtonId::SCAN/LOG/CLR
     // return values) stay identical; only the caller's interpretation
     // of a hit changes based on which mode it asked to draw.
-    enum class ButtonBarMode { MAIN, SCAN_PICKER };
+    // LOG is the log screen's own bar: [SCAN][LOG][CLR]. The main screen's
+    // third slot is DESK, and clearing the log is only offered where the log
+    // is actually on screen.
+    enum class ButtonBarMode { MAIN, SCAN_PICKER, LOG };
     void drawButtonBar(TFT_eSPI& t, ButtonId highlighted, ButtonBarMode mode = ButtonBarMode::MAIN);
     ButtonId hitTestButtonBar(int x, int y, int screenW, int screenH);
 
@@ -499,6 +502,29 @@ namespace Theme {
     // Total advance width of s at the given size, for centering —
     // same role as TFT_eSPI's textWidth().
     int bangersTextWidth(const char* s, BangersSize size);
+
+    // One LG glyph drawn at any scale, for the desk clock. Sampled rather
+    // than pixel-doubled, so a digit at x1.6 keeps its curves instead of
+    // turning to steps; and never glitched -- a clock that tears is a clock
+    // you cannot read. (x, yTop) is the top-left of the glyph's ascender box,
+    // as for drawBangersText.
+    void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color, float scale);
+    int  bangersGlyphAdvance(char c);    // LG, unscaled
+    // The digits' ink, unscaled: its top row inside the ascender box and its
+    // height, so a caller can size a digit by what actually shows.
+    void bangersDigitInk(int& top, int& height);
+
+    // What plays inside the desk clock's plate: 1 digital rain, 2 snow,
+    // 3 flying toasters, 4 fire, 5 starfield, 6 fireflies (0 is nothing). Small, self-contained cousins of the
+    // backgrounds, not the backgrounds themselves -- those keep state for the
+    // whole screen and would scramble if drawn twice a frame. Everything here
+    // is worked out from `now`, so it keeps nothing and can be drawn anywhere.
+    // Clipped to the rectangle it is given.
+    // Fire is the one that has to remember something -- its heat, about 2 KB
+    // at most. It is allocated when fire is picked and let go the moment the
+    // clock draws anything else, or when this is called on leaving the desk.
+    void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, uint8_t kind);
+    void releaseClockBackdrop();
 
     // True during the shared random glitch burst drawBangersText()
     // already rolls every ~5-10s (see its own comment) -- exposed so

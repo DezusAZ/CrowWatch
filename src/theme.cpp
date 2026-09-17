@@ -486,7 +486,8 @@ void drawButtonBar(TFT_eSPI& t, ButtonId highlighted, ButtonBarMode mode) {
     }
     drawButton(t, g.x[0], g.y, g.w[0], g.h, "[ SCAN ]", highlighted == ButtonId::SCAN);
     drawButton(t, g.x[1], g.y, g.w[1], g.h, "[ LOG ]",  highlighted == ButtonId::LOG);
-    drawButton(t, g.x[2], g.y, g.w[2], g.h, "[ CLR ]",  highlighted == ButtonId::CLR);
+    drawButton(t, g.x[2], g.y, g.w[2], g.h, mode == ButtonBarMode::LOG ? "[ CLR ]" : "[ DESK ]",
+               highlighted == ButtonId::CLR);
 }
 
 ButtonId hitTestButtonBar(int x, int y, int screenW, int screenH) {
@@ -8759,6 +8760,248 @@ static void drawBangersPass(TFT_eSPI& t, const char* s, int x, int y, uint16_t c
         }
         cursorX += g->advance;
     }
+}
+
+int bangersGlyphAdvance(char c) {
+    const BangersFont::Glyph* g = bangersFind(c, BangersSize::LG);
+    return g ? g->advance : 0;
+}
+
+void bangersDigitInk(int& top, int& height) {
+    int lo = 1000, hi = -1000;
+    for (char c = '0'; c <= '9'; c++) {
+        const BangersFont::Glyph* g = bangersFind(c, BangersSize::LG);
+        if (!g) continue;
+        if (g->yoff < lo) lo = g->yoff;
+        if (g->yoff + g->h > hi) hi = g->yoff + g->h;
+    }
+    top = lo < hi ? lo : 0;
+    height = lo < hi ? hi - lo : 1;
+}
+
+void drawBangersGlyphScaled(TFT_eSPI& t, int x, int yTop, char c, uint16_t color, float scale) {
+    const BangersFont::Glyph* g = bangersFind(c, BangersSize::LG);
+    if (!g || !g->bitmap || scale <= 0.0f) return;
+    const int rowBytes = (g->w + 7) / 8;
+    auto inkAt = [&](int col, int row) -> int {
+        if (col < 0 || row < 0 || col >= g->w || row >= g->h) return 0;
+        return (g->bitmap[row * rowBytes + col / 8] >> (7 - (col % 8))) & 1;
+    };
+    const int dw = (int)((float)g->w * scale + 0.5f), dh = (int)((float)g->h * scale + 0.5f);
+    const int ox = x + (int)lroundf((float)g->xoff * scale);
+    const int oy = yTop + (int)lroundf((float)g->yoff * scale);
+    const float inv = 1.0f / scale;
+    for (int dy = 0; dy < dh; dy++) {
+        const float sy = ((float)dy + 0.5f) * inv - 0.5f;
+        const int   y0 = (int)floorf(sy);
+        const float fy = sy - (float)y0;
+        int runStart = -1;
+        for (int dx = 0; dx <= dw; dx++) {
+            bool on = false;
+            if (dx < dw) {
+                const float sx = ((float)dx + 0.5f) * inv - 0.5f;
+                const int   x0 = (int)floorf(sx);
+                const float fx = sx - (float)x0;
+                // Bilinear over the four source pixels, kept where it is at
+                // least half ink: the edge lands between the source pixels
+                // instead of on their grid, which is what keeps it smooth.
+                const float v = (1.0f - fy) * ((1.0f - fx) * inkAt(x0, y0) + fx * inkAt(x0 + 1, y0)) +
+                                fy          * ((1.0f - fx) * inkAt(x0, y0 + 1) + fx * inkAt(x0 + 1, y0 + 1));
+                on = v >= 0.5f;
+            }
+            if (on && runStart < 0) runStart = dx;
+            if (!on && runStart >= 0) {
+                t.drawFastHLine(ox + runStart, oy + dy, dx - runStart, color);
+                runStart = -1;
+            }
+        }
+    }
+}
+
+// ---- the desk clock's backdrops --------------------------------------------
+// A cheap integer hash, so a column or a flake can have its own speed and
+// start without anything being stored.
+static uint32_t bdHash(uint32_t v) {
+    v ^= v >> 16; v *= 0x7feb352dU; v ^= v >> 15; v *= 0x846ca68bU; v ^= v >> 16;
+    return v;
+}
+
+// The clock fire's heat, one byte per 4 px cell, bottom row seeded.
+static uint8_t* s_cfHeat = nullptr;
+static int      s_cfCols = 0, s_cfRows = 0;
+static uint32_t s_cfStep = 0;
+
+void releaseClockBackdrop() {
+    free(s_cfHeat);
+    s_cfHeat = nullptr;
+    s_cfCols = s_cfRows = 0;
+}
+
+void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, uint8_t kind) {
+    if (kind != 4 && s_cfHeat) releaseClockBackdrop();
+    if (kind == 0 || w <= 0 || h <= 0) return;
+    // Clipped, with coordinates left absolute: nothing drawn here can reach
+    // past the plate, whatever it is doing at the edges.
+    t.setViewport(x, y, w, h, false);
+    if (kind == 1) {
+        // Digital rain: the same glyphs and the same depth colours as the
+        // background, dimmed so the time stays the brightest thing.
+        static const char GL[] = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*<>{}[]/\\|+=~SASQUACH";
+        static const uint16_t HUE[3] = { VAPOR_PURPLE, CYAN, GREEN };
+        const int COL = 6, ROW = 8, TRAIL = 7;
+        t.setTextSize(1);
+        for (int c = 0; c * COL < w; c++) {
+            const uint32_t hsh = bdHash((uint32_t)c * 2654435761U + 17U);
+            const uint32_t speed = 28 + hsh % 40;                   // px per second
+            const int span = h + TRAIL * ROW / 2;
+            const int head = (int)(((now / 1000U) * speed + (now % 1000U) * speed / 1000U + (hsh >> 8)) % (uint32_t)span);
+            const uint16_t hue = HUE[(hsh >> 5) % 3];
+            for (int k = 0; k < TRAIL; k++) {
+                const int gy = head - k * ROW;
+                const int row = gy / ROW;
+                if (gy < -ROW || gy > h) continue;
+                const uint8_t fade = (uint8_t)(k == 0 ? 230 : 200 - k * 24);
+                const uint16_t col = blend(BG, k == 0 ? WHITE : hue, fade);
+                const char ch = GL[bdHash((uint32_t)(c * 131 + row * 7919) + (now / 220U)) % (sizeof(GL) - 1)];
+                t.setTextColor(col);                 // one colour: drawn without a box
+                t.drawChar((uint16_t)ch, x + c * COL, y + gy);
+            }
+        }
+    } else if (kind == 2) {
+        // Snow: three depths of flake, the far ones small, slow and faint.
+        const int N = 48;
+        for (int i = 0; i < N; i++) {
+            const uint32_t hsh = bdHash((uint32_t)i * 40503U + 7U);
+            const int layer = i % 3;
+            const uint32_t speed = (uint32_t)(6 + layer * 7 + hsh % 5);     // px per second
+            const int fy = (int)(((uint64_t)now * speed / 1000U + (hsh >> 4)) % (uint32_t)(h + 4)) - 2;
+            const float sway = sinf((float)now / (900.0f + (float)(hsh % 700)) + (float)(hsh % 628) / 100.0f);
+            const int fx = (int)((hsh >> 12) % (uint32_t)w) + (int)(sway * (1.5f + (float)layer));
+            const uint16_t col = blend(BG, WHITE, (uint8_t)(120 + layer * 60));
+            if (layer == 2) t.fillRect(x + fx, y + fy, 2, 2, col);
+            else            t.drawPixel(x + fx, y + fy, col);
+        }
+    } else if (kind == 3) {
+        // Flying toasters, on the background's own heading: in at the lower
+        // left, gently up and off at the upper right, a quarter of a pixel up
+        // for every pixel across. Sizes and speeds from the same ranges the
+        // background uses, at its smaller end, so they are the same flock in
+        // a smaller sky rather than a new drawing.
+        const uint16_t chrome = t.color565(190, 190, 150);
+        struct Flyer { uint16_t speed; float sc; bool toast; int8_t lift; };
+        static const Flyer F[4] = {
+            { 20, 0.62f, false,  0 }, { 26, 0.55f, true,  10 },
+            { 17, 0.58f, false, -8 }, { 23, 0.66f, false, 16 },
+        };
+        const int lane = w + 70;                         // entry to exit, in pixels
+        for (int i = 0; i < 4; i++) {
+            const int along = (int)(((uint64_t)now * F[i].speed / 1000U + (uint32_t)(i * lane / 4)) % (uint32_t)lane);
+            const int fx = x - 60 + along;
+            const int bh = (int)(34.0f * F[i].sc);
+            const int fy = y + h - bh / 2 + F[i].lift - along / 4;
+            if (F[i].toast) drawToastAt(t, fx, fy, now, false, F[i].sc, false);
+            else            drawToasterAt(t, fx, fy, now + (uint32_t)i * 170U, chrome, F[i].sc);
+        }
+    } else if (kind == 4) {
+        // Fire: the classic -- a hot bottom row, every cell above it taking
+        // the heat of a neighbour below, a little cooler and a little
+        // sideways. Coarse 4 px cells, so the whole plate is under 2 KB.
+        const int CELL = 4;
+        const int cols = w / CELL + 1, rows = h / CELL + 2;
+        if (!s_cfHeat || cols != s_cfCols || rows != s_cfRows) {
+            releaseClockBackdrop();
+            s_cfHeat = (uint8_t*)calloc((size_t)cols * (size_t)rows, 1);
+            if (!s_cfHeat) { t.resetViewport(); return; }
+            s_cfCols = cols; s_cfRows = rows;
+            s_cfStep = now;
+        }
+        const uint8_t HOT = 36;
+        // A fixed 60 ms step, however fast the screen is drawn, so the flames
+        // rise at the same speed on every board.
+        int steps = (int)((now - s_cfStep) / 60U);
+        if (steps > 3) { steps = 3; s_cfStep = now; }
+        for (int n = 0; n < steps; n++) {
+            s_cfStep += 60U;
+            // The seed row flickers: mostly hot, with a few cold gaps that
+            // travel up as the flame's tongues.
+            for (int c = 0; c < cols; c++)
+                s_cfHeat[(rows - 1) * cols + c] = (random(0, 8) == 0) ? (uint8_t)random(10, 24) : HOT;
+            for (int r = 0; r < rows - 1; r++) {
+                for (int c = 0; c < cols; c++) {
+                    int sc = c + (int)random(-1, 2);
+                    if (sc < 0) sc = 0;
+                    if (sc >= cols) sc = cols - 1;
+                    const int below = s_cfHeat[(r + 1) * cols + sc];
+                    // Cooling scaled to the plate's height, so a short plate
+                    // still shows flame tips rather than a solid block.
+                    // About three a row on average: flames reach a little over
+                    // half way up, in tongues, instead of filling the plate.
+                    const int cool = (int)random(0, 5) + (random(0, 4) == 0 ? 2 : 0);
+                    s_cfHeat[r * cols + c] = (uint8_t)(below > cool ? below - cool : 0);
+                }
+            }
+        }
+        // Heat to colour, dimmed: the time is the brightest thing here.
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                const int v = s_cfHeat[r * cols + c];
+                if (v < 4) continue;
+                uint16_t col;
+                if (v < 14)      col = blend(BG, t.color565(120, 12, 0), (uint16_t)((v - 3) * 23));
+                else if (v < 26) col = blend(t.color565(120, 12, 0), t.color565(180, 70, 0), (uint16_t)((v - 14) * 21));
+                else             col = blend(t.color565(180, 70, 0), t.color565(200, 150, 30), (uint16_t)((v - 26) * 25));
+                t.fillRect(x + c * CELL, y + h - (rows - r) * CELL + CELL, CELL, CELL, col);
+            }
+        }
+    } else if (kind == 5) {
+        // Starfield: stars streaming out of the middle, slow and small near
+        // it and bright, fast and trailing at the edges.
+        const float cx = (float)x + (float)w * 0.5f, cy = (float)y + (float)h * 0.5f;
+        const float reach = (float)w * 0.55f;
+        const int N = 70;
+        for (int i = 0; i < N; i++) {
+            const uint32_t hsh = bdHash((uint32_t)i * 2246822519U + 3U);
+            const float ang = (float)(hsh % 6283) / 1000.0f;
+            const uint32_t life = 2600U + (hsh >> 16) % 1800U;
+            const float p = (float)((now + (hsh >> 3)) % life) / (float)life;
+            const float d = p * p * reach;
+            const float dx = cosf(ang), dy = sinf(ang) * 0.55f;       // the plate is wide, not round
+            const int sx = (int)(cx + dx * d), sy = (int)(cy + dy * d);
+            const uint16_t col = blend(BG, WHITE, (uint16_t)(40 + p * 200.0f));
+            if (p > 0.6f) {
+                const float d0 = d * 0.9f;
+                t.drawLine((int)(cx + dx * d0), (int)(cy + dy * d0), sx, sy, col);
+            } else {
+                t.drawPixel(sx, sy, col);
+            }
+        }
+    } else if (kind == 6) {
+        // Fireflies: a dozen slow wanderers, each glowing up and fading on
+        // its own clock, with a soft halo when it is at its brightest.
+        const int N = 18;
+        for (int i = 0; i < N; i++) {
+            const uint32_t hsh = bdHash((uint32_t)i * 3266489917U + 11U);
+            const float ph = (float)(hsh % 6283) / 1000.0f;
+            const float px = (float)((hsh >> 8) % 1000) / 1000.0f;
+            const float py = (float)((hsh >> 18) % 1000) / 1000.0f;
+            const float fx = (float)x + (float)w * (0.08f + 0.84f * (0.5f + 0.5f * sinf((float)now / (5200.0f + (float)(hsh % 3000)) + ph + px * 6.0f)));
+            const float fy = (float)y + (float)h * (0.12f + 0.76f * (0.5f + 0.5f * sinf((float)now / (4100.0f + (float)((hsh >> 5) % 2600)) + ph * 1.7f + py * 6.0f)));
+            // Lit more of the time than dark, and never quite out while lit.
+            float glow = (sinf((float)now / (700.0f + (float)((hsh >> 11) % 900)) + ph) + 0.35f) / 1.35f;
+            if (glow < 0.0f) continue;
+            const uint16_t core = blend(BG, t.color565(230, 255, 110), (uint16_t)(110 + glow * 145.0f));
+            const uint16_t halo = blend(BG, t.color565(150, 200, 50), (uint16_t)(40 + glow * 120.0f));
+            const uint16_t far  = blend(BG, t.color565(90, 130, 30), (uint16_t)(glow * 90.0f));
+            const int ix = (int)fx, iy = (int)fy;
+            if (glow > 0.5f) {
+                t.drawPixel(ix - 2, iy, far); t.drawPixel(ix + 2, iy, far);
+                t.drawPixel(ix, iy - 2, far); t.drawPixel(ix, iy + 2, far);
+            }
+            t.fillRect(ix - 1, iy - 1, 3, 3, halo);
+            t.drawPixel(ix, iy, core);
+        }
+    }
+    t.resetViewport();
 }
 
 void drawBangersText(TFT_eSPI& t, int x, int y, const char* s, uint16_t color, BangersSize size) {
