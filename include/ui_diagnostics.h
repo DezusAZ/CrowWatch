@@ -77,6 +77,10 @@ struct DiagnosticsInfo {
     // screen that drew one -- this screen does not. Without it FRAME
     // here only ever describes the diagnostics screen.
     uint32_t    bgUs;
+    // The whole frame of the last full screen shown (MAIN, LOG, DESK and the
+    // like), averaged on that screen alone. nullptr until there has been one.
+    const char* lastScreenName;
+    uint32_t    lastScreenUs;
 
     // System.
     uint32_t    freeHeap;

@@ -140,13 +140,20 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
                      (unsigned long)(1000000UL / fus),
                      (unsigned long)(info.pushUs / 1000),
                      (unsigned long)((info.pushUs % 1000) / 100));
-        // FRAME above is this screen, which has no backdrop. BG is the
-        // last animated screen's, and is the only figure here that says
-        // anything about the background you picked.
-        y = drawLine(t, y, Theme::AMBER, "BG:", "%lu.%lu ms  (max %lu)",
-                     (unsigned long)(info.bgUs / 1000),
-                     (unsigned long)((info.bgUs % 1000) / 100),
-                     (unsigned long)(1000000UL / (info.bgUs ? info.bgUs : 1)));
+        // FRAME above is this screen, which has no backdrop. LAST is the
+        // screen you came from -- its whole frame, which is the frame rate
+        // you actually saw there -- and the part of it its background took.
+        if (info.lastScreenName && info.lastScreenUs) {
+            const uint32_t lus = info.lastScreenUs;
+            y = drawLine(t, y, Theme::AMBER, "LAST:", "%s %lu.%lu ms (%lu fps), bg %lu.%lu",
+                         info.lastScreenName,
+                         (unsigned long)(lus / 1000), (unsigned long)((lus % 1000) / 100),
+                         (unsigned long)(1000000UL / lus),
+                         (unsigned long)(info.bgUs / 1000), (unsigned long)((info.bgUs % 1000) / 100));
+        } else {
+            y = drawLine(t, y, Theme::AMBER, "LAST:", "no screen timed yet, bg %lu.%lu",
+                         (unsigned long)(info.bgUs / 1000), (unsigned long)((info.bgUs % 1000) / 100));
+        }
     }
     y += 4;
 

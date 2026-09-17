@@ -2383,6 +2383,27 @@ static inline uint32_t emaUpdate(uint32_t avg, uint32_t sample) {
     return avg ? avg + ((int32_t)sample - (int32_t)avg) / 8 : sample;
 }
 
+// The frame time of the last screen worth timing, for DIAGNOSTICS: the whole
+// frame (drawing, push and everything else in the loop), not the backdrop
+// alone, and not the menu the reading is taken from. Its own average, begun
+// afresh on each such screen once its entry glitch is over, so none of the
+// screen before it is mixed in.
+static const char* timedScreenName(AppState s) {
+    switch (s) {
+        case AppState::CLEAR:       return "MAIN";
+        case AppState::LOG:         return "LOG";
+        case AppState::DESK:        return "DESK";
+        case AppState::RAWSCAN:     return "SCAN";
+        case AppState::HUNT:        return "HUNT";
+        case AppState::ALERT:       return "ALERT";
+        case AppState::WATCH_ALERT: return "WATCH";
+        default:                    return nullptr;
+    }
+}
+static const char* s_lastScreenName = nullptr;
+static uint32_t    s_lastScreenUs   = 0;
+static uint32_t    s_lastScreenAt   = 0;     // transitionStart of the screen being timed
+
 void loop() {
     // Cheap and unconditional: available() is a register read, and this
     // is the only way in for the one serial command the firmware takes.
@@ -4892,6 +4913,8 @@ void loop() {
             info.pushUs  = s_pushUsAvg;
             info.frameUs = s_frameUsAvg;
             info.bgUs    = Theme::backgroundUs();
+            info.lastScreenName = s_lastScreenName;
+            info.lastScreenUs   = s_lastScreenUs;
             info.freeHeap = ESP.getFreeHeap();
             info.largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
             info.resetReason = resetReasonName();
@@ -4998,7 +5021,18 @@ void loop() {
 #endif
 
     s_pushUsAvg  = emaUpdate(s_pushUsAvg, s_pushAccumUs);
-    s_frameUsAvg = emaUpdate(s_frameUsAvg, micros() - frameStartUs);
+    const uint32_t frameUs = micros() - frameStartUs;
+    s_frameUsAvg = emaUpdate(s_frameUsAvg, frameUs);
+    if (const char* nm = timedScreenName(state)) {
+        if (now - transitionStart >= TRANSITION_MS) {
+            if (s_lastScreenAt != transitionStart) {
+                s_lastScreenAt   = transitionStart;
+                s_lastScreenName = nm;
+                s_lastScreenUs   = 0;
+            }
+            s_lastScreenUs = emaUpdate(s_lastScreenUs, frameUs);
+        }
+    }
     // The same two numbers DIAGNOSTICS shows, once every ten seconds on
     // serial, so a frame-rate change can be read off a capture rather than
     // off a screen somebody has to navigate to and photograph. Ten seconds

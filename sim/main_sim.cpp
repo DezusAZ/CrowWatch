@@ -478,6 +478,10 @@ int main(int argc, char** argv) {
             info.calA0 = 200; info.calA1 = 3800;
             info.calB0 = 200; info.calB1 = 3800;
             info.pushUs = 30700;
+            // A plausible last screen, so the LAST line is laid out at its longest.
+            info.lastScreenName = "WATCH";
+            info.lastScreenUs   = 123400;
+            info.bgUs           = 12300;
             info.frameUs = 41200;
             info.freeHeap = 180000;
             info.largestBlock = 110000;
