@@ -1691,8 +1691,11 @@
     var port, transport, esploader;
     try {
       port = await navigator.serial.requestPort();
-      await port.open({ baudRate: 115200, bufferSize: 8192 });
-      var mod = await import('https://unpkg.com/esptool-js@0.6.1/lib/index.js');
+      // The bundle, not lib/index.js: lib imports "pako" and "atob-lite" by
+      // bare name, which a browser cannot resolve, so the import threw before
+      // anything was sent. And the port is NOT opened here: esploader.main()
+      // opens it itself, and a port opened twice fails with "already open".
+      var mod = await import('https://unpkg.com/esptool-js@0.6.1/bundle.js');
       transport = new mod.Transport(port);
       esploader = new mod.ESPLoader({ transport: transport, baudrate: 115200, enableTracing: false });
       var chipDesc = await esploader.main();

@@ -36,6 +36,8 @@
 #include "ui_phone.h"
 #include "qwerty.h"
 #include "ui_meshmenu.h"
+#include "ui_bingo.h"
+#include "bingo.h"
 #include "ui_meshwarn.h"
 #include "ui_meshphrase.h"
 #include "ui_meshcompose.h"
@@ -160,7 +162,7 @@ static std::vector<uint8_t> toRgb888(const std::vector<uint16_t>& src) {
 static void usage() {
     fprintf(stderr,
         "usage: squachsim <screen> [out.png] [options]\n"
-        "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn\n"
+        "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn bingo\n"
         "  --portrait        render 240x320 instead of 320x240\n"
         "  --qwerty          phone screen: the QWERTY board, not the keypad\n"
         "  --msgs            messages on, with a phrase set\n"
@@ -452,6 +454,7 @@ int main(int argc, char** argv) {
         else if (screen == "hunt")     uiHuntTick(frame, t, engine);
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
+        else if (screen == "bingo")    uiBingoTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
         else if (screen == "roster")   uiSquadTick(frame, t, engine);
         else if (screen == "meshwarn") uiMeshWarnTick(frame, t, engine);
@@ -606,6 +609,14 @@ int main(int argc, char** argv) {
     }
     else if (screen == "wifinets")   uiWifiNetsInit(frame);
     else if (screen == "wifiadd")    uiWifiAddInit(frame);
+    else if (screen == "bingo") {
+        // A card part-way through, so the marked, the lined and the
+        // still-missing all show at once.
+        Bingo::begin(engine);
+        for (int k = 0; k < 6; k++) Bingo::note(Bingo::typeAt((uint8_t)k));
+        Bingo::tick(1000);
+        uiBingoInit(frame);
+    }
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
     else if (screen == "roster") {
         // Three members, through the real paths: an advert each so Mesh knows

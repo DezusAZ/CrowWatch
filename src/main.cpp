@@ -33,6 +33,8 @@
 #include <esp_heap_caps.h>
 #include "ui_diagnostics.h"   // CrashReport, used by the breadcrumb below
 #include "blackbox.h"
+#include "ui_bingo.h"
+#include "bingo.h"
 #include "theme.h"            // the crash card on the splash
 #include "clock.h"            // ...and the ten-minute IGNORE on it
 
@@ -1493,6 +1495,12 @@ static void enterNudge() {
     uiNudgeInit(*canvas, s_nudge.from, s_nudge.ver, NUDGE_COUNT_S, transitionStart);
 }
 
+static void enterBingo() {
+    state = AppState::BINGO;
+    transitionStart = millis();
+    uiBingoInit(*canvas);
+}
+
 static void enterSquadUpdate() {
     state = AppState::SQUAD_UPDATE;
     transitionStart = millis();
@@ -2356,6 +2364,9 @@ void setup() {
     }
 
     engine.init();
+    // After the engine: the card leans on the lifetime counts to pick which
+    // type sits out, and those are read in init().
+    Bingo::begin(engine);
 #if SQUACH_MESH
     // After the radio is up and before anything can ask whether messages are
     // ready: this is where the crypto self-test runs, on the real cipher,
@@ -2432,6 +2443,32 @@ void loop() {
     s_pushAccumUs = 0;
     uint32_t now = millis();
     Clock::tick(now);   // the note to self, when it is due
+    // The bingo card: marks the radio task handed over, the week turning
+    // over, and the one flash write that follows a batch of marks.
+    Bingo::tick(now);
+    {
+        DetectionType bt = DetectionType::UNKNOWN;
+        char sub[40];
+        switch (Bingo::takeEvent(bt)) {
+            case Bingo::Event::MARKED:
+                snprintf(sub, sizeof sub, "%s  (%u of 16)", detectionTypeName(bt),
+                         (unsigned)Bingo::markedCount());
+                Theme::showToast("SQUARE MARKED", sub, Theme::GREEN, 2200);
+                break;
+            case Bingo::Event::LINE:
+                snprintf(sub, sizeof sub, "%u line%s called", (unsigned)Bingo::linesCalled(),
+                         Bingo::linesCalled() == 1 ? "" : "s");
+                Theme::showToast("BINGO!", sub, Theme::AMBER, 3000);
+                break;
+            case Bingo::Event::FULL:
+                Theme::showToast("FULL CARD", "Sixteen for sixteen", Theme::AMBER, 4000);
+                break;
+            case Bingo::Event::NEW_CARD:
+                Theme::showToast("NEW BINGO CARD", "A fresh sixteen", Theme::CYAN, 2500);
+                break;
+            default: break;
+        }
+    }
 
     TouchPoint tp = pollTouch();
     // True only on the exact frame a touch begins/ends -- unlike
@@ -2760,6 +2797,15 @@ void loop() {
                 else if (OtaCore::availableVersion()[0] && !Security::locked()) enterSysProps();
                 else if (Settings::deskWanted())  enterDesk();   // switched off on the desk: back to it
                 else                              enterClear();
+            }
+            break;
+        }
+        case AppState::BINGO: {
+            uiBingoTick(*canvas, now, engine);
+            if (touchJustDown) {
+                lastTouch = now;
+                if (uiBingoHitTest(*canvas, tp.x, tp.y, tft.width(), tft.height()) == BingoTap::BACK)
+                    enterSettings();
             }
             break;
         }
@@ -3986,6 +4032,7 @@ void loop() {
                         case SettingsRow::PET:          Squachy::togglePet(); break;
                         case SettingsRow::BANTER:       Settings::cycleBanter(); break;
                         case SettingsRow::VIEW_DIARY:   enterDiary(); break;
+                        case SettingsRow::BINGO:        enterBingo(); break;
                         case SettingsRow::APPEARANCE:  uiSettingsOpenAppearance(true); break;
                         case SettingsRow::TOP_HAT:     Settings::toggleTopHat(); break;
                         // From a sub-page, back to the main list; from the

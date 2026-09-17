@@ -42,6 +42,7 @@ enum class SettingsRow : uint8_t {
     STATUS_LIGHT,    // on the APPEARANCE page: opens the RGB LED's screen
     BANTER,          // on the APPEARANCE page: how much he talks when nothing is happening
     TIME_ZONE,       // on the DESK MODE page: which zone the real clock shows
+    BINGO,           // opens the bingo card
     DESK_MODE,       // opens the DESK MODE page
     DESK_OPEN,       // on the DESK MODE page: go to the desk
     DESK_BACKGROUND, // on the DESK MODE page: the desk's own scene

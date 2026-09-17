@@ -7,6 +7,7 @@
 #include "security.h"
 #include "ignore_list.h"
 #include "squachy.h"
+#include "bingo.h"
 #include <Arduino.h>
 
 // Was 16, which put the first row's top edge 4px ABOVE the bottom of the
@@ -62,7 +63,8 @@ static const SettingsRow ALL_ROWS[] = {
     // SIZE, OUTFIT, PET and SHADES COLOR all live on the APPEARANCE page now
     // -- see APPEARANCE_ROWS. Everything about how he LOOKS is on one page;
     // what stays here is what he DOES.
-    SettingsRow::REPLAY_INTRO, SettingsRow::SHOW_OFF, SettingsRow::VIEW_DIARY, SettingsRow::DESK_MODE,
+    SettingsRow::REPLAY_INTRO, SettingsRow::SHOW_OFF, SettingsRow::VIEW_DIARY,
+    SettingsRow::BINGO, SettingsRow::DESK_MODE,
     SettingsRow::POWER_SAVER,
     SettingsRow::SECURITY,
     // CALIBRATE, CHECK COLORS, DIAGNOSTICS and RESET STATS moved behind the
@@ -194,6 +196,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::SQUACHMESH:
         case SettingsRow::REPLAY_INTRO:
         case SettingsRow::VIEW_DIARY:
+        case SettingsRow::BINGO:
         case SettingsRow::DESK_MODE:
         case SettingsRow::SHOW_OFF:
             return RowGroupId::SQUACHY;
@@ -840,6 +843,13 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
         case SettingsRow::VIEW_DIARY:
             label = "SQUACHY'S DIARY";
             break;
+        case SettingsRow::BINGO: {
+            label = "BINGO";
+            static char bingoVal[12];
+            snprintf(bingoVal, sizeof bingoVal, "%u/16 >", (unsigned)Bingo::markedCount());
+            value = bingoVal;
+            break;
+        }
         case SettingsRow::DESK_MODE:
             label = "DESK MODE";
             value = ">";
