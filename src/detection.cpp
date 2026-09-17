@@ -1710,19 +1710,6 @@ void DetectionEngine::pushLog(const Detection& d) {
 
 static portMUX_TYPE s_bbMux = portMUX_INITIALIZER_UNLOCKED;
 
-// A restored row's vendor. Detection keeps a pointer, never a copy, and the
-// text read back from flash has nowhere to live -- so here, once per name:
-// a room holds a handful of vendors, not two hundred.
-static const char* keptVendor(const char* v) {
-    static char    pool[24][16];
-    static uint8_t used = 0;
-    if (!v[0]) return nullptr;
-    for (uint8_t i = 0; i < used; i++) if (strncmp(pool[i], v, sizeof pool[i]) == 0) return pool[i];
-    if (used >= sizeof pool / sizeof pool[0]) return nullptr;
-    strncpy(pool[used], v, sizeof pool[used] - 1);
-    pool[used][sizeof pool[used] - 1] = '\0';
-    return pool[used++];
-}
 
 void DetectionEngine::queueBlackBox(const Detection& d, bool again) {
     if (!BlackBox::ready()) return;
@@ -1797,47 +1784,6 @@ void logDump() {
     }
 }
 
-void DetectionEngine::restoreLog() {
-    if (!BlackBox::ready()) return;
-    _logCount = 0;
-    _logHead  = 0;
-    _latest   = nullptr;
-    // Newest first into the top of the ring, so the newest lands where
-    // logAt(0) looks and the next live detection goes in at slot 0.
-    BlackBox::forEachDetection([](const BlackBox::DetRecord& r, void* ctx) {
-        DetectionEngine& e = *(DetectionEngine*)ctx;
-        for (uint8_t i = 0; i < e._logCount; i++) {
-            Detection& d = e._log[LOG_CAP - 1 - i];
-            if ((uint8_t)d.type == r.type && memcmp(d.mac, r.mac, 6) == 0) {
-                // An older sighting of one already restored: only a name
-                // the newer one was missing.
-                if (!d.name[0] && r.name[0]) memcpy(d.name, r.name, sizeof d.name);
-                return true;
-            }
-        }
-        if (e._logCount >= LOG_CAP) return false;
-        Detection& d = e._log[LOG_CAP - 1 - e._logCount];
-        memset(&d, 0, sizeof d);
-        memcpy(d.mac, r.mac, 6);
-        d.rssi      = r.rssi;
-        d.channel   = r.channel;
-        d.type      = r.type < (uint8_t)DetectionType::COUNT ? (DetectionType)r.type : DetectionType::UNKNOWN;
-        d.conf      = r.conf <= (uint8_t)Confidence::HIGH_CONF ? (Confidence)r.conf : Confidence::LOW_CONF;
-        d.vendor    = keptVendor(r.vendor);
-        memcpy(d.name, r.name, sizeof d.name);
-        d.name[sizeof d.name - 1] = '\0';
-        d.firstSeen = r.epoch;
-        d.lastSeen  = 0;
-        d.hits      = r.hits ? r.hits : 1;
-        d.prevRssi  = r.rssi;
-        d.prevAt    = 0;
-        d.active    = false;
-        d.restored  = 1;
-        e._logCount++;
-        return true;
-    }, this);
-    if (_logCount) Serial.printf("[blackbox] %u devices back in the log\n", (unsigned)_logCount);
-}
 
 // The lifetime tally, to flash: at most once every five seconds while it
 // has changed. Five seconds of counting is what a power cut can lose.

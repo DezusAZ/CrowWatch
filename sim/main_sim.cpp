@@ -38,6 +38,7 @@
 #include "ui_meshmenu.h"
 #include "ui_bingo.h"
 #include "bingo.h"
+#include "blackbox.h"
 #include "ui_meshwarn.h"
 #include "ui_meshphrase.h"
 #include "ui_meshcompose.h"
@@ -552,7 +553,21 @@ int main(int argc, char** argv) {
 
     // Per-screen init, where the screen has one.
     if      (screen == "clear" || screen == "zonecard") uiClearInit(frame);
-    else if (screen == "log")        uiLogInit(frame);
+    else if (screen == "log") {
+        // Three sightings in the black box, so the list shows the rows held
+        // in RAM and then carries on into the ones kept in flash.
+        BlackBox::begin();
+        for (uint8_t i = 0; i < 3; i++) {
+            Detection old{};
+            for (int b2 = 0; b2 < 6; b2++) old.mac[b2] = (uint8_t)(0xA0 + i * 8 + b2);
+            old.type = (DetectionType)(1 + i * 5);
+            old.rssi = (int8_t)(-70 - i * 4);
+            old.hits = (uint16_t)(2 + i);
+            snprintf(old.name, sizeof old.name, "%s", i == 1 ? "Old Flipper" : "");
+            BlackBox::noteDetection(old, false);
+        }
+        uiLogInit(frame);
+    }
     else if (screen == "settings")   {
         uiSettingsInit(frame);
         // SQUACHSIM_PAGE=N opens a sub-page: 1 appearance, 2 system, 3 desk.

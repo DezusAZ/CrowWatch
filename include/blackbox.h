@@ -85,6 +85,10 @@ void markCleared();
 
 // Newest first, stopping at the last CLR. Return false to stop early.
 void forEachDetection(bool (*fn)(const DetRecord& r, void* ctx), void* ctx);
+// A window of that same list, newest first: skips `from`, fills up to `max`,
+// returns how many it filled. What the LOG screen scrolls through once it
+// runs off the end of the rows held in RAM.
+uint16_t readDetections(uint16_t from, uint16_t max, DetRecord* out);
 void forEachBoot(bool (*fn)(const BootRecord& r, void* ctx), void* ctx);
 
 uint16_t detectionsKept();              // since the last CLR

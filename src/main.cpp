@@ -2360,7 +2360,6 @@ void setup() {
             strncpy(br.task, g_lastCrash.task, sizeof br.task - 1);
         }
         BlackBox::noteBoot(br);
-        engine.restoreLog();
     }
 
     engine.init();
@@ -3645,7 +3644,10 @@ void loop() {
                 int32_t hdx = tp.x - rowHoldX, hdy = tp.y - rowHoldY;
                 if ((hdx * hdx + hdy * hdy) <= ROW_MOVE_PX_SQ && (now - rowHoldStart) >= ROW_HOLD_MS) {
                     int row = uiLogRowAt(*canvas, tp.x, tp.y, tft.width(), tft.height());
-                    const Detection* d = (row >= 0) ? engine.logAt((uint8_t)row) : nullptr;
+                    // Through the LOG screen's own accessor: past the rows
+                    // held in RAM it is reading the black box, and a long
+                    // press on one of those has to reach the same device.
+                    const Detection* d = (row >= 0) ? uiLogRow(engine, row) : nullptr;
                     if (d) {
                         rowHoldFired = true;
                         memcpy(s_confirmMac, d->mac, 6);

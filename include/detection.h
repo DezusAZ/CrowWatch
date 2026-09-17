@@ -141,10 +141,6 @@ public:
     bool     init();
     void     loop();
     void     clearLog();
-    // The log as the black box left it: the newest sighting of up to
-    // LOG_CAP devices, inactive, stamped with when they were seen. Before
-    // init(), so nothing live is in the log yet. See blackbox.h.
-    void     restoreLog();
     uint8_t  logCount() const { return _logCount; }
     const Detection* logAt(uint8_t idx) const;     // 0 = newest
     const Detection* latest() const { return _latest; }
@@ -344,12 +340,13 @@ public:
     }
 
 private:
-    // Bumped well past the screen's visible rows on purpose -- ui_log.cpp
-    // already renders off logCount()/logAt() dynamically with its own
-    // scrollbar, so a bigger ring buffer is pure history depth for
-    // free, no UI code to touch. ~200 entries costs ~11KB of RAM
-    // against a ~250KB free budget -- a rounding error.
-    static const uint8_t  LOG_CAP       = 200;
+    // Sixty-four, not the two hundred this was. Two hundred rows cost 11.6 KB
+    // of the board's static RAM -- by far the largest thing it owned -- and
+    // bought history depth the black box now keeps in flash instead: the LOG
+    // screen scrolls out of these rows and straight into eighteen hundred
+    // sightings on disk (see uiLogRow). Sixty-four is still four screens of
+    // rows before the first flash read, and it gave back nearly 8 KB.
+    static const uint8_t  LOG_CAP       = 64;
     static const uint8_t  WIFI_Q_CAP    = 8;
     static const uint32_t STALE_MS      = 60000;
     static const uint32_t ALERT_GRACE_MS= 200;

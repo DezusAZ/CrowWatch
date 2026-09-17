@@ -32,6 +32,14 @@ void uiLogTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
                bool confirmWatched, bool confirmHunted);
 void uiLogScroll(int delta);          // positive = scroll down (older)
 
+// One row of the list, newest first, and how many rows there are. The first
+// LOG_CAP of them are the engine's ring; past that they come from the black
+// box, which is where the board's older sightings live now. A row read from
+// flash is carried in a buffer of this screen's, so the pointer is good until
+// the next call -- draw it or copy it, do not keep it.
+const Detection* uiLogRow(const DetectionEngine& eng, int idx);
+uint16_t         uiLogRowCount(const DetectionEngine& eng);
+
 // Row index (0 = topmost visible, already adjusted for scroll) a tap
 // at (x,y) falls within, or -1 if outside the list entirely -- used by
 // main.cpp to long-press-select an entry to watch/hunt (see

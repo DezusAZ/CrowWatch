@@ -3,14 +3,77 @@
 #include "clock.h"
 #include "theme.h"
 #include "settings.h"
+#include "blackbox.h"
+#include "detection.h"
 #include <Arduino.h>
 #include <ctype.h>
 #include <string.h>
 
 static int g_scroll = 0;
 
+// ---- where a row comes from ---------------------------------------------
+// The first rows are the engine's ring in RAM -- what the board can see, or
+// saw a moment ago. Past those, the list carries straight on into the black
+// box's sightings in flash, which is the history the ring used to hold
+// before it was cut from two hundred rows to sixty-four.
+//
+// Flash is read a page at a time and held until the page changes, because
+// the list is redrawn every frame and a read per row per frame would put the
+// cache off for both cores twenty times a second. PAGE is a screenful of
+// rows plus room to scroll before it has to read again.
+static const uint8_t PAGE = 12;
+static BlackBox::DetRecord s_page[PAGE];
+static uint16_t s_pageFrom = 0;
+static uint8_t  s_pageGot  = 0;
+static bool     s_pageOk   = false;
+
+static void invalidatePage() { s_pageOk = false; }
+
+uint16_t uiLogRowCount(const DetectionEngine& eng) {
+    return (uint16_t)(eng.logCount() + BlackBox::detectionsKept());
+}
+
+const Detection* uiLogRow(const DetectionEngine& eng, int idx) {
+    if (idx < 0) return nullptr;
+    if (idx < (int)eng.logCount()) return eng.logAt((uint8_t)idx);
+
+    const uint16_t want = (uint16_t)(idx - eng.logCount());
+    if (want >= BlackBox::detectionsKept()) return nullptr;
+    if (!s_pageOk || want < s_pageFrom || want >= (uint16_t)(s_pageFrom + s_pageGot)) {
+        s_pageFrom = want;
+        s_pageGot  = (uint8_t)BlackBox::readDetections(want, PAGE, s_page);
+        s_pageOk   = s_pageGot > 0;
+        if (!s_pageOk) return nullptr;
+    }
+    const BlackBox::DetRecord& r = s_page[want - s_pageFrom];
+
+    // Built into one row of its own, because everything downstream -- the
+    // drawing, the long press, the confirm panel -- speaks Detection.
+    static Detection row;
+    memset(&row, 0, sizeof row);
+    memcpy(row.mac, r.mac, 6);
+    row.rssi      = r.rssi;
+    row.channel   = r.channel;
+    row.type      = r.type < (uint8_t)DetectionType::COUNT ? (DetectionType)r.type
+                                                           : DetectionType::UNKNOWN;
+    row.conf      = r.conf <= (uint8_t)Confidence::HIGH_CONF ? (Confidence)r.conf
+                                                             : Confidence::LOW_CONF;
+    row.restored  = 1;
+    row.firstSeen = r.epoch;        // a wall-clock second, not a millis() stamp
+    row.hits      = r.hits ? r.hits : 1;
+    row.prevRssi  = r.rssi;
+    memcpy(row.name, r.name, sizeof row.name);
+    row.name[sizeof row.name - 1] = '\0';
+    // The vendor is a pointer into the signature tables everywhere else, and
+    // the text read back from flash has nowhere to live -- so the row keeps
+    // the name it was given and leaves the vendor empty, which vendorText()
+    // already handles.
+    return &row;
+}
+
 void uiLogInit(TFT_eSPI& t) {
     g_scroll = 0;
+    invalidatePage();
     // fillScreen() relies on TFT_eSPI's base-class width/height, which
     // TFT_eSprite::createSprite() never updates — it leaves stale
     // remnants of whatever screen was drawn before when t is a sprite.
@@ -18,6 +81,7 @@ void uiLogInit(TFT_eSPI& t) {
 }
 
 void uiLogScroll(int delta) {
+    invalidatePage();
     g_scroll += delta;
     if (g_scroll < 0) g_scroll = 0;
 }
@@ -194,10 +258,10 @@ switch (Settings::background()) {
     Theme::restorePalette(saved);
     // Title bar
     char title[32];
-    snprintf(title, sizeof(title), ">> LOG  (%u) <<", (unsigned)eng.logCount());
+    snprintf(title, sizeof(title), ">> LOG  (%u) <<", (unsigned)uiLogRowCount(eng));
     Theme::drawTitleBar(t, title);
 
-    uint8_t count = eng.logCount();
+    const uint16_t count = uiLogRowCount(eng);
 
     if (count == 0) {
         // Make the empty state impossible to mistake for a broken screen.
@@ -246,7 +310,7 @@ switch (Settings::background()) {
     int max = (bodyH / rowH);
 
     for (int i = 0; i < max && idx < count; i++, idx++) {
-        const Detection* d = eng.logAt(idx);
+        const Detection* d = uiLogRow(eng, idx);
         if (!d) break;
         // The card: Settings' row panel, so the two screens are one family.
         // It also puts a solid ground under the text, which the synthwave

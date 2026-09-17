@@ -57,9 +57,6 @@ const volatile uint32_t* advertKinds() { return s_kinds0; }
 void     setScanWindow(uint8_t) {}
 void     setScanPin(uint8_t)    {}
 
-// The emulator's log is made up on the spot; there is nothing to bring back.
-void DetectionEngine::restoreLog() {}
-
 void DetectionEngine::clearLog() {
     _logCount = 0;
     _logHead = 0;
