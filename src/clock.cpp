@@ -7,6 +7,7 @@
 #include "settings.h"
 #include "crowd_bench.h"
 #include "blackbox.h"    // BLACKBOX dumps it
+#include "ota_core.h"    // VERTEST, on bench builds
 #if defined(ARDUINO_ARCH_ESP32)
 // MEM reads the board itself: FreeRTOS for the stacks, NVS for the store.
 #include <freertos/FreeRTOS.h>
@@ -498,6 +499,8 @@ void pollSerial() {
                 Serial.println("[mem] settings store: no stats");
 #endif
 #ifdef BENCH_TOOLS
+        } else if (strncasecmp(line, "VERTEST ", 8) == 0) {
+            Serial.printf("[ota] %s\n", OtaCore::testVersionDecision(line + 8));
         } else if (strncasecmp(line, "CRASH ME", 8) == 0) {
             // Bench builds only (-DBENCH_TOOLS=1): a deliberate panic, to
             // prove the crash history catches one.

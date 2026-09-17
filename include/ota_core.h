@@ -46,6 +46,7 @@ enum class Fail : uint8_t {
     NO_SITE,
     NOT_SIGNED,
     LOW_MEMORY,
+    TOO_OLD,
 };
 
 // What to tell a person, in words they can act on.
@@ -121,5 +122,8 @@ uint32_t written();
 // success the caller restarts the board (restartSoon) when it has said so.
 Fail     finish();
 void     abort();
+// Bench builds only: run the version marker scanner over a made-up image and
+// say what the installer would do with it. VERTEST <version> on the console.
+const char* testVersionDecision(const char* version);
 
 }  // namespace OtaCore

@@ -44,6 +44,44 @@ volatile uint32_t      s_written    = 0;
 uint8_t                s_sig[80];
 uint8_t                s_sigLen     = 0;
 
+// The version, inside the signed bytes.
+//
+// An ESP32 image does carry a version field of its own, but on an Arduino
+// build it holds the framework's ("esp-idf: v4.4.6 ..."), not ours -- read
+// off a real release to check. So every build stamps its own marker into its
+// rodata, and an incoming image is scanned for the same marker as it
+// arrives. It sits inside what the signature covers, so it cannot be
+// rewritten by whoever is serving the file.
+const char SQW_IMAGE_VERSION[] = "SQWVER:" FIRMWARE_VERSION ";";
+const char             VER_TAG[]    = "SQWVER:";
+uint8_t                s_tagMatch   = 0;
+bool                   s_verTaking  = false;
+bool                   s_verFound   = false;
+char                   s_imgVer[32] = "";
+
+// One pass over the bytes as they arrive, stopping at the first marker.
+void scanVersion(const uint8_t* data, size_t len) {
+    if (s_verFound) return;
+    for (size_t i = 0; i < len; i++) {
+        const char c = (char)data[i];
+        if (s_verTaking) {
+            if (c == ';' || s_tagMatch >= sizeof s_imgVer - 1) {
+                s_imgVer[s_tagMatch] = 0;
+                s_verTaking = false;
+                s_verFound  = true;
+                return;
+            }
+            s_imgVer[s_tagMatch++] = c;
+            continue;
+        }
+        if (c == VER_TAG[s_tagMatch]) {
+            if (++s_tagMatch == sizeof VER_TAG - 1) { s_tagMatch = 0; s_verTaking = true; }
+        } else {
+            s_tagMatch = (c == VER_TAG[0]) ? 1 : 0;
+        }
+    }
+}
+
 bool     s_restart   = false;
 uint32_t s_restartAt = 0;
 
@@ -84,6 +122,7 @@ const char* failWords(Fail f) {
         case Fail::WIFI_PASSWORD:   return "Couldn't join that WiFi network. Check the password and try again.";
         case Fail::NO_SITE:         return "Joined WiFi, but couldn't reach squachwatch.com. Check the internet connection.";
         case Fail::NOT_SIGNED:      return "The latest release can't be installed over the air yet. Use the USB flasher.";
+        case Fail::TOO_OLD:         return "That firmware is older than the one running. Nothing was changed.";
         case Fail::LOW_MEMORY:      return "Not enough memory to download. Restart the board and try again.";
         default:                    return "";
     }
@@ -154,6 +193,10 @@ uint32_t maxImageSize() {
 }
 
 void boot() {
+    // Printed, not just declared: a marker nothing reads is a marker the
+    // linker is entitled to drop, and the whole point is that it ships
+    // inside the signed image.
+    Serial.printf("[ota] %s\n", SQW_IMAGE_VERSION);
     const esp_partition_t* run = esp_ota_get_running_partition();
     if (!run) return;
 
@@ -317,6 +360,7 @@ Fail begin(uint32_t size, const uint8_t* sig, uint8_t sigLen) {
 
 bool write(const uint8_t* data, size_t len) {
     lock();
+    scanVersion(data, len);
     bool ok = s_open && s_written + len <= s_size;
     if (ok && s_written == 0 && len && data[0] != 0xE9) ok = false;   // not an ESP32 image
     if (ok) ok = esp_ota_write(s_handle, data, len) == ESP_OK;
@@ -350,6 +394,25 @@ Fail finish() {
         return Fail::BAD_SIGNATURE;
     }
 
+    // Older than the one running: refused, however well signed it is. The
+    // download comes over plain HTTP now, so somebody on the same network can
+    // answer with a real, signed, OLD release -- one with a bug that has since
+    // been fixed. The signature says the file is ours; this says it is not a
+    // step backwards. An equal version is allowed, because reinstalling the
+    // version you are on is a repair, not an attack.
+    if (s_verFound) {
+        if (verNewer(runningVersion(), s_imgVer)) {
+            Serial.printf("[ota] refused %s: older than %s\n", s_imgVer, runningVersion());
+            abort();
+            return Fail::TOO_OLD;
+        }
+        Serial.printf("[ota] the image says it is %s\n", s_imgVer);
+    } else {
+        // A release from before the marker existed. Its signature still has
+        // to check out; there is simply no version in it to compare.
+        Serial.println("[ota] the image carries no version marker");
+    }
+
     // esp_ota_end() checks the image itself: its segments and its own hash.
     lock();
     esp_err_t e = esp_ota_end(s_handle);
@@ -373,10 +436,34 @@ Fail finish() {
     return Fail::NONE;
 }
 
+const char* testVersionDecision(const char* version) {
+    char fake[64];
+    const int n = snprintf(fake, sizeof fake, "...SQWVER:%s;...", version ? version : "");
+    s_tagMatch  = 0;
+    s_verTaking = false;
+    s_verFound  = false;
+    s_imgVer[0] = 0;
+    scanVersion((const uint8_t*)fake, (size_t)n);
+    const bool older = s_verFound && verNewer(runningVersion(), s_imgVer);
+    static char out[96];
+    snprintf(out, sizeof out, "read \"%s\" from the image, running %s: %s",
+             s_verFound ? s_imgVer : "(none)", runningVersion(),
+             older ? "REFUSED, older" : "accepted");
+    s_tagMatch  = 0;
+    s_verTaking = false;
+    s_verFound  = false;
+    s_imgVer[0] = 0;
+    return out;
+}
+
 void abort() {
     lock();
     closeLocked();
-    s_written = 0;
+    s_written    = 0;
+    s_tagMatch   = 0;
+    s_verTaking  = false;
+    s_verFound   = false;
+    s_imgVer[0]  = 0;
     unlock();
 }
 

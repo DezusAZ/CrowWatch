@@ -1,11 +1,9 @@
 // SquachWatch-CYD — firmware updates over WiFi. See include/ota_wifi.h.
 #include "ota_wifi.h"
-#include "ota_roots.h"
 #include "security.h"
 #include "clock.h"
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <NimBLEDevice.h>
@@ -17,7 +15,7 @@
 #define FIRMWARE_VERSION "unknown"
 #endif
 #ifndef OTA_WIFI_BASE
-#define OTA_WIFI_BASE "https://squachwatch.com/"
+#define OTA_WIFI_BASE "http://squachwatch.com/"
 #endif
 
 using OtaCore::Fail;
@@ -199,21 +197,21 @@ void releaseBluetooth() {
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
-static WiFiClientSecure* s_tls   = nullptr;
-static WiFiClient*       s_plain = nullptr;
+// Plain HTTP, on purpose, for the firmware as well as the manifest.
+//
+// What made this safe was already here: every image is signed, and the board
+// refuses one that is not ours or that is older than the one running (see
+// OtaCore::finish). TLS was buying secrecy about WHICH public file was being
+// downloaded, and charging about 45 KB of flash and a 40 KB contiguous heap
+// block for it -- the block that forced the screen buffer to be freed before
+// an update could start, on a board whose largest block is 34 KB.
+//
+// The cost is that somebody on the same network can see which release is
+// being fetched, and a network that blocks plain HTTP now blocks updates too.
+static WiFiClient* s_plain = nullptr;
 WiFiClient* client() {
-    WiFiClientSecure*& tls   = s_tls;
-    WiFiClient*&       plain = s_plain;
-    if (strncmp(OTA_WIFI_BASE, "https://", 8) == 0) {
-        if (!tls) {
-            tls = new WiFiClientSecure();
-            tls->setCACert(OTA_ROOTS_PEM);
-            tls->setHandshakeTimeout(20);
-        }
-        return tls;
-    }
-    if (!plain) plain = new WiFiClient();
-    return plain;
+    if (!s_plain) s_plain = new WiFiClient();
+    return s_plain;
 }
 
 // A small file into `out`. Returns the HTTP status, or a negative number when
@@ -739,8 +737,7 @@ bool bootCheck(uint32_t budgetMs) {
         // its block -- measured, twice. The site answers the manifest over
         // plain HTTP, and nothing rides on this answer but a notice: the
         // install itself goes over HTTPS and checks the signature.
-        String base = OTA_WIFI_BASE;
-        if (base.startsWith("https://")) base = "http://" + base.substring(8);
+        const String base = OTA_WIFI_BASE;
         WiFiClient plain;
         HTTPClient http;
         if (http.begin(plain, base + "manifest-" + OtaCore::buildName() + ".json")) {
