@@ -463,6 +463,8 @@ void pollSerial() {
             }
         } else if (strncasecmp(line, "BLACKBOX", 8) == 0) {
             BlackBox::dump();
+        } else if (strncasecmp(line, "LOG", 3) == 0) {
+            logDump();
         } else if (strncasecmp(line, "MEM", 3) == 0) {
             // Where the RAM actually is: the heap, the spare room at the
             // bottom of every task's stack, and how full the settings store

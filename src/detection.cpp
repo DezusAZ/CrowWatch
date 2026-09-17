@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "blackbox.h"
 #include "bingo.h"
+#include "clock.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -1757,6 +1758,27 @@ void DetectionEngine::drainBlackBox(uint32_t now) {
     }
     // Gone from the log already -- two hundred newer devices in a second and
     // a half. Nothing left to say about it.
+}
+
+// LOG on the console. Here rather than in clock.cpp because the ring is the
+// engine's, and g_engine is the only handle on the live one.
+void logDump() {
+    if (!g_engine) { Serial.println("[log] no engine"); return; }
+    const uint8_t n = g_engine->logCount();
+    Serial.printf("[log] %u rows, newest first\n", (unsigned)n);
+    Serial.println("row,type,mac,rssi,hits,state,when");
+    for (uint8_t i = 0; i < n; i++) {
+        const Detection* d = g_engine->logAt(i);
+        if (!d) break;
+        char when[16];
+        if (d->restored) Clock::formatEpochStamp(d->firstSeen, when, sizeof when);
+        else             Clock::formatStamp(d->firstSeen, when, sizeof when);
+        Serial.printf("%u,%s,%02x:%02x:%02x:%02x:%02x:%02x,%d,%u,%s,%s\n",
+                      (unsigned)i, detectionTypeName(d->type),
+                      d->mac[0], d->mac[1], d->mac[2], d->mac[3], d->mac[4], d->mac[5],
+                      (int)d->rssi, (unsigned)d->hits,
+                      d->restored ? "KEPT" : (d->active ? "here" : "gone"), when);
+    }
 }
 
 void DetectionEngine::restoreLog() {

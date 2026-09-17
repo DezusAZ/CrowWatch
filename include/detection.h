@@ -132,6 +132,9 @@ void     setScanWindow(uint8_t w);
 // for a bench flood, or hand it back to the room. 0 auto, 1 active, 2 passive.
 void     setScanPin(uint8_t pin);
 uint32_t advertsDropped();   // adverts the seatbelt refused for want of heap
+// LOG on the console: the RAM log as the LOG screen reads it, newest first,
+// with KEPT on the rows the black box brought back from an earlier boot.
+void     logDump();
 
 class DetectionEngine {
 public:
