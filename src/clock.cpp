@@ -7,11 +7,14 @@
 #include "settings.h"
 #include "crowd_bench.h"
 #include "blackbox.h"    // BLACKBOX dumps it
+#if defined(ARDUINO_ARCH_ESP32)
+// MEM reads the board itself: FreeRTOS for the stacks, NVS for the store.
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <esp_heap_caps.h>
+#endif
 #include <Arduino.h>
 #include <Preferences.h>
 #include <time.h>
@@ -465,6 +468,7 @@ void pollSerial() {
             BlackBox::dump();
         } else if (strncasecmp(line, "LOG", 3) == 0) {
             logDump();
+#if defined(ARDUINO_ARCH_ESP32)
         } else if (strncasecmp(line, "MEM", 3) == 0) {
             // Where the RAM actually is: the heap, the spare room at the
             // bottom of every task's stack, and how full the settings store
@@ -492,6 +496,7 @@ void pollSerial() {
                               (unsigned)ns.free_entries, (unsigned)ns.namespace_count);
             else
                 Serial.println("[mem] settings store: no stats");
+#endif
 #ifdef BENCH_TOOLS
         } else if (strncasecmp(line, "CRASH ME", 8) == 0) {
             // Bench builds only (-DBENCH_TOOLS=1): a deliberate panic, to
