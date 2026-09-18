@@ -1001,6 +1001,9 @@ static const char* const BG_LINES[][3] = {
     /* FIRE      */ { "Fire background. Cozy, not concerning.", "Warm vibes, zero smoke alarms.", "Nothing's actually burning. Probably." },
     /* SNOWFALL  */ { "Snowing again. Big feet, better traction.", "Perfect weather for leaving mysterious tracks.", "Cold out. I'm built for this." },
     /* SPECTRUM  */ { "RF spectrum's live. That's the real stuff.", "This is actual signal data. Neat, right?", "Watching the airwaves. Very on-brand." },
+    // TUNNEL is retired and unreachable; the row stays because the assert
+    // below counts rows, and a missing one would silently shift every
+    // background after it onto the wrong lines.
     /* TUNNEL    */ { "Wireframe tunnel. Very retro-future.", "Feels like we're going somewhere. We're not.", "80s sci-fi vibes today." },
     /* SYNTHWAVE */ { "That sunset never actually sets. I checked.", "Grid goes on forever. So does the drive.", "Look at that reflection. Water we even doing." },
     // He is switched off in boring mode, so nobody will ever hear these.

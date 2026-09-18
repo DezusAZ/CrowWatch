@@ -52,7 +52,7 @@ static const uint8_t BG_COLOR[12][3] = {
     { 255, 64, 0 },       // FIRE
     { 160, 220, 255 },    // SNOWFALL
     { 0, 255, 255 },      // THE GIBSON
-    { 128, 0, 255 },      // WIREFRAME TUNNEL
+    { 128, 0, 255 },      // WIREFRAME TUNNEL -- retired, row kept to hold the index
     { 255, 0, 128 },      // SYNTHWAVE
     { 0, 0, 0 },          // BLACK
 };

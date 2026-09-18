@@ -263,6 +263,11 @@ void load() {
     if (!s_boringMode && s_background == Background::BLACK) {
         s_background = Background::DIGITAL;
     }
+    // Same problem, permanent version: TUNNEL is gone from the ring, so a
+    // board that saved it would boot to an unpainted band with no way to
+    // cycle out. Moved to the default rather than to DIGITAL -- it is what a
+    // fresh device shows, and the two look nothing alike.
+    if (s_background == Background::TUNNEL) s_background = Background::SYNTHWAVE;
     s_powerSaver   = s_prefs.getBool("pwrOn", false);
     s_scrTimeoutIx = s_prefs.getUChar("pwrScrnT", 2);
     s_dimLevel     = s_prefs.getUChar("pwrDim", 16);
@@ -378,6 +383,10 @@ void cycleDeskBackground()     { stepDeskBackground(1); }
 void cyclePrevDeskBackground() { stepDeskBackground(-1); }
 
 bool backgroundSelectable(Background b) {
+    // TUNNEL is retired and never selectable again -- see the note on the
+    // enum. Everything else about it is deleted; only the number survives,
+    // so that saved bytes keep meaning what they meant.
+    if (b == Background::TUNNEL) return false;
     // BLACK is the only conditional one, and it is gated on boring mode
     // rather than hidden behind a second setting: somebody who has already
     // turned the mascot off is exactly the person who wants the option, and

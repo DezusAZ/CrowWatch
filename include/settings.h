@@ -12,7 +12,17 @@ namespace Settings {
     enum class Background : uint8_t {
         DIGITAL = 0, STARFIELD = 1, TOASTERS = 2,
         AQUARIUM = 3, TERMINAL = 4, FIREFLIES = 5,
-        FIRE = 6, SNOWFALL = 7, SPECTRUM = 8, TUNNEL = 9,
+        FIRE = 6, SNOWFALL = 7, SPECTRUM = 8,
+        // RETIRED. WIREFRAME TUNNEL was the one background that never came
+        // good: a tunnel's whole picture is its vanishing point, and Squachy
+        // stands exactly there, so it only ever showed its corners. Ten
+        // reworks were built and rendered before it was dropped.
+        //
+        // The VALUE stays. It is saved to NVS as a raw byte, so renumbering
+        // would move every board that has SYNTHWAVE or BLACK saved onto a
+        // different background. backgroundSelectable() keeps it out of the
+        // picker and load() moves anyone who was sitting on it.
+        TUNNEL = 9,
         SYNTHWAVE = 10,
         // No animation at all -- the band is filled flat and nothing moves.
         // Only reachable while BORING MODE is on, which is the mode that

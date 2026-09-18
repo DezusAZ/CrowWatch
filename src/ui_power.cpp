@@ -155,7 +155,6 @@ switch (Settings::background()) {
         case Settings::Background::FIREFLIES: Theme::drawFireflies(t, now, bgTop, bodyBottom); break;
         case Settings::Background::FIRE:      Theme::drawFire(t, now, bgTop, bodyBottom); break;
         case Settings::Background::SNOWFALL:  Theme::drawSnowfall(t, now, bgTop, bodyBottom); break;
-        case Settings::Background::TUNNEL:    Theme::drawWireframeTunnel(t, now, bgTop, bodyBottom); break;
         case Settings::Background::SPECTRUM:  Theme::drawGibson(t, now, bgTop, bodyBottom, eng); break;
         case Settings::Background::SYNTHWAVE: Theme::drawSynthwave(t, now, bgTop, bodyBottom); break;
         // Fills rather than skips -- see the note in drawActiveBackground.

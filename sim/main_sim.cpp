@@ -307,6 +307,13 @@ int main(int argc, char** argv) {
             if ((int)Settings::background() == want) break;
             Settings::cycleBackground();
         }
+        // A retired slot is still a valid number but no longer in the ring,
+        // so the loop above runs out and leaves you looking at whatever it
+        // stopped on. Silently rendering a different background than the one
+        // asked for is how a screenshot ends up mislabelled.
+        if ((int)Settings::background() != want)
+            fprintf(stderr, "--bg %d is not selectable (retired?) -- rendered %s instead\n",
+                    want, Settings::backgroundName(Settings::background()));
     }
 
     // Outfits are gated behind lifetime-detection thresholds, so unlock

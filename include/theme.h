@@ -333,10 +333,6 @@ namespace Theme {
     void drawGibson(TFT_eSPI& t, uint32_t now, int yStart, int yEnd,
                     const DetectionEngine& eng);
 
-    // Textured corridor receding to a drifting vanishing point. Square
-    // rather than round -- see its comment in theme.cpp for why that
-    // choice is what makes it affordable without lookup tables.
-    void drawWireframeTunnel(TFT_eSPI& t, uint32_t now, int yStart, int yEnd);
 
     // Classic Doom-style ASCII fire: a coarse heat grid seeded at the
     // bottom, propagated upward with random decay/drift, rendered
