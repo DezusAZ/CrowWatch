@@ -179,6 +179,7 @@ static void usage() {
         "  --theme N         palette index\n"
         "  --alert N         DetectionType the ALERT screen fires on\n"
         "  --noseed          no detections at all -- CLEAR's idle state\n"
+        "  --pet N           companion: 0 off, 1 VAPOR SHAGGY, 2 the yeti\n"
         "  --peer N          draw a visiting SquachMesh peer in outfit N\n"
         "  --peername NAME   give that visitor a custom name\n"
         "  --crowd N         clear screen: N squad members in range, roaming with ours\n"
@@ -205,7 +206,7 @@ int main(int argc, char** argv) {
     int inboxLine = -1, phraseMode = -1;
     int confirmRow = -1;   // settings screen: put a confirm panel up
     int scrollBy = 0;      // settings screen: scroll down N rows first
-    int bg = -1, themeIdx = -1, frames = 90, sequence = 1, outfitIdx = -1, poseIdx = -1;
+    int bg = -1, themeIdx = -1, frames = 90, sequence = 1, outfitIdx = -1, poseIdx = -1, petIdx = -1;
     // --info N renders LOG's MORE INFO panel for DetectionType N. The panel
     // is a real layout with real wrapped text and it was previously only
     // reachable on hardware, which is how two of its paragraphs went stale.
@@ -251,6 +252,7 @@ int main(int argc, char** argv) {
         else if (a == "--bg" && i + 1 < argc) bg = atoi(argv[++i]);
         else if (a == "--theme" && i + 1 < argc) themeIdx = atoi(argv[++i]);
         else if (a == "--outfit" && i + 1 < argc) outfitIdx = atoi(argv[++i]);
+        else if (a == "--pet" && i + 1 < argc) petIdx = atoi(argv[++i]);
         else if (a == "--pose" && i + 1 < argc) poseIdx = atoi(argv[++i]);
         else if (a == "--frames" && i + 1 < argc) frames = atoi(argv[++i]);
         else if (a == "--sequence" && i + 1 < argc) sequence = atoi(argv[++i]);
@@ -315,6 +317,12 @@ int main(int argc, char** argv) {
     if (outfitIdx >= 0) {
         Squachy::unlockAllOutfits();
         for (int k = 0; k < outfitIdx; k++) Squachy::cycleOutfit();
+    }
+    // --pet N picks the companion: 0 off, 1 VAPOR SHAGGY, 2 the yeti. The
+    // unlock comes with it, the same way --outfit unlocks what it selects.
+    if (petIdx >= 0) {
+        Squachy::unlockPet();
+        for (int k = 0; k < 8 && (int)Squachy::petChoice() != petIdx; k++) Squachy::cyclePet();
     }
 
     SquachMesh::Peer guest{};

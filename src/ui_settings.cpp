@@ -834,7 +834,7 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::PET:
             label = "PET";
-            value = Squachy::petEnabled() ? "VAPOR SHAGGY" : "OFF";
+            value = Squachy::petName();
             break;
         case SettingsRow::BANTER:
             label = "BANTER";

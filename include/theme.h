@@ -593,4 +593,13 @@ namespace Theme {
     void drawInfoPanel(TFT_eSPI& t, int w, int h, uint32_t now,
                        const char* typeName, const char* text);
     bool infoPanelHitDismiss(int x, int y, int screenW, int screenH);
+
+    // The ski hill's yeti, for anyone who wants him off the hill -- the pet
+    // (pet.h) does. `baseY` is the ground his feet stand on, and `walking`
+    // picks between his running gait and standing still. He is drawn at the
+    // size the hill draws him: no new art, and nothing to scale.
+    void drawYeti(TFT_eSPI& t, int x, int baseY, uint32_t now, bool walking);
+    // How wide and tall he is, so a caller can place him without knowing
+    // how he is built.
+    static const int YETI_W = 36, YETI_H = 42;
 }

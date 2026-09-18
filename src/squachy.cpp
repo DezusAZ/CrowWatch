@@ -522,7 +522,10 @@ static bool     s_chromeWingUnlocked = false;  // earned by catching the gold to
 static bool     s_voidEyeUnlocked    = false;  // earned by catching two Starfield eyes in a row
 static bool     s_parkaUnlocked      = false;  // earned by knocking five times on the Snowfall lodge
 static bool     s_petUnlocked        = false;  // earned by tapping the lil guy on the toasters
-static bool     s_petEnabled         = true;   // Settings > PET, only shown once unlocked
+// Which companion is on: 0 off, 1 VAPOR SHAGGY, 2 the yeti. It was a bool
+// while there was only one of them; a board that saved the bool keeps its
+// answer (on -> SHAGGY) the first time this runs.
+static uint8_t  s_petSel            = 1;
 // Bitmask of outfits whose unlock popup has already been shown. Persisted,
 // because "new" has to survive a reboot: without it every boot would
 // re-announce everything already earned. Seeded on first run with whatever
@@ -1114,7 +1117,11 @@ static void ensurePrefsLoaded() {
     s_petUnlocked        = s_petPrefs.getBool("petUnlk", false);
     // Defaults ON once earned: somebody who just unlocked a pet wants to
     // see it, not to go and find a switch.
-    s_petEnabled         = s_petPrefs.getBool("petOn", true);
+    // "petSel" is the one to read; a board from before there were two
+    // companions has only the old on/off bool, which becomes SHAGGY or OFF.
+    s_petSel             = s_petPrefs.getUChar("petSel",
+                               s_petPrefs.getBool("petOn", true) ? (uint8_t)PetId::SHAGGY : 0u);
+    if (s_petSel >= (uint8_t)PetId::COUNT) s_petSel = (uint8_t)PetId::SHAGGY;
     s_wolfPeltUnlocked   = s_petPrefs.getBool("wolfPelt", false);
     s_chromeWingUnlocked = s_petPrefs.getBool("chromeWing", false);
     s_voidEyeUnlocked    = s_petPrefs.getBool("voidEye", false);
@@ -1995,12 +2002,31 @@ void unlockPet() {
 }
 
 bool petUnlocked() { ensurePrefsLoaded(); return s_petUnlocked; }
-bool petEnabled()  { ensurePrefsLoaded(); return s_petEnabled;  }
+bool petEnabled()  { ensurePrefsLoaded(); return s_petSel != 0;  }
+
+PetId petChoice() {
+    ensurePrefsLoaded();
+    return (s_petSel < (uint8_t)PetId::COUNT) ? (PetId)s_petSel : PetId::OFF;
+}
+
+const char* petName() {
+    switch (petChoice()) {
+        case PetId::SHAGGY: return "VAPOR SHAGGY";
+        case PetId::YETI:   return "THE YETI";
+        default:            return "OFF";
+    }
+}
+
+void cyclePet() {
+    ensurePrefsLoaded();
+    s_petSel = (uint8_t)((s_petSel + 1) % (uint8_t)PetId::COUNT);
+    s_petPrefs.putUChar("petSel", s_petSel);
+}
 
 void togglePet() {
     ensurePrefsLoaded();
-    s_petEnabled = !s_petEnabled;
-    s_petPrefs.putBool("petOn", s_petEnabled);
+    s_petSel = s_petSel ? 0 : (uint8_t)PetId::SHAGGY;
+    s_petPrefs.putUChar("petSel", s_petSel);
 }
 
 bool isHeld() { return s_grabbed || s_dangle; }

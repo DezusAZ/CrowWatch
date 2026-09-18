@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+
 namespace Pet {
 
 // ---- his material -------------------------------------------------------
@@ -90,10 +91,41 @@ static float     s_apexY   = 0.0f, s_tHalf = 0.0f;
 // happened to be at that instant.
 static float     s_dropX   = 0.0f, s_dropY = 0.0f;
 
+// ---- the other one ------------------------------------------------------
+// THE YETI, off the ski hill. He is drawn at the size the hill draws him --
+// no new art, nothing scaled -- and everything that makes him him is in what
+// he shouts. Fourteen characters is the limit the hill's own bubbles work
+// to, and his register is the same one he chases skiers in: all caps, one to
+// three words, no articles, himself in the third person.
+static const char* const YETI_QUIPS[] = {
+    "YETI HERE.", "YETI! YETI!", "SNOW? NO SNOW.", "YETI BORED.",
+    "WHERE SNOW?", "ROOM QUIET.", "YETI HUNGRY.", "SMALL FRIEND.",
+    "YOU TALK MUCH.", "STOP WAVE.", "NOBODY. GOOD.", "YETI NAP?",
+    "DARK GOOD.", "YETI GO.", "BYE. HUNGRY.", "YETI BACK SOON",
+};
+static const uint8_t YETI_QUIPS_N = sizeof(YETI_QUIPS) / sizeof(YETI_QUIPS[0]);
+
+// He walks on, stands, says one thing and leaves. No climbing: he is three
+// times the lil guy's weight and the joke is that he does not do tricks.
+//
+// Always in from the left and out to the right, because snowYeti() draws him
+// facing one way and a mirrored version would be new art -- which is the one
+// thing this was meant not to need.
+enum class YPhase : uint8_t { AWAY, IN, TALK, OUT };
+static YPhase    s_yPhase  = YPhase::AWAY;
+static uint32_t  s_yNextAt = 0, s_yAt = 0;
+static float     s_yX      = -100.0f;
+static uint8_t   s_yQuip   = 0;
+static const float    YETI_PXMS = 0.048f;    // he lumbers; the lil guy trots
+static const uint32_t YETI_TALK_MS = 3400;
+
 void reset() {
     s_phase  = Phase::AWAY;
     s_x      = -100.0f;
     s_nextAt = 0;
+    s_yPhase = YPhase::AWAY;
+    s_yX     = -100.0f;
+    s_yNextAt = 0;
 }
 
 // A small bubble of his own rather than Squachy's. His is drawn at text
@@ -112,8 +144,70 @@ static void bubble(TFT_eSPI& t, int x, int y, int screenW, const char* s) {
     t.print(s);
 }
 
+// One visit: in from the left, a beat standing beside Squachy, and out the
+// other side. Everything hangs off his footprint the way the lil guy's does.
+static void yetiTick(TFT_eSPI& t, uint32_t now, int screenW, int cx, int halfW, int bot) {
+    const int baseY = bot;                       // his feet, on Squachy's floor
+    switch (s_yPhase) {
+    case YPhase::AWAY:
+        if (!s_yNextAt) s_yNextAt = now + 9000u;
+        if (now < s_yNextAt) return;
+        s_yQuip  = (uint8_t)random(0, YETI_QUIPS_N);
+        s_yX     = -(float)Theme::YETI_W;
+        s_yPhase = YPhase::IN;
+        s_yAt    = now;
+        return;
+    case YPhase::IN: {
+        const float target = (float)(cx - halfW - Theme::YETI_W / 2 - 8);
+        s_yX += YETI_PXMS * (float)(now - s_yAt);
+        s_yAt = now;
+        if (s_yX >= target) { s_yX = target; s_yPhase = YPhase::TALK; s_yAt = now; }
+        break;
+    }
+    case YPhase::TALK:
+        if (now - s_yAt >= YETI_TALK_MS) { s_yPhase = YPhase::OUT; s_yAt = now; }
+        break;
+    case YPhase::OUT:
+        s_yX += YETI_PXMS * (float)(now - s_yAt);
+        s_yAt = now;
+        if (s_yX > (float)screenW + Theme::YETI_W) {
+            s_yPhase  = YPhase::AWAY;
+            // Same rarity the lil guy keeps to: the behaviour is the joke,
+            // and turning up every ten seconds is how a joke stops being one.
+            s_yNextAt = now + 45000u + (uint32_t)random(0, 45000);
+        }
+        break;
+    }
+    if (s_yPhase == YPhase::AWAY) return;
+
+    Theme::drawYeti(t, (int)s_yX, baseY, now, s_yPhase != YPhase::TALK);
+    if (s_yPhase == YPhase::TALK) {
+        t.setTextSize(1);
+        const char* line = YETI_QUIPS[s_yQuip];
+        const int bw = t.textWidth(line) + 8;
+        int bx = (int)s_yX + Theme::YETI_W / 2 - bw / 2;
+        int by = baseY - Theme::YETI_H - 16;
+        if (by < 22) by = 22;
+        bubble(t, bx, by, screenW, line);
+    }
+}
+
 void tick(TFT_eSPI& t, uint32_t now, int screenW, int bandTop, int bandBottom) {
-    if (!Squachy::petUnlocked() || !Squachy::petEnabled()) { s_phase = Phase::AWAY; return; }
+    const Squachy::PetId which = Squachy::petChoice();
+    if (!Squachy::petUnlocked() || which == Squachy::PetId::OFF) {
+        s_phase  = Phase::AWAY;
+        s_yPhase = YPhase::AWAY;
+        return;
+    }
+    if (which == Squachy::PetId::YETI) {
+        int ycx, yhalfW, ytop, ybot;
+        if (!Squachy::lastFootprint(ycx, yhalfW, ytop, ybot)) return;
+        if (Squachy::isHeld()) { s_yPhase = YPhase::AWAY; return; }
+        (void)ytop;
+        yetiTick(t, now, screenW, ycx, yhalfW, ybot);
+        return;
+    }
+    s_yPhase = YPhase::AWAY;
 
     // Where Squachy actually is THIS frame. Everything below hangs off
     // this rather than off constants, so bob, squash and his idle amble

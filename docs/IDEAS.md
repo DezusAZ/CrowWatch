@@ -192,7 +192,14 @@ second egg (the lodge knock is the first) -- `eggsHere()` already returns up
 to two.
 
 Worth persisting the rescue count (one byte) rather than keeping it in RAM,
-so a restart mid-hunt does not start you over.
+so a restart mid-hunt does not start you over. Settings::Hunt has room for it
+beside the eye streak.
+
+**And the cheat unlocks him too.** Holding DESK on the main screen for four
+seconds already calls `unlockAllOutfits()`, which hands over the pet as well
+-- its comment says a costume set that stops short of the one companion would
+be a strange place to draw the line. The same applies to a second companion,
+so whatever holds the yeti's unlock bit gets set there in the same breath.
 
 **Cost:** no new art at all. About 450 bytes for the lines, 1-2 KB for the
 plain version, another 1-2 KB for the rare eat, a few dozen bytes of working

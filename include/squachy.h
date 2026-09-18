@@ -170,8 +170,15 @@ namespace Squachy {
     // Legend stage, where the top hat comes in -- and so where the
     // APPEARANCE page's TOP HAT row appears.
     bool hasTopHat();
-    bool petEnabled();         // the Settings > PET row
-    void togglePet();
+    bool petEnabled();         // any companion at all: what pet.cpp asks
+    void togglePet();          // kept for callers that only want on/off
+
+    // Which one. There are two now, so the Settings row cycles rather than
+    // toggles: OFF, then each companion in turn.
+    enum class PetId : uint8_t { OFF = 0, SHAGGY, YETI, COUNT };
+    PetId       petChoice();
+    const char* petName();     // for the row's value column
+    void        cyclePet();
 
     // True while a finger is carrying him, or he is dangling after being
     // dropped. The pet checks it: perching on a head that is itself flying

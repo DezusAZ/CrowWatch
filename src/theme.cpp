@@ -6243,6 +6243,12 @@ static void snowYeti(TFT_eSPI& t, int x, int y, uint32_t now, YPose pose, int bu
     if (pose == YPose::EAT) t.fillRect(x - 7 + lean, B - 40 + th / 2, 14, 1, head);
 }
 
+// He is not only the hill's any more: the pet draws him too. Two of his five
+// poses are all a visit needs -- the gait he chases with, and standing about.
+void drawYeti(TFT_eSPI& t, int x, int baseY, uint32_t now, bool walking) {
+    snowYeti(t, x, baseY, now, walking ? YPose::RUN : YPose::WINDED);
+}
+
 // Anything the background needs drawn ON TOP of the mascot. Called by
 // ui_clear after Squachy and the idle-event flourishes, before the title
 // bar (which owns its own row and repaints it whole).
