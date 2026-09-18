@@ -366,4 +366,17 @@ namespace Settings {
     void        cycleSquachySize();
     void     toggleType(DetectionType t);
     uint8_t  enabledTypeCount();   // for a Settings-row "12/14" summary
+
+    // How far along an unfinished easter-egg hunt is, kept across restarts.
+    // The unlocks themselves have always been saved; this is the PROGRESS
+    // towards one, which used to live in memory only -- so a restart in the
+    // middle of a hunt that takes minutes threw the hunt away.
+    //
+    // One entry, four bytes, one counter each. Only hunts that span minutes
+    // belong here: the lodge knocks and the moon taps are drum rolls with a
+    // 2.5 second window between taps, so they cannot survive a restart by
+    // design and are deliberately NOT in it.
+    enum class Hunt : uint8_t { EYE_STREAK = 0, COUNT };
+    uint8_t  huntProgress(Hunt h);
+    void     setHuntProgress(Hunt h, uint8_t v);   // writes only on a change
 }

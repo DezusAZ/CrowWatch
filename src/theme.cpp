@@ -4246,7 +4246,26 @@ static uint32_t s_eyeAt = 0;
 static int8_t   s_eyeSlot = -1;
 static bool     s_eyeBig[2] = { false, false };   // grew past the threshold
 static bool     s_eyeGot[2] = { false, false };   // and was caught before it left
+// Caught big eyes in a row. Read back from the settings store at first use:
+// two eyes can be minutes apart, so a restart in between used to throw the
+// first one away. See Settings::Hunt.
 static uint8_t  s_eyeStreak = 0;
+static bool     s_eyeStreakRead = false;
+
+static uint8_t eyeStreak() {
+    if (!s_eyeStreakRead) {
+        s_eyeStreak = Settings::huntProgress(Settings::Hunt::EYE_STREAK);
+        if (s_eyeStreak >= EYE_PAIR_NEEDED) s_eyeStreak = 0;   // stale, from a finished hunt
+        s_eyeStreakRead = true;
+    }
+    return s_eyeStreak;
+}
+
+static void setEyeStreak(uint8_t v) {
+    s_eyeStreak = v;
+    s_eyeStreakRead = true;
+    Settings::setHuntProgress(Settings::Hunt::EYE_STREAK, v);
+}
 static bool     s_eyePairPending = false;         // consumed by main.cpp
 
 // The tell. Catching the first of the pair has to be visible or the second
@@ -4266,7 +4285,7 @@ static void publishBigEye(int cx, int cy, int r, int8_t slot, uint32_t now) {
 static void bigEyeGone(int8_t slot) {
     if (slot < 0 || slot > 1) return;
     // It got away. Only a big one resets the streak -- see above.
-    if (s_eyeBig[slot] && !s_eyeGot[slot]) s_eyeStreak = 0;
+    if (s_eyeBig[slot] && !s_eyeGot[slot]) setEyeStreak(0);
     s_eyeBig[slot] = false;
     s_eyeGot[slot] = false;
     if (s_eyeSlot == slot) s_eyeSlot = -1;
@@ -4359,9 +4378,12 @@ bool backgroundTap(int x, int y, uint32_t now) {
             s_eyeFxX = s_eyeX; s_eyeFxY = s_eyeY;
             s_eyeFxAt = now ? now : 1;
             s_eyeSlot = -1;                      // caught: stop accepting taps
-            if (++s_eyeStreak >= EYE_PAIR_NEEDED) {
-                s_eyeStreak = 0;
+            const uint8_t run = (uint8_t)(eyeStreak() + 1);
+            if (run >= EYE_PAIR_NEEDED) {
+                setEyeStreak(0);               // hunt over; do not keep a stale count
                 s_eyePairPending = true;
+            } else {
+                setEyeStreak(run);
             }
             return true;
         }

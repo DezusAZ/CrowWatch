@@ -1,9 +1,9 @@
 # Ideas
 
 Things worth building that nobody has started. Each one carries what it would
-cost, because on this board that is the deciding factor: there is about 200 KB
-of firmware space and only about 39 KB of working memory free, and the screen
-already takes 50 ms a frame.
+cost, because on this board that is the deciding factor: there is about 310 KB
+of firmware space and only about 52 KB of working memory free (both after
+v1.12.0 gave back 108 KB and 6 KB), and the screen already takes 50 ms a frame.
 
 Nothing here is a commitment. Cross one off or add one whenever.
 
@@ -117,6 +117,91 @@ test. Days, not hours.
 **Payoff:** high for two people who both own one, low for everybody else.
 Worth keeping in mind for when squad messaging is finished, not before.
 
+## Companions
+
+### THE YETI, as a second pet
+
+The ski hill's yeti turns up on the main screen, at his own size, shouts
+something short, and wanders off again. Rarely, he drags a skier on from the
+side and eats him.
+
+**Why it is nearly free:** almost every piece exists.
+
+- His sprite is `snowYeti()` in theme.cpp, with five poses: run, eat, winded,
+  knocked down, recoil. No new art, and at his own size no scaling either.
+- His voice is already written and already right -- GRAAAH, COME HERE, MINE,
+  RRRAAA, HUNGRY, STOP RUNNING. All caps, one to three words, no articles,
+  himself in the third person.
+- The skier is `snowSkier()`, the same rider he chases on the hill.
+- The pet slot exists: `Pet::tick()` draws VAPOR SHAGGY on the main screen,
+  with a Settings row and an unlock bit behind it.
+- The eat already has dialogue: on the hill the rider says hi. / sir? / I'm
+  mostly bone / we can talk while the yeti says hm. / let me see / checks
+  out / no lift pass.
+
+**What it needs**
+
+- PET becomes a picker -- OFF / SHAGGY / YETI -- instead of a switch.
+- A small sequence: walk on, stand, say something, leave.
+- The quip table below.
+- The rare eat, and an unlock.
+
+**The quips.** Fourteen characters is the limit before the small font stops
+reading at a glance -- the hill's own comment says so.
+
+- Arriving: YETI HERE. / YETI! YETI! / SNOW? NO SNOW.
+- Idle: YETI BORED. / WHERE SNOW? / ROOM QUIET. / YETI HUNGRY.
+- At Squachy: SMALL FRIEND. / YOU TALK MUCH. / STOP WAVE.
+- A camera: EYE! BAD EYE! / SMASH IT? / EYE LOOK. RAA.
+- A tracker: TINY BEEP. NO. / BEEP AGAIN?
+- A plate reader: CAR WATCHER! / PLATE THIEF!
+- A quiet room: NOBODY. GOOD. / YETI NAP?
+- At night: DARK GOOD.
+- Leaving: YETI GO. / BYE. HUNGRY. / YETI BACK SOON
+
+Squachy answering dryly is where the laugh is: WHERE SNOW? / "Florida."
+SMASH IT? / "no." The banter engine already runs two-character exchanges.
+
+**The rare one.** He drags a skier on by one leg -- I'M HANGRY!! -- lifts him
+(sir?), eats him (CHOMP, and Squachy: oh no.), says MUCH BETTER, and wanders
+off leaving one ski on the floor. The ski stays until the screen changes.
+
+Keep it rare: one appearance in ten or twenty. The hill already works this
+way, and the comment there is worth repeating -- most chases end with the
+skier getting away, and "the eat is the rare one, which is the only thing
+that makes it land".
+
+**How he is unlocked.** Rescue three skiers from him on the ski hill.
+
+There is already a window to do it in, and it is a generous one. When a chase
+ends in a catch the yeti does not gulp: he hoists the rider off his skis
+(0.3 s), raises him to eye level (0.76 s), holds him there and looks at him
+(to 1.7 s), turns him over, and only chomps at 2.1 s. The pause is deliberate
+-- theme.cpp calls it the whole joke -- so there are about **1.8 seconds**
+between the grab and the jaw. Tap the yeti in that window and he drops the
+rider, who skis off (a "thanks!" would sit fine in the existing chatter).
+
+How often a chance comes: a chase starts every 16-34 seconds while the ski
+hill is showing, and one chase in six ends in a catch. So about one chance
+every two and a half minutes, and three rescues is roughly eight minutes of
+watching the hill -- longer if you fumble one, which is fine.
+
+Taps already reach a background through `Theme::backgroundTap()`, the same
+path the lodge knock and the toaster catch use. That background can hold a
+second egg (the lodge knock is the first) -- `eggsHere()` already returns up
+to two.
+
+Worth persisting the rescue count (one byte) rather than keeping it in RAM,
+so a restart mid-hunt does not start you over.
+
+**Cost:** no new art at all. About 450 bytes for the lines, 1-2 KB for the
+plain version, another 1-2 KB for the rare eat, a few dozen bytes of working
+memory, and nothing at all while he is switched off.
+
+**Open questions:** one pet at a time or both at once; main screen only, or
+the desk as well; and whether eating somebody wants its own switch for people
+who would rather it did not happen.
+
 ## Not games
 
 - **Detection streaks.** Days in a row with at least one detection, and the
@@ -124,6 +209,14 @@ Worth keeping in mind for when squad messaging is finished, not before.
   talk about.
 - **A day chart.** Detections per hour for the last month, drawn on the desk.
   Needs the black box, then it is tiny.
+- **Egg progress that survives a restart.** The unlocks themselves are saved,
+  but the progress towards them is not: the lodge knocks (5 needed) and the
+  starfield eye streak (2 in a row) are plain variables in memory, so a
+  restart -- or a crash, or a flat battery -- starts the hunt over. Three
+  counters fit in one 32-bit settings entry (knocks, eye streak, and the
+  yeti rescues above), written a second after the last change the way bingo
+  writes its card, and cleared when the unlock fires. One entry of the 376
+  free, a handful of writes in a device's life.
 - **Devices seen before.** "This tag has been near you on four different
   days." The genuinely useful one, and the one to be careful with: many
   trackers change their address, so it has to be tested before it is claimed.

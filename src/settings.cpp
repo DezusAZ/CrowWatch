@@ -181,8 +181,29 @@ void toggleWakeOnAlert() {
     s_prefs.putBool("pwrWake", s_wakeOnAlert);
 }
 
+// ---- easter-egg hunt progress ----------------------------------------
+// Packed into one NVS entry rather than one each: the store has a few
+// hundred entries free and this is not where they should go.
+static uint32_t s_hunt = 0;
+
+uint8_t huntProgress(Hunt h) {
+    const uint8_t i = (uint8_t)h;
+    if (i >= (uint8_t)Hunt::COUNT) return 0;
+    return (uint8_t)((s_hunt >> (8 * i)) & 0xFFu);
+}
+
+void setHuntProgress(Hunt h, uint8_t v) {
+    const uint8_t i = (uint8_t)h;
+    if (i >= (uint8_t)Hunt::COUNT) return;
+    const uint32_t next = (s_hunt & ~(0xFFu << (8 * i))) | ((uint32_t)v << (8 * i));
+    if (next == s_hunt) return;            // nothing changed, nothing written
+    s_hunt = next;
+    s_prefs.putUInt("hunt", s_hunt);
+}
+
 void load() {
     s_prefs.begin("settings", false);
+    s_hunt       = s_prefs.getUInt("hunt", 0);
     s_palette    = (uint8_t)s_prefs.getUChar("pal", 0);
     if (s_palette >= Theme::PALETTE_COUNT) s_palette = 0;
     // SYNTHWAVE is the default a fresh device comes up on -- it is the
