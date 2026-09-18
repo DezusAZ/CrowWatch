@@ -125,5 +125,10 @@ void     abort();
 // Bench builds only: run the version marker scanner over a made-up image and
 // say what the installer would do with it. VERTEST <version> on the console.
 const char* testVersionDecision(const char* version);
+#ifdef BENCH_TOOLS
+// Bench builds only: check a real release's signature, and three spoiled
+// copies of it, against the compiled-in key. SIGTEST on the console.
+const char* testSignature();
+#endif
 
 }  // namespace OtaCore

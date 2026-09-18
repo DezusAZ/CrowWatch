@@ -6,12 +6,14 @@
 // iPhone owners included. Everything that makes the install itself safe is in
 // OtaCore (ota_core.h); this file only gets the bytes there.
 //
-// WHY BLUETOOTH GOES AWAY. A TLS handshake wants 40 KB or more of CONTIGUOUS
-// heap, and a running board has about 18 KB in its largest block. Bluetooth's
-// controller and host hold far more than that, and they are no use during a
-// download, so the moment a network is chosen they are shut down and their
-// memory handed back. NimBLE cannot be brought back up after its memory has
-// been released, which is why leaving WiFi update mode restarts the board.
+// WHAT AN UPDATE COSTS NOW. Nothing that cannot be given back. Until v1.10.2
+// the download came over TLS, whose handshake wants 40 KB or more of
+// CONTIGUOUS heap -- far more than a running board has -- so Bluetooth was
+// shut down and its memory handed back, and the screen's 77 KB frame buffer
+// went with it. NimBLE cannot be brought back up afterwards, so leaving
+// update mode meant restarting the board. Plain HTTP needs neither: the
+// screen keeps animating, detection comes straight back when an update is
+// cancelled or fails, and only the scan is paused while the radio is busy.
 //
 // THE PASSWORD. Saved only if the network joins, in its own NVS namespace
 // ("otawifi"), which the duress PIN erases along with the other secrets.
@@ -30,7 +32,7 @@ enum class State : uint8_t {
     OFF = 0,
     SCANNING,       // looking for networks
     PICK,           // a list to choose from
-    CONNECTING,     // joining the chosen network (Bluetooth is off from here)
+    CONNECTING,     // joining the chosen network
     CHECKING,       // fetching the latest version number and its signature
     READY,          // latestVersion() is known; waiting for INSTALL
     DOWNLOADING,
@@ -49,9 +51,9 @@ static const uint8_t NET_MAX = 12;
 // Enter update mode and start a scan. The caller pauses detection first (see
 // DetectionEngine::startUpdateRadio). Refuses while the device is locked.
 bool begin();
-// Leave update mode. True when the board is about to restart to get
-// Bluetooth back (it had already been released); false when the caller should
-// resume detection itself.
+// Leave update mode. Always false now -- the caller resumes detection itself.
+// (It used to answer true when the board had to restart to get Bluetooth
+// back; nothing is released any more, so nothing has to restart.)
 bool end();
 void tick(uint32_t now);
 
@@ -70,8 +72,8 @@ void        forget();
 
 // The list behind those: up to SAVED_MAX networks, managed on the WIFI
 // NETWORKS screen. The one marked USE is the one the boot check tries first
-// when it is in range. A network added on the board is not checked by joining --
-// joining means giving Bluetooth up until a restart -- so its password is
+// when it is in range. A network added on the board is not checked by joining
+// there and then -- that would stop detection mid-screen -- so its password is
 // tried at the next boot check, and savedResult() says how that went.
 static const uint8_t SAVED_MAX = 6;
 enum class SavedResult : uint8_t { UNTRIED = 0, JOINED, BAD_PASSWORD, NOT_FOUND };
@@ -98,9 +100,9 @@ void connect(const char* ssid, const char* pass, bool save);
 void connectSaved();
 // The boot check. Joins the saved network, reads the site's manifest for
 // this build, hands anything newer to OtaCore::noteAvailable, and shuts
-// WiFi down again. Blocking, time-boxed by `budgetMs`, and ONLY safe before
-// Bluetooth starts: joining WiFi with NimBLE up means giving it up until
-// the next restart, which is why the running-board path is a whole mode.
+// WiFi down again. Blocking, time-boxed by `budgetMs`, and meant for boot,
+// before there is a screen to hold up: on a running board the same job is a
+// whole mode, so detection is paused properly rather than stalled.
 // False when there is no saved network, or nothing came back in time.
 bool bootCheck(uint32_t budgetMs);
 

@@ -29,6 +29,12 @@
 #include <WiFiUdp.h>
 #endif
 
+#ifdef BENCH_TOOLS
+// Set by UPDATE NOW below, acted on by main.cpp's loop, which owns it.
+extern volatile bool g_benchUpdateNow;
+extern volatile bool g_benchUpdateStop;
+#endif
+
 namespace Clock {
 
 // 2025-01-01. An ESP32 that has never been told the time reports 1970, and
@@ -501,6 +507,16 @@ void pollSerial() {
 #ifdef BENCH_TOOLS
         } else if (strncasecmp(line, "VERTEST ", 8) == 0) {
             Serial.printf("[ota] %s\n", OtaCore::testVersionDecision(line + 8));
+        } else if (strncasecmp(line, "SIGTEST", 7) == 0) {
+            Serial.printf("[ota] %s\n", OtaCore::testSignature());
+        } else if (strncasecmp(line, "UPDATE NOW", 10) == 0) {
+            // A whole WiFi update, start to finish, with nobody at the board.
+            // main.cpp picks this up on its next pass; see g_benchUpdateNow.
+            g_benchUpdateNow = true;
+            Serial.println("[bench] asking for a WiFi update");
+        } else if (strncasecmp(line, "UPDATE STOP", 11) == 0) {
+            g_benchUpdateStop = true;
+            Serial.println("[bench] cancelling the update");
         } else if (strncasecmp(line, "CRASH ME", 8) == 0) {
             // Bench builds only (-DBENCH_TOOLS=1): a deliberate panic, to
             // prove the crash history catches one.

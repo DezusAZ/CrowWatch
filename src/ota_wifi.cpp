@@ -6,8 +6,6 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include <NimBLEDevice.h>
-#include <esp_bt.h>
 #include <esp_heap_caps.h>
 #include <string.h>
 
@@ -52,7 +50,6 @@ uint8_t s_sig[80];
 uint8_t s_sigLen = 0;
 
 TaskHandle_t s_task       = nullptr;
-bool         s_btReleased = false;
 
 void key(char* out, const char* k, uint8_t i) { snprintf(out, 4, "%s%u", k, (unsigned)i); }
 
@@ -135,6 +132,10 @@ void setResult(int8_t i, SavedResult r) {
 
 void fail(Fail f) {
     if (s_state == State::FAILED) return;
+    // A cancel wins. The task can be several seconds inside an HTTP request
+    // when end() is called, and whatever it decides on its way out must not
+    // put update mode back on a screen the board has already left.
+    if (s_cancel) return;
     s_fail  = f;
     s_state = State::FAILED;
     Serial.printf("[ota] wifi update stopped: %s\n", OtaCore::failWords(f));
@@ -182,19 +183,6 @@ void collectScan(int n) {
             Net t = s_nets[j]; s_nets[j] = s_nets[j - 1]; s_nets[j - 1] = t;
         }
     WiFi.scanDelete();
-}
-
-// Everything Bluetooth holds, handed back for the TLS handshake. Cannot be
-// undone without a restart -- see the header.
-void releaseBluetooth() {
-    if (s_btReleased) return;
-    const uint32_t before = ESP.getFreeHeap();
-    NimBLEDevice::deinit(true);
-    esp_bt_mem_release(ESP_BT_MODE_BTDM);
-    s_btReleased = true;
-    Serial.printf("[ota] bluetooth released: heap %lu -> %lu, largest block %lu\n",
-                  (unsigned long)before, (unsigned long)ESP.getFreeHeap(),
-                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
 // Plain HTTP, on purpose, for the firmware as well as the manifest.
@@ -437,7 +425,6 @@ void run(void*) {
     Clock::syncStop();
     WiFi.disconnect(false, false);
     delay(100);
-    releaseBluetooth();
     if (join()) {
         // The password has done its job; it only lives on in NVS if saved.
         memset(s_pass, 0, sizeof s_pass);
@@ -448,6 +435,15 @@ void run(void*) {
         }
     }
     memset(s_pass, 0, sizeof s_pass);
+    // Same reason as fail()'s: a cancel that arrived mid-request leaves this
+    // task holding a state nobody is watching any more. DONE is left alone --
+    // that install happened, and the board is already on its way to a restart.
+    if (s_cancel && s_state != State::DONE) s_state = State::OFF;
+    // Hand the radio back the way it was found. Detection sniffs WiFi by
+    // hopping channels, which an association would fight over, and the board
+    // no longer restarts when update mode ends -- so the association goes
+    // rather than the board.
+    WiFi.disconnect(false, false);
     s_task = nullptr;
     vTaskDelete(nullptr);
 }
@@ -459,6 +455,9 @@ int8_t bestSavedInScan();   // below, with the rest of the list
 bool begin() {
     if (s_state != State::OFF) return true;
     if (Security::locked() || !OtaCore::available()) return false;
+    // A cancelled attempt's task can still be unwinding an HTTP request it is
+    // waiting on. One at a time: it clears s_task on its way out.
+    if (s_task) return false;
     readSaved();
     s_fail = Fail::NONE;
     s_cancel = s_install = s_downloadStarted = false;
@@ -478,11 +477,6 @@ bool begin() {
 bool end() {
     if (s_state == State::OFF) return false;
     s_cancel = true;
-    if (s_btReleased) {
-        // Bluetooth's memory is gone until a restart, and so is detection.
-        OtaCore::restartSoon(1500);
-        return true;
-    }
     WiFi.scanDelete();
     s_state = State::OFF;
     Serial.println("[ota] wifi update mode off");

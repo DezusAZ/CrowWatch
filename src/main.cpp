@@ -1465,8 +1465,6 @@ static void enterUpdate() {
     uiUpdateInit(*canvas);
 }
 
-static void releaseFrameForDownload();
-
 #if SQUACH_MESH
 // ---- the squad update -----------------------------------------------------
 // A nudge heard on the mesh waits here until the main screen is showing,
@@ -1519,6 +1517,21 @@ static void enterInvite() {
     uiInviteInit(*canvas);
 }
 
+#ifdef BENCH_TOOLS
+// UPDATE NOW and UPDATE STOP on the console, for the bench: the unattended
+// version of the update the squad nudge does, and of the CANCEL button.
+// Bench builds only.
+volatile bool g_benchUpdateNow  = false;
+volatile bool g_benchUpdateStop = false;
+#endif
+
+// Why OtaWifi::begin() said no. It refuses while the board is locked, and
+// also while a cancelled attempt's task is still unwinding the request it was
+// waiting on -- a second or two, and nothing the owner did wrong.
+static const char* updateRefusedWhy() {
+    return Security::locked() ? "Unlock the board first" : "Try again in a moment";
+}
+
 static void startNudgedUpdate() {
     s_auto = {};
     if (!OtaWifi::hasSaved())
@@ -1529,7 +1542,6 @@ static void startNudgedUpdate() {
         return;
     }
     enterUpdate();
-    releaseFrameForDownload();
     engine.startUpdateRadio();
     if (!OtaWifi::begin()) {
         engine.stopUpdateRadio();
@@ -1577,24 +1589,28 @@ static void autoUpdateTick(uint32_t now) {
 }
 #endif
 
-// A WiFi update's TLS handshake needs about 17 KB in ONE piece, and on the
-// bench the largest free block was 16 KB even with Bluetooth handed back --
-// "SSL - Memory allocation failed" on the first real HTTPS attempt. The frame
-// buffer is the biggest single allocation on the heap (77 KB at 320x240), and
-// nothing after this point needs it: a WiFi update ends in a restart whether
-// it succeeds, fails or is cancelled. So give it back and draw the update
-// screens straight to the panel, the fallback a failed rotate already uses.
-static void releaseFrameForDownload() {
+// The frame buffer, handed back: 77 KB at 320x240, the biggest single
+// allocation on the heap. Only the duress wipe does this now -- the board is
+// about to restart, and the copying the wipe does ran the heap dry without
+// it. Afterwards the screens draw straight to the panel, the fallback a
+// failed rotate already uses.
+//
+// WiFi updates used to do it too, for a TLS handshake that wanted 17 KB in
+// one piece. The download is plain HTTP since v1.10.2 and needs no such
+// block, so an update now keeps the screen it is drawing on.
+#if HAVE_NVS_ERASE
+static void releaseFrameBuffer() {
 #if !defined(CYD35)
     if (!frameBufferOk) return;
     frame.deleteSprite();
     frameBufferOk = false;
     canvas = &tft;
     tft.fillScreen(Theme::BG);
-    Serial.printf("[ota] frame buffer released: largest block %lu\n",
+    Serial.printf("[wipe] frame buffer released: largest block %lu\n",
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 #endif
 }
+#endif
 
 static void enterWifiPass(const char* ssid) {
     state = AppState::WIFI_PASS;
@@ -1881,7 +1897,7 @@ static void performWipe(WipeBoot after) {
     // The frame buffer is 77 KB the wipe can have: the board restarts in a
     // moment and the screen is meant to go quiet anyway. Without it the copy
     // of the kept settings ran the heap dry.
-    releaseFrameForDownload();
+    releaseFrameBuffer();
     physicalNvsWipe();
     Serial.println("[wipe] done, restarting");
     Serial.flush();
@@ -2442,6 +2458,23 @@ void loop() {
     s_pushAccumUs = 0;
     uint32_t now = millis();
     Clock::tick(now);   // the note to self, when it is due
+#if SQUACH_MESH && defined(BENCH_TOOLS)
+    if (g_benchUpdateNow && (state == AppState::CLEAR || state == AppState::DESK)) {
+        // Waits for the main screen rather than barging in from wherever the
+        // board happens to be -- the same place a person would start from.
+        g_benchUpdateNow = false;
+        memset(&s_nudge, 0, sizeof s_nudge);
+        strncpy(s_nudge.from, "the bench", sizeof s_nudge.from - 1);
+        startNudgedUpdate();
+    }
+    if (g_benchUpdateStop) {
+        g_benchUpdateStop = false;
+        s_auto.active = false;
+        if (OtaWifi::state() != OtaWifi::State::OFF) {
+            if (!OtaWifi::end()) { engine.stopUpdateRadio(); enterClear(); }
+        }
+    }
+#endif
     // The bingo card: marks the radio task handed over, the week turning
     // over, and the one flash write that follows a batch of marks.
     Bingo::tick(now);
@@ -2829,15 +2862,13 @@ void loop() {
                 switch (uiSysPropsTouch(*canvas, tp.x, tp.y)) {
                     case SysPropsHit::UPDATE_NOW:
                         // The same start the UPDATE screen's own WiFi button
-                        // makes: the frame buffer goes back for the download's
-                        // handshake, the radio changes hands, and the update
-                        // screen carries it from there.
+                        // makes: the radio changes hands and the update screen
+                        // carries it from there.
                         enterUpdate();
-                        if (OtaWifi::hasSaved()) releaseFrameForDownload();
                         engine.startUpdateRadio();
                         if (!OtaWifi::begin()) {
                             engine.stopUpdateRadio();
-                            Theme::showToast("CAN'T START UPDATE", "Unlock the board first", Theme::AMBER);
+                            Theme::showToast("CAN'T START UPDATE", updateRefusedWhy(), Theme::AMBER);
                         }
                         break;
                     case SysPropsHit::CLOSE: leaveSysProps(); break;
@@ -4161,14 +4192,10 @@ void loop() {
                 int netIndex = -1;
                 switch (uiUpdateHitTest(*canvas, tp.x, tp.y, &netIndex)) {
                     case UpdateHit::WIFI_START:
-                        // A saved network is joined straight away, so the
-                        // frame buffer has to go now rather than on a tap in
-                        // the network list.
-                        if (OtaWifi::hasSaved()) releaseFrameForDownload();
                         engine.startUpdateRadio();
                         if (!OtaWifi::begin()) {
                             engine.stopUpdateRadio();
-                            Theme::showToast("CAN'T START UPDATE", "Unlock the board first", Theme::AMBER);
+                            Theme::showToast("CAN'T START UPDATE", updateRefusedWhy(), Theme::AMBER);
                         }
                         break;
                     case UpdateHit::NETWORK: {
@@ -4176,10 +4203,8 @@ void loop() {
                         if (!n) break;
                         const int8_t k = OtaWifi::savedIndexOf(n->ssid);
                         if (k >= 0) {
-                            releaseFrameForDownload();
                             OtaWifi::connectSavedAt((uint8_t)k);
                         } else if (n->open) {
-                            releaseFrameForDownload();
                             OtaWifi::connect(n->ssid, "", true);
                         } else {
                             enterWifiPass(n->ssid);
@@ -4208,10 +4233,10 @@ void loop() {
                     case UpdateHit::CANCEL:
                     case UpdateHit::OK:
                         if (OtaWifi::state() != OtaWifi::State::OFF) {
-                            // True when Bluetooth was already handed back for
-                            // the download: the board restarts to recover it,
-                            // and resuming detection before then would talk
-                            // to a Bluetooth stack that no longer exists.
+                            // end() answers false now: nothing was handed
+                            // back, so detection just starts again. It kept
+                            // the true-means-restart answer from when an
+                            // update cost the board its Bluetooth.
                             if (!OtaWifi::end()) engine.stopUpdateRadio();
                         } else {
                             OtaBle::end();
@@ -4254,7 +4279,6 @@ void loop() {
                 uiWifiPassClear();
                 enterWifiNets();
             } else if (r == WifiPassResult::OK) {
-                releaseFrameForDownload();
                 OtaWifi::connect(uiWifiPassSsid(), uiWifiPassText(), true);
                 uiWifiPassClear();
                 enterUpdate();

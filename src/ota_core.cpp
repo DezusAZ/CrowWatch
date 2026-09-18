@@ -8,7 +8,7 @@
 #include <esp_partition.h>
 #include <string.h>
 #include "mbedtls/sha256.h"
-#include "mbedtls/pk.h"
+#include "mbedtls/ecdsa.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -96,6 +96,29 @@ char        s_noteSubBuf[40];
 
 void lock()   { if (!s_lock) s_lock = xSemaphoreCreateMutex(); xSemaphoreTake(s_lock, portMAX_DELAY); }
 void unlock() { xSemaphoreGive(s_lock); }
+
+// Is this signature ours? 0 if it is, an mbedtls error if it is not.
+//
+// One curve, one hash, one key that was compiled in -- so this talks to the
+// ECDSA code directly instead of going through mbedtls's general key layer.
+// That layer would read the key from its PEM text every time, and reading a
+// PEM pulls base64, the ASN.1 key structures and RSA into the image: 15 KB of
+// flash to arrive at the same 65 bytes that sit in ota_pubkey.h already.
+//
+// mbedtls_ecdsa_read_signature() takes the DER signature openssl writes
+// (tools/sign_firmware.py), rejects a signature with trailing bytes after it,
+// and checks r and s are in range before doing any curve arithmetic.
+int checkSignature(const uint8_t hash[32], const uint8_t* sig, size_t sigLen) {
+    mbedtls_ecdsa_context ctx;
+    mbedtls_ecdsa_init(&ctx);
+    int rc = mbedtls_ecp_group_load(&ctx.grp, MBEDTLS_ECP_DP_SECP256R1);
+    if (rc == 0) rc = mbedtls_ecp_point_read_binary(&ctx.grp, &ctx.Q,
+                                                    OTA_PUBKEY_POINT, sizeof OTA_PUBKEY_POINT);
+    if (rc == 0) rc = mbedtls_ecp_check_pubkey(&ctx.grp, &ctx.Q);
+    if (rc == 0) rc = mbedtls_ecdsa_read_signature(&ctx, hash, 32, sig, sigLen);
+    mbedtls_ecdsa_free(&ctx);
+    return rc;
+}
 
 // Caller holds the lock.
 void closeLocked() {
@@ -383,11 +406,7 @@ Fail finish() {
     s_shaOpen = false;
     unlock();
 
-    mbedtls_pk_context pk;
-    mbedtls_pk_init(&pk);
-    int rc = mbedtls_pk_parse_public_key(&pk, (const unsigned char*)OTA_PUBKEY_PEM, sizeof OTA_PUBKEY_PEM);
-    if (rc == 0) rc = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, sizeof hash, s_sig, s_sigLen);
-    mbedtls_pk_free(&pk);
+    const int rc = checkSignature(hash, s_sig, s_sigLen);
     if (rc != 0) {
         Serial.printf("[ota] signature check failed (-0x%04x)\n", (unsigned)-rc);
         abort();
@@ -435,6 +454,54 @@ Fail finish() {
     Serial.printf("[ota] signature good, installed into %s\n", s_target->label);
     return Fail::NONE;
 }
+
+#ifdef BENCH_TOOLS
+// Bench builds only: run the signature check against a REAL release.
+//
+// The numbers below are the SHA-256 of what the published v1.11.0 cyd-fast
+// image was signed over, and the signature the release workflow produced for
+// it -- both taken straight off squachwatch.com, both public. They stay valid
+// however many releases follow: nothing here reads the site. A good one must pass, and
+// anything touched afterwards must not. SIGTEST on the console.
+const char* testSignature() {
+    static const uint8_t HASH[32] = {
+        0x86, 0xCB, 0x29, 0x2A, 0x09, 0x73, 0xA1, 0x61, 0xD8, 0x7C, 0xF2, 0x80,
+        0xA2, 0x1B, 0xD8, 0x3C, 0xD7, 0x9C, 0xFC, 0x2F, 0x7C, 0xA6, 0x46, 0x72,
+        0x10, 0xFE, 0x74, 0xF8, 0x07, 0xCF, 0xA3, 0xBA,
+    };
+    static const uint8_t SIG[71] = {
+        0x30, 0x45, 0x02, 0x21, 0x00, 0xEB, 0x5A, 0xED, 0xD3, 0x4D, 0x23, 0x4A,
+        0xFF, 0x42, 0x08, 0x4E, 0xE0, 0xD5, 0x5E, 0x3D, 0xA9, 0x51, 0x8C, 0xA9,
+        0xA3, 0xAB, 0xDE, 0x72, 0xE3, 0x4B, 0xCF, 0xDF, 0x85, 0x80, 0x28, 0xB3,
+        0xD8, 0x02, 0x20, 0x44, 0xDE, 0x3F, 0xA9, 0xF9, 0xDB, 0xD0, 0x1D, 0xF0,
+        0x28, 0x74, 0x13, 0xC8, 0x5A, 0x6F, 0x0E, 0xD3, 0xA4, 0x34, 0x16, 0x77,
+        0x8A, 0xCF, 0x77, 0x43, 0x37, 0x19, 0xD9, 0x34, 0x2B, 0x32, 0x8B,
+    };
+    uint8_t h[32], g[sizeof SIG];
+    memcpy(h, HASH, sizeof h);
+    memcpy(g, SIG,  sizeof g);
+
+    const uint32_t t0 = millis();
+    const bool good = checkSignature(HASH, SIG, sizeof SIG) == 0;
+    const uint32_t ms = millis() - t0;
+
+    h[31] ^= 0x01;                                    // a different image
+    const bool badHash = checkSignature(h, SIG, sizeof SIG) != 0;
+    g[40] ^= 0x01;                                    // a doctored signature
+    const bool badSig  = checkSignature(HASH, g, sizeof g) != 0;
+    const bool shortSig = checkSignature(HASH, SIG, sizeof SIG - 1) != 0;
+    const bool noSig   = checkSignature(HASH, SIG, 0) != 0;
+
+    static char out[128];
+    snprintf(out, sizeof out,
+             "real release %s (%lu ms), changed image %s, changed signature %s, "
+             "cut short %s, empty %s",
+             good ? "GOOD" : "FAILED", (unsigned long)ms,
+             badHash ? "refused" : "ACCEPTED", badSig ? "refused" : "ACCEPTED",
+             shortSig ? "refused" : "ACCEPTED", noSig ? "refused" : "ACCEPTED");
+    return out;
+}
+#endif
 
 const char* testVersionDecision(const char* version) {
     char fake[64];
