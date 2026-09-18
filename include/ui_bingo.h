@@ -14,7 +14,8 @@ class DetectionEngine;
 void uiBingoInit(TFT_eSPI& t);
 void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
 
-// What a tap did. HANDLED means the screen dealt with it (a square opened or
-// a panel closed); BACK means leave the screen.
+// What a tap did. HANDLED means the screen dealt with it (a square opened, a
+// panel closed, NEW asked whether it really meant it); BACK means leave the
+// screen -- for the board's own screen, not back into the settings menu.
 enum class BingoTap : uint8_t { NONE, HANDLED, BACK };
 BingoTap uiBingoHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH);

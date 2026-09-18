@@ -636,6 +636,12 @@ int main(int argc, char** argv) {
         for (int k = 0; k < 6; k++) Bingo::note(Bingo::typeAt((uint8_t)k));
         Bingo::tick(1000);
         uiBingoInit(frame);
+        // --pose 1: the panel NEW asks first. Tapped through the real hit
+        // test, at the middle of the middle button.
+        if (poseIdx == 1) {
+            const Theme::ButtonBarGeom bar = Theme::computeButtonBar(frame.width(), frame.height());
+            uiBingoHitTest(frame, bar.x[1] + bar.w[1] / 2, bar.y + bar.h / 2, frame.width(), frame.height());
+        }
     }
     else if (screen == "meshmenu")   uiMeshMenuInit(frame);
     else if (screen == "roster") {

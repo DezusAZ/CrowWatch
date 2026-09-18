@@ -10,6 +10,7 @@ namespace {
 
 const int TOP = 16;
 bool    s_stats    = false;
+bool    s_confirm  = false;   // the "throw this card away?" panel is up
 int8_t  s_openCell = -1;      // the square whose paragraph is up, or -1
 
 // The card fills the space between the title bar and the button bar. Four
@@ -147,10 +148,71 @@ void drawStats(TFT_eSPI& t, int w, int h) {
     t.print(Bingo::weekNumber() ? "A fresh card every week." : "No clock yet: this card stands.");
 }
 
+// The "are you sure" panel behind NEW. A week's marks are the whole game, and
+// NEW sits between two buttons people tap without looking -- so the tap asks
+// first, and the safe answer is the wide one at the bottom, where a reflex
+// tap lands (the same reasoning as the LOG's CANCEL).
+void confirmRects(int screenW, int screenH, int& px, int& py, int& pw, int& ph,
+                  int& yesX, int& yesY, int& yesW, int& yesH,
+                  int& noX,  int& noY,  int& noW,  int& noH) {
+    pw = screenW - 40;
+    if (pw > 240) pw = 240;
+    // Tall enough for three wrapped lines above the buttons: at 132 the last
+    // line of the warning ran under DEAL A NEW ONE.
+    ph = 164;
+    px = (screenW - pw) / 2;
+    py = (screenH - ph) / 2;
+    const int margin = 10, gap = 8, btnH = 24;
+    noY  = py + ph - btnH - margin;
+    noH  = btnH;
+    noX  = px + margin;
+    noW  = pw - 2 * margin;
+    yesY = noY - gap - btnH;
+    yesH = btnH;
+    yesX = px + margin;
+    yesW = pw - 2 * margin;
+}
+
+void drawConfirm(TFT_eSPI& t, int w, int h) {
+    int px, py, pw, ph, yesX, yesY, yesW, yesH, noX, noY, noW, noH;
+    confirmRects(w, h, px, py, pw, ph, yesX, yesY, yesW, yesH, noX, noY, noW, noH);
+    t.fillRoundRect(px, py, pw, ph, 6, Theme::BG);
+    t.drawRoundRect(px, py, pw, ph, 6, Theme::PURPLE);
+
+    t.setTextWrap(false);
+    t.setTextSize(1);
+    t.setTextColor(Theme::CYAN, Theme::BG);
+    const char* q = "THROW THIS CARD AWAY?";
+    t.setCursor(px + (pw - t.textWidth(q)) / 2, py + 8);
+    t.print(q);
+
+    char marked[20];
+    snprintf(marked, sizeof marked, "%u OF 16 MARKED", (unsigned)Bingo::markedCount());
+    int lw = Theme::bangersTextWidth(marked, Theme::BangersSize::MD);
+    const int maxLw = pw - 16;
+    if (lw > maxLw) lw = maxLw;
+    Theme::drawBangersText(t, px + (pw - lw) / 2, py + 26, marked, Theme::RED, Theme::BangersSize::MD);
+
+    t.setTextColor(Theme::W95_LIGHT, Theme::BG);
+    char lines[3][48];
+    const uint8_t n = Theme::wrapText(t, "A new card loses them, and the streak with them. Lines already called are kept.",
+                                      pw - 16, lines, 3);
+    int ly = py + 50;
+    for (uint8_t i = 0; i < n; i++) {
+        t.setCursor(px + (pw - t.textWidth(lines[i])) / 2, ly);
+        t.print(lines[i]);
+        ly += 12;
+    }
+
+    Theme::drawButton(t, yesX, yesY, yesW, yesH, "DEAL A NEW ONE", false);
+    Theme::drawButton(t, noX,  noY,  noW,  noH,  "KEEP THIS ONE",  false);
+}
+
 }  // namespace
 
 void uiBingoInit(TFT_eSPI& t) {
     s_stats    = false;
+    s_confirm  = false;
     s_openCell = -1;
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
@@ -168,11 +230,14 @@ void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     else         drawCard(t, w, h);
 
     Theme::drawButton(t, bar.x[0], bar.y, bar.w[0], bar.h, s_stats ? "[ CARD ]" : "[ STATS ]", false);
-    Theme::drawButton(t, bar.x[1], bar.y, bar.w[1], bar.h, "[ NEW ]", false);
-    Theme::drawButton(t, bar.x[2], bar.y, bar.w[2], bar.h, "[ BACK ]", false);
+    Theme::drawButton(t, bar.x[1], bar.y, bar.w[1], bar.h, "[ NEW ]", s_confirm);
+    // OK, not BACK: this leaves for the screen the board lives on, the way
+    // Settings' own OK does, rather than stepping back into the menu.
+    Theme::drawButton(t, bar.x[2], bar.y, bar.w[2], bar.h, "[ OK ]", false);
 
-    // Over everything else, and last: the square's own paragraph.
-    if (s_openCell >= 0) {
+    // Over everything else, and last: the panel that was asked for.
+    if (s_confirm) drawConfirm(t, w, h);
+    else if (s_openCell >= 0) {
         const DetectionType type = Bingo::typeAt((uint8_t)s_openCell);
         Theme::drawInfoPanel(t, w, h, now, detectionTypeName(type), DetectionInfo::explain(type));
         // The panel covers the card, so the veil above it does not matter here.
@@ -180,6 +245,19 @@ void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
 }
 
 BingoTap uiBingoHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
+    if (s_confirm) {
+        int px, py, pw, ph, yesX, yesY, yesW, yesH, noX, noY, noW, noH;
+        confirmRects(screenW, screenH, px, py, pw, ph, yesX, yesY, yesW, yesH, noX, noY, noW, noH);
+        if (x >= yesX && x <= yesX + yesW && y >= yesY && y <= yesY + yesH) {
+            s_confirm = false;
+            Bingo::newCard();
+            return BingoTap::HANDLED;
+        }
+        // KEEP THIS ONE, and anywhere else: the card stays. A tap that misses
+        // a button is a tap that did not mean to throw the week away.
+        s_confirm = false;
+        return BingoTap::HANDLED;
+    }
     if (s_openCell >= 0) {
         // Anywhere outside it closes it, the same as every other panel.
         s_openCell = -1;
@@ -190,7 +268,7 @@ BingoTap uiBingoHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
     const Theme::ButtonBarGeom bar = Theme::computeButtonBar(screenW, screenH);
     if (y >= bar.y && y < bar.y + bar.h) {
         if (x >= bar.x[2]) return BingoTap::BACK;
-        if (x >= bar.x[1]) { Bingo::newCard(); return BingoTap::HANDLED; }
+        if (x >= bar.x[1]) { s_confirm = true; return BingoTap::HANDLED; }
         s_stats = !s_stats;
         return BingoTap::HANDLED;
     }

@@ -1621,8 +1621,10 @@ static void enterWifiPass(const char* ssid) {
 // WIFI NETWORKS, and the scan it adds from. The password keyboard is the
 // update flow's; this flag says whose turn it is when it comes back.
 static bool s_passForNets = false;
-// Where the board was going when the update window stopped it.
-static void leaveSysProps() {
+// The screen this board lives on: the desk for a board on a desk, the main
+// screen for every other one. Where anything that took the screen over goes
+// when it is done -- the update window, and BINGO's OK.
+static void goHome() {
     if (Settings::deskWanted()) enterDesk();
     else                        enterClear();
 }
@@ -2836,8 +2838,11 @@ void loop() {
             uiBingoTick(*canvas, now, engine);
             if (touchJustDown) {
                 lastTouch = now;
+                // OK leaves for the main screen or the desk, not back into
+                // the settings menu: somebody who opened the card to look at
+                // it wants the board back, not another list.
                 if (uiBingoHitTest(*canvas, tp.x, tp.y, tft.width(), tft.height()) == BingoTap::BACK)
-                    enterSettings();
+                    goHome();
             }
             break;
         }
@@ -2871,7 +2876,7 @@ void loop() {
                             Theme::showToast("CAN'T START UPDATE", updateRefusedWhy(), Theme::AMBER);
                         }
                         break;
-                    case SysPropsHit::CLOSE: leaveSysProps(); break;
+                    case SysPropsHit::CLOSE: goHome(); break;
                     case SysPropsHit::NONE:  break;
                 }
                 lastTouch = now;
