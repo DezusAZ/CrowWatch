@@ -8,6 +8,7 @@
 #include "crowd_bench.h"
 #include "blackbox.h"    // BLACKBOX dumps it
 #include "ota_core.h"    // VERTEST, on bench builds
+#include "frame_push.h"  // PUSH, the frame-push switch
 #if defined(ARDUINO_ARCH_ESP32)
 // MEM reads the board itself: FreeRTOS for the stacks, NVS for the store.
 #include <freertos/FreeRTOS.h>
@@ -470,6 +471,25 @@ void pollSerial() {
                 Serial.printf("[clock] refused %lu -- expected seconds since "
                               "the epoch, e.g. TIME %lu\n",
                               (unsigned long)e, (unsigned long)kPlausible + 1u);
+            }
+        } else if (strncasecmp(line, "PUSH", 4) == 0) {
+            // PUSH / PUSH ON / PUSH OFF. The switch for the overlapped frame
+            // push. Not behind BENCH_TOOLS on purpose: its whole job is to
+            // rule the new path out on a board that is drawing strangely,
+            // which will not be happening at a bench.
+            const char* arg = line + 4;
+            while (*arg == ' ') arg++;
+            if (!FramePush::available()) {
+                Serial.println("[push] not built for this board -- the ordinary push is the only one");
+            } else if (strncasecmp(arg, "ON", 2) == 0) {
+                FramePush::setEnabled(true);
+                Serial.println("[push] overlapped push on");
+            } else if (strncasecmp(arg, "OFF", 3) == 0) {
+                FramePush::setEnabled(false);
+                Serial.println("[push] off -- the ordinary push until the next boot");
+            } else {
+                Serial.printf("[push] %s. PUSH ON / PUSH OFF to change it\n",
+                              FramePush::enabled() ? "on" : "off");
             }
         } else if (strncasecmp(line, "BLACKBOX", 8) == 0) {
             BlackBox::dump();

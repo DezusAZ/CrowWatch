@@ -23,7 +23,7 @@ CXX      ?= g++
 CXXFLAGS := -std=c++17 -O1 -g -Wall -Wextra -Wno-unused-parameter \
             -I$(SIM) -I$(INC)
 
-TESTS := remote_id_test ibeacon_test signatures_test emitter_roundtrip_test ignore_list_test hacker_test pwnagotchi_test shim_fidelity_test squachmesh_test qwerty_test meshmsg_test device_info_test security_test emote_script_test blackbox_test bingo_test hunt_test bgretire_test autoquiet_test
+TESTS := remote_id_test ibeacon_test signatures_test emitter_roundtrip_test ignore_list_test hacker_test pwnagotchi_test shim_fidelity_test squachmesh_test qwerty_test meshmsg_test device_info_test security_test emote_script_test blackbox_test bingo_test hunt_test bgretire_test autoquiet_test framepush_test
 
 # Only the units under test get linked in. Pulling the whole firmware
 # would drag in TFT_eSPI, NimBLE and the UI, and a test that needs a
@@ -64,7 +64,10 @@ bingo_test_FLAGS             := -DSQUACH_MESH=1
 autoquiet_test_SRCS       := $(SIM)/detection_sim.cpp $(SRC)/remote_id.cpp
 bgretire_test_SRCS := $(SRC)/settings.cpp
 hunt_test_SRCS               := $(SRC)/settings.cpp
-# Header-only: the shim under test IS sim/TFT_eSPI.h.
+# Header-only, both: the colour arithmetic the overlapped frame push
+# builds its table from is inline in frame_push.h, and the shim under
+# test IS sim/TFT_eSPI.h.
+framepush_test_SRCS          :=
 shim_fidelity_test_SRCS      :=
 
 .PHONY: all clean

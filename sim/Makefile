@@ -117,6 +117,7 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/ui_wifipass.cpp \
             $(SRC)/ui_sysprops.cpp \
             $(SRC)/ui_wifinets.cpp \
+            $(SRC)/frame_push.cpp \
             $(SIM_DIR)/ota_sim.cpp
 
 SIM_SRCS := $(SIM_DIR)/main_sim.cpp $(SIM_DIR)/detection_sim.cpp

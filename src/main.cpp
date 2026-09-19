@@ -305,6 +305,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_outfit.h"
 #include "ui_outfit_unlock.h"
 #include "ui_ignorelist.h"
+#include "frame_push.h"
 #if SQUACH_MESH
 #include "ui_phone.h"
 #include "ui_meshmenu.h"
@@ -2224,6 +2225,10 @@ void setup() {
     frame.setTextSize(1);
 #endif
 
+    // Builds a 512-byte lookup table and nothing else; it touches no bus
+    // and can go anywhere after the display is up.
+    FramePush::begin();
+
 #if defined(CYD35)
     // The standalone XPT2046_Touchscreen library (own SPIClass, own
     // IRQ pin) produced constant garbage reads and a free-running IRQ
@@ -2461,7 +2466,12 @@ static uint32_t s_pushAccumUs = 0;   // summed within a frame: cyd35 pushes twic
 
 static inline void pushFrame(int x, int y) {
     uint32_t t0 = micros();
-    frame.pushSprite(x, y);
+    // The overlapped push converts the next 64 bytes while the previous 64
+    // are on the wire, instead of spinning -- see frame_push.h. It declines
+    // rather than half-draws, and the ordinary push is what it declines to;
+    // both leave the frame fully on the panel before the clock below stops,
+    // so DIAGNOSTICS and the [frame] line measure the same thing either way.
+    if (!FramePush::push(tft, frame, x, y)) frame.pushSprite(x, y);
     s_pushAccumUs += micros() - t0;
 }
 
