@@ -211,6 +211,12 @@ namespace Squachy {
     // the lodge on the SNOWFALL background -- see Theme::consumeLodgeKnock().
     void unlockParka();
 
+    // The Aquarium shark, caught on his return pass. Unlike the four above,
+    // calling this when the costume is ALREADY unlocked is not a no-op: he
+    // reacts anyway, because the catch is the game and a silent second catch
+    // teaches you to stop playing it.
+    void unlockShark();
+
     // Unlock announcements. Any outfit that becomes available -- by
     // crossing its lifetime-detection threshold, or by the werewolf
     // summon -- is queued once, and main.cpp drains the queue by popping

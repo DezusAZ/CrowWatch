@@ -231,12 +231,28 @@ static void drawSettingsIcon(TFT_eSPI& t, int barH) {
     t.drawFastHLine(cx - 9, y0 + 10, 18, CYAN);
 }
 
+void drawBevel(TFT_eSPI& t, int x, int y, int w, int h, uint16_t face,
+               uint16_t lit, uint16_t litSoft, uint16_t shd, uint16_t shdSoft,
+               bool sunk) {
+    t.fillRect(x + 2, y + 2, w - 4, h - 4, face);
+    const uint16_t oTL = sunk ? shd : lit,         oBR = sunk ? lit : shd;
+    const uint16_t iTL = sunk ? shdSoft : litSoft, iBR = sunk ? litSoft : shdSoft;
+    t.drawFastHLine(x, y, w, oTL);         t.drawFastVLine(x, y, h, oTL);
+    t.drawFastHLine(x, y + h - 1, w, oBR); t.drawFastVLine(x + w - 1, y, h, oBR);
+    t.drawFastHLine(x + 1, y + 1, w - 2, iTL);            t.drawFastVLine(x + 1, y + 1, h - 2, iTL);
+    t.drawFastHLine(x + 1, y + h - 2, w - 2, iBR);        t.drawFastVLine(x + w - 2, y + 1, h - 2, iBR);
+}
+
+void drawSteelPanel(TFT_eSPI& t, int x, int y, int w, int h, bool sunk) {
+    drawBevel(t, x, y, w, h, W95_FACE, W95_HILITE, W95_LIGHT, W95_SHADOW, W95_DKSHADOW, sunk);
+}
+
+// The key is the same raised edge over a coloured face, so it is drawn by
+// the same code -- it used to be a second copy of those eight lines, and
+// the two had already drifted by one shade.
 void drawSteelKey(TFT_eSPI& t, int x, int y, int w, int h, bool lit) {
-    t.fillRect(x + 2, y + 2, w - 4, h - 4, lit ? PURPLE : TASKBAR);
-    t.drawFastHLine(x, y, w, W95_LIGHT);             t.drawFastVLine(x, y, h, W95_LIGHT);
-    t.drawFastHLine(x, y + h - 1, w, W95_DKSHADOW);  t.drawFastVLine(x + w - 1, y, h, W95_DKSHADOW);
-    t.drawFastHLine(x + 1, y + 1, w - 2, W95_FACE);  t.drawFastVLine(x + 1, y + 1, h - 2, W95_FACE);
-    t.drawFastHLine(x + 1, y + h - 2, w - 2, W95_SHADOW); t.drawFastVLine(x + w - 2, y + 1, h - 2, W95_SHADOW);
+    drawBevel(t, x, y, w, h, lit ? PURPLE : TASKBAR,
+              W95_LIGHT, W95_FACE, W95_DKSHADOW, W95_SHADOW, false);
 }
 
 bool settingsButtonHit(int x, int y) {
@@ -2769,6 +2785,35 @@ static float sharkProfile(float u) {
     return 1.0f - k * k * 0.88f;
 }
 
+// ---- the Aquarium shark --------------------------------------------------
+// TWO touches, not one, and the first one does not catch anything -- it only
+// makes him turn round and come back at you.
+//
+// That is a fix as much as it is a flourish. The shark is deliberately the
+// biggest thing in the tank, and between an eight second crossing and a ten
+// to twenty-five second nap he is on screen about a THIRD of the time --
+// which is the same shape of problem the gold toaster's hit box had, where a
+// generous target that is up a lot handed the costume to people who were
+// only poking at the background. Splitting it in two means a stray tap costs
+// nothing but a turn, and the costume has to be meant twice.
+//
+// Where he was last drawn, for backgroundTap(). Stale the same way the
+// toaster's is: not refreshed in the last few frames means not on screen.
+static int      s_sharkX = -1, s_sharkY = 0, s_sharkHW = 0, s_sharkHH = 0;
+static uint32_t s_sharkAt = 0;
+static bool     s_sharkTurnWanted = false;   // touch one; drawAquarium owns his heading
+static bool     s_sharkHunting    = false;   // he has noticed you
+static uint32_t s_sharkHuntAt     = 0;       // ...since when
+static bool     s_sharkCaught     = false;   // touch two; pending for squachy.cpp
+static int      s_sharkFxX = 0, s_sharkFxY = 0;
+static uint32_t s_sharkBoltAt = 0;           // ...and the flourish when he goes
+
+static const uint32_t SHARK_HUNT_MS = 14000;
+
+static void publishShark(int cx, int cy, int hw, int hh, uint32_t now) {
+    s_sharkX = cx; s_sharkY = cy; s_sharkHW = hw; s_sharkHH = hh; s_sharkAt = now;
+}
+
 // A shark drawn as a column of vertical slices rather than a fixed
 // outline, which is what lets the body actually flex. Each slice takes
 // its centreline from a wave travelling nose-to-tail with amplitude
@@ -2914,6 +2959,9 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     static bool     sharkActive = false;
     static uint32_t sharkNextAt = 0;
     static bool     sharkInited = false;
+    // Set once he has turned on you: the pass coming back is faster than the
+    // one he was making before you touched him.
+    static bool     sharkFast = false;
 
     int w = t.width();
     int bandH = yEnd - yStart;
@@ -3387,13 +3435,25 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // comment above).
     if (!sharkActive && now >= sharkNextAt) {
         sharkActive = true;
+        sharkFast   = false;
+        s_sharkHunting = false;             // a fresh crossing, a fresh chance
         bool fromLeft = random(0, 2) == 0;
         sharkX   = fromLeft ? -40.0f : (float)(w + 40);
         sharkDir = fromLeft ? 1 : -1;
         sharkY   = (float)(yStart + random(8, bandH > 16 ? bandH - 8 : bandH));
     }
     if (sharkActive) {
-        sharkX += sharkDir * 1.8f * s_animK;
+        // Touch one landed on him: turn, and come back harder. The heading
+        // lives in here, so the tap only leaves a note.
+        if (s_sharkTurnWanted) {
+            s_sharkTurnWanted = false;
+            sharkDir  = (int8_t)-sharkDir;
+            sharkFast = true;
+        }
+        // Taken: he bolts for the nearest edge rather than finishing the pass.
+        const bool bolting = s_sharkBoltAt && (now - s_sharkBoltAt) < 1200u;
+        const float speed = bolting ? 7.0f : (sharkFast ? 3.4f : 1.8f);
+        sharkX += sharkDir * speed * s_animK;
         int8_t dir = sharkDir;
         // Nearly double the old size (12 -> 20) -- unmistakably the
         // biggest thing in the tank instead of just another fish shape.
@@ -3421,6 +3481,21 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         // whatever x is passed here, so passing sx - dir*ss put the nose
         // behind the tail and the animal swam backwards.
         drawShark(t, sx + dir * ss, sy, dir, ss, now);
+        // His body box, for the tap. Not a generous circle: see the note on
+        // s_sharkX above, and the gold toaster's before it.
+        publishShark(sx, sy, ss, (int)(ss * 0.45f), now);
+        // The flourish. It plays whether or not the costume was already
+        // yours -- catching him is the fun part, and a second catch that
+        // silently did nothing would teach you to stop trying.
+        if (bolting) {
+            const uint32_t age = now - s_sharkBoltAt;
+            const int      r   = (int)(age * 0.09f);
+            if (r < ss * 4) {
+                const uint16_t ring = blend(BG, WHITE, (uint16_t)(220 - (age >> 2)));
+                t.drawCircle(s_sharkFxX, s_sharkFxY, r, ring);
+                t.drawCircle(s_sharkFxX, s_sharkFxY, r / 2, ring);
+            }
+        }
 
         // A close pass "gulps" any regular fish caught right at the
         // mouth -- not a real removal, just an instant respawn off the
@@ -3440,8 +3515,16 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         }
 
         if (sx < -(ss * 3) || sx > w + ss * 3) {
-            sharkActive = false;
-            sharkNextAt = now + (uint32_t)random(10000, 25000);
+            if (s_sharkHunting && (now - s_sharkHuntAt) < SHARK_HUNT_MS) {
+                // Not done with you. Turn at the edge and come back.
+                sharkDir = (int8_t)-sharkDir;
+            } else {
+                sharkActive    = false;
+                sharkFast      = false;
+                s_sharkHunting = false;
+                s_sharkX       = -1;        // gone: no stale box to tap
+                sharkNextAt    = now + (uint32_t)random(10000, 25000);
+            }
         }
     }
 }
@@ -4228,6 +4311,12 @@ bool consumeToasterCatch() {
     return true;
 }
 
+bool consumeSharkCatch() {
+    if (!s_sharkCaught) return false;
+    s_sharkCaught = false;
+    return true;
+}
+
 // ---- the Starfield eye ---------------------------------------------------
 // Catch two in a row and the VOID EYE costume is yours. "In a row" is the
 // whole mechanic: without a reset it quietly degrades into "two eyes ever",
@@ -4399,6 +4488,27 @@ bool backgroundTap(int x, int y, uint32_t now) {
             if (++s_lodgeKnocks >= LODGE_KNOCKS_NEEDED) {
                 s_lodgeKnocks = 0;
                 s_lodgePending = true;
+            }
+            return true;
+        }
+    }
+
+    // The Aquarium shark. The FIRST touch never catches him -- it turns him
+    // round -- and the second one, on the pass he makes coming back, does.
+    if (s_sharkX >= 0 && (now - s_sharkAt) <= 250) {
+        const int sdx = x - s_sharkX, sdy = y - s_sharkY;
+        if (sdx <= s_sharkHW && sdx >= -s_sharkHW &&
+            sdy <= s_sharkHH && sdy >= -s_sharkHH) {
+            if (!s_sharkHunting) {
+                s_sharkHunting    = true;
+                s_sharkHuntAt     = now;
+                s_sharkTurnWanted = true;
+            } else {
+                s_sharkCaught = true;
+                s_sharkFxX = s_sharkX; s_sharkFxY = s_sharkY;
+                s_sharkBoltAt = now ? now : 1;
+                s_sharkHunting = false;
+                s_sharkX = -1;             // taken: stop accepting taps on him
             }
             return true;
         }
@@ -6244,8 +6354,15 @@ static void snowYeti(TFT_eSPI& t, int x, int y, uint32_t now, YPose pose, int bu
 
 // He is not only the hill's any more: the pet draws him too. Two of his five
 // poses are all a visit needs -- the gait he chases with, and standing about.
-void drawYeti(TFT_eSPI& t, int x, int baseY, uint32_t now, bool walking) {
-    snowYeti(t, x, baseY, now, walking ? YPose::RUN : YPose::WINDED);
+void drawYeti(TFT_eSPI& t, int x, int baseY, uint32_t now, YetiPose pose) {
+    YPose p = YPose::WINDED;
+    switch (pose) {
+    case YetiPose::WALK:   p = YPose::RUN;    break;
+    case YetiPose::NAP:    p = YPose::DOWN;   break;
+    case YetiPose::FLINCH: p = YPose::RECOIL; break;
+    case YetiPose::STAND:  break;
+    }
+    snowYeti(t, x, baseY, now, p);
 }
 
 // Anything the background needs drawn ON TOP of the mascot. Called by

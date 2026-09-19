@@ -190,6 +190,7 @@ static void usage() {
         "  --frames N        animation warm-up frames before capture (default 90)\n"
         "  --onboard         let Squachy's first-boot walkthrough run\n"
         "  --sequence N      capture N consecutive frames instead of one\n"
+        "  --tap F:X:Y       tap the BACKGROUND at x,y on warm-up frame F (repeatable)\n"
         "  --raw PATH        write raw RGB888 frames to PATH instead of PNGs --\n"
         "                    what the GUI consumes, no encode/decode on either side\n");
 }
@@ -207,6 +208,12 @@ int main(int argc, char** argv) {
     int confirmRow = -1;   // settings screen: put a confirm panel up
     int scrollBy = 0;      // settings screen: scroll down N rows first
     int bg = -1, themeIdx = -1, frames = 90, sequence = 1, outfitIdx = -1, poseIdx = -1, petIdx = -1;
+    // Background taps to inject during the warm-up, as frame:x:y. Every egg
+    // (the lodge, the moon, the gold toaster, the starfield eye, the aquarium
+    // shark) is reached through Theme::backgroundTap(), and until this flag
+    // none of them could be exercised without a finger on glass.
+    struct TapAt { int f, x, y; };
+    TapAt taps[6]; int tapN = 0;
     // --info N renders LOG's MORE INFO panel for DetectionType N. The panel
     // is a real layout with real wrapped text and it was previously only
     // reachable on hardware, which is how two of its paragraphs went stale.
@@ -272,6 +279,11 @@ int main(int argc, char** argv) {
         else if (a == "--inboxtext" && i + 1 < argc) inboxText = argv[++i];
         else if (a == "--type" && i + 1 < argc) typeSeq = argv[++i];
         else if (a == "--scroll" && i + 1 < argc) scrollBy = atoi(argv[++i]);
+        else if (a == "--tap" && i + 1 < argc && tapN < 6) {
+            int tf = 0, tx = 0, ty = 0;
+            if (sscanf(argv[++i], "%d:%d:%d", &tf, &tx, &ty) == 3) taps[tapN++] = { tf, tx, ty };
+            else fprintf(stderr, "--tap wants frame:x:y" "\n");
+        }
     }
     if (sequence < 1) sequence = 1;
 
@@ -475,6 +487,7 @@ int main(int argc, char** argv) {
         else if (screen == "hunt")     uiHuntTick(frame, t, engine);
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
+        else if (screen == "wifipass") uiWifiPassTick(frame, t);
         else if (screen == "bingo")    uiBingoTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
         else if (screen == "roster")   uiSquadTick(frame, t, engine);
@@ -604,6 +617,7 @@ int main(int argc, char** argv) {
     else if (screen == "colorcheck") uiColorCheckInit(frame);
     else if (screen == "boot")       uiBootInit(frame);
     else if (screen == "update")     uiUpdateInit(frame);
+    else if (screen == "wifipass")   uiWifiPassInit(frame, "SquachNet");
     else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "BIGFOOT", v, 30, 0); }
     else if (screen == "squadupdate") uiSquadUpdateInit(frame);
     else if (screen == "invite") {
@@ -786,7 +800,13 @@ int main(int argc, char** argv) {
     for (int k = 0; k < scrollBy; k++) uiSettingsScroll(1);
 
     for (int i = 0; i < frames; i++) {
-        if (!tick(now + (uint32_t)i * STEP_MS)) { usage(); return 2; }
+        const uint32_t tNow = now + (uint32_t)i * STEP_MS;
+        if (!tick(tNow)) { usage(); return 2; }
+        // After the frame, so the tap lands on something just drawn:
+        // backgroundTap() hit-tests published positions and ignores anything
+        // that has not been refreshed in the last few frames.
+        for (int k = 0; k < tapN; k++)
+            if (taps[k].f == i) Theme::backgroundTap(taps[k].x, taps[k].y, tNow);
     }
 
     // Capture runs on from where the warm-up left off, so a sequence is
@@ -800,7 +820,12 @@ int main(int argc, char** argv) {
     }
 
     for (int s = 0; s < sequence; s++) {
-        tick(now + (uint32_t)(frames + s) * STEP_MS);
+        const uint32_t sNow = now + (uint32_t)(frames + s) * STEP_MS;
+        tick(sNow);
+        // --tap frame numbers run straight on through the capture, so a tap
+        // can land on a frame you can actually look at afterwards.
+        for (int k = 0; k < tapN; k++)
+            if (taps[k].f == frames + s) Theme::backgroundTap(taps[k].x, taps[k].y, sNow);
         frame.pushSprite(0, 0);
         std::vector<uint8_t> rgb = toRgb888(tft.pixelsRGB565());
 

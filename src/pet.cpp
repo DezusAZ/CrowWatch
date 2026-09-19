@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "squachy.h"
 #include "lil_guy.h"
+#include "settings.h"
 #include <math.h>
 #include <stdlib.h>
 
@@ -111,13 +112,64 @@ static const uint8_t YETI_QUIPS_N = sizeof(YETI_QUIPS) / sizeof(YETI_QUIPS[0]);
 // Always in from the left and out to the right, because snowYeti() draws him
 // facing one way and a mirrored version would be new art -- which is the one
 // thing this was meant not to need.
-enum class YPhase : uint8_t { AWAY, IN, TALK, OUT };
+enum class YPhase : uint8_t { AWAY, IN, TALK, NAP, OUT };
 static YPhase    s_yPhase  = YPhase::AWAY;
 static uint32_t  s_yNextAt = 0, s_yAt = 0;
 static float     s_yX      = -100.0f;
 static uint8_t   s_yQuip   = 0;
+static const char* s_yLine = nullptr;        // what he is saying this visit
+static bool      s_yNap    = false;          // this visit he lies down instead
+static bool      s_yAnswered = false;        // the host has had his turn
+static uint32_t  s_yFlinchAt = 0;            // ...and it made him jump
 static const float    YETI_PXMS = 0.048f;    // he lumbers; the lil guy trots
 static const uint32_t YETI_TALK_MS = 3400;
+// Long enough to read as asleep rather than as fallen over, short enough
+// that a glance at the screen is not just a yeti lying on the floor.
+static const uint32_t YETI_NAP_MS  = 6200;
+static const uint32_t YETI_ANSWER_MS = 1500;  // the host waits a beat first
+static const uint32_t YETI_FLINCH_MS = 700;
+
+// A line about WHERE he has turned up. He already said "WHERE SNOW?" into
+// an empty room; this is that thought finished. Only the backgrounds he
+// would plainly have an opinion about -- the rest fall back to the general
+// set, because a line for every one of them would be eleven jokes thin.
+static const char* placeLine(uint8_t pick) {
+    switch (Settings::background()) {
+    case Settings::Background::SNOWFALL:
+        { static const char* const L[3] = { "SNOW! GOOD.", "YETI HOME.", "MY HILL." };        return L[pick % 3]; }
+    case Settings::Background::FIRE:
+        { static const char* const L[3] = { "TOO HOT.", "YETI MELT.", "NO. NO. NO." };        return L[pick % 3]; }
+    case Settings::Background::AQUARIUM:
+        { static const char* const L[3] = { "WET.", "FISH SMALL.", "YETI NO SWIM." };         return L[pick % 3]; }
+    case Settings::Background::TOASTERS:
+        { static const char* const L[3] = { "BREAD FLY?", "CATCH TOAST.", "WHAT THAT." };     return L[pick % 3]; }
+    case Settings::Background::STARFIELD:
+        { static const char* const L[3] = { "SKY MOVING.", "STARS COLD.", "YETI DIZZY." };    return L[pick % 3]; }
+    case Settings::Background::TERMINAL:
+        { static const char* const L[3] = { "WORDS FALL.", "YETI NO READ.", "GREEN. HUH." };  return L[pick % 3]; }
+    default: return nullptr;
+    }
+}
+
+// What Squachy says back. The point of these is that they are addressed to
+// YOU about him, not to him -- which is what makes the pair read as a
+// double act instead of two things sharing a screen.
+static const char* const YETI_REPLY[] = {
+    "he does this",
+    "ignore him",
+    "that's my guy",
+    "he's harmless",
+    "don't make eye contact",
+    "he found the stairs again",
+    "big fella. few words.",
+    "we don't talk about it",
+};
+static const uint8_t YETI_REPLY_N = sizeof(YETI_REPLY) / sizeof(YETI_REPLY[0]);
+static const char* const NAP_REPLY[3] = {
+    "make yourself at home",
+    "right there. sure.",
+    "he's out cold",
+};
 
 void reset() {
     s_phase  = Phase::AWAY;
@@ -126,6 +178,10 @@ void reset() {
     s_yPhase = YPhase::AWAY;
     s_yX     = -100.0f;
     s_yNextAt = 0;
+    s_yNap   = false;
+    s_yAnswered = false;
+    s_yFlinchAt = 0;
+    s_yLine  = nullptr;
 }
 
 // A small bubble of his own rather than Squachy's. His is drawn at text
@@ -149,23 +205,42 @@ static void bubble(TFT_eSPI& t, int x, int y, int screenW, const char* s) {
 static void yetiTick(TFT_eSPI& t, uint32_t now, int screenW, int cx, int halfW, int bot) {
     const int baseY = bot;                       // his feet, on Squachy's floor
     switch (s_yPhase) {
-    case YPhase::AWAY:
+    case YPhase::AWAY: {
         if (!s_yNextAt) s_yNextAt = now + 9000u;
         if (now < s_yNextAt) return;
+        // What kind of visit this is gets decided before he sets off, so the
+        // walk-on already knows where it is going.
+        const uint8_t pick = (uint8_t)random(0, 100);
+        s_yNap   = (pick < 22);                       // roughly one in five
         s_yQuip  = (uint8_t)random(0, YETI_QUIPS_N);
+        // A third of the time, if he has something to say about where he is,
+        // he says that instead of a line from the general set.
+        const char* place = placeLine((uint8_t)random(0, 3));
+        s_yLine  = (place && random(0, 3) == 0) ? place : YETI_QUIPS[s_yQuip];
+        s_yAnswered = false;
+        s_yFlinchAt = 0;
         s_yX     = -(float)Theme::YETI_W;
         s_yPhase = YPhase::IN;
         s_yAt    = now;
         return;
+    }
     case YPhase::IN: {
         const float target = (float)(cx - halfW - Theme::YETI_W / 2 - 8);
         s_yX += YETI_PXMS * (float)(now - s_yAt);
         s_yAt = now;
-        if (s_yX >= target) { s_yX = target; s_yPhase = YPhase::TALK; s_yAt = now; }
+        if (s_yX >= target) {
+            s_yX = target;
+            s_yPhase = s_yNap ? YPhase::NAP : YPhase::TALK;
+            s_yAt = now;
+            if (s_yNap) s_yLine = "YETI NAP.";
+        }
         break;
     }
     case YPhase::TALK:
         if (now - s_yAt >= YETI_TALK_MS) { s_yPhase = YPhase::OUT; s_yAt = now; }
+        break;
+    case YPhase::NAP:
+        if (now - s_yAt >= YETI_NAP_MS) { s_yPhase = YPhase::OUT; s_yAt = now; }
         break;
     case YPhase::OUT:
         s_yX += YETI_PXMS * (float)(now - s_yAt);
@@ -180,15 +255,43 @@ static void yetiTick(TFT_eSPI& t, uint32_t now, int screenW, int cx, int halfW, 
     }
     if (s_yPhase == YPhase::AWAY) return;
 
-    Theme::drawYeti(t, (int)s_yX, baseY, now, s_yPhase != YPhase::TALK);
-    if (s_yPhase == YPhase::TALK) {
+    // ---- the host gets a turn --------------------------------------------
+    // A beat after the yeti's line lands, Squachy answers it -- or just
+    // cracks up, which is funnier about a third of the time and costs a line
+    // nobody has to write. He uses his OWN bubble, so the two are plainly
+    // different voices rather than one caption box changing hands.
+    const bool standing = (s_yPhase == YPhase::TALK || s_yPhase == YPhase::NAP);
+    if (standing && !s_yAnswered && now - s_yAt >= YETI_ANSWER_MS) {
+        s_yAnswered = true;
+        const uint8_t roll = (uint8_t)random(0, 100);
+        if (roll < 30) {
+            Squachy::visitLaugh(now);
+        } else {
+            Squachy::visitSay(s_yNap ? NAP_REPLY[random(0, 3)]
+                                     : YETI_REPLY[random(0, YETI_REPLY_N)]);
+            // And it makes him jump. Not at you -- at the small one who
+            // just started talking next to him.
+            if (!s_yNap) s_yFlinchAt = now;
+        }
+    }
+
+    Theme::YetiPose pose = Theme::YetiPose::WALK;
+    if (s_yPhase == YPhase::NAP)                             pose = Theme::YetiPose::NAP;
+    else if (s_yFlinchAt && now - s_yFlinchAt < YETI_FLINCH_MS) pose = Theme::YetiPose::FLINCH;
+    else if (s_yPhase == YPhase::TALK)                       pose = Theme::YetiPose::STAND;
+    Theme::drawYeti(t, (int)s_yX, baseY, now, pose);
+
+    // His bubble is up for the first stretch of a nap too -- he announces it
+    // and then goes quiet, which is the whole joke.
+    const bool talking = (s_yPhase == YPhase::TALK) ||
+                         (s_yPhase == YPhase::NAP && now - s_yAt < 1800u);
+    if (talking && s_yLine) {
         t.setTextSize(1);
-        const char* line = YETI_QUIPS[s_yQuip];
-        const int bw = t.textWidth(line) + 8;
+        const int bw = t.textWidth(s_yLine) + 8;
         int bx = (int)s_yX + Theme::YETI_W / 2 - bw / 2;
         int by = baseY - Theme::YETI_H - 16;
         if (by < 22) by = 22;
-        bubble(t, bx, by, screenW, line);
+        bubble(t, bx, by, screenW, s_yLine);
     }
 }
 

@@ -202,6 +202,21 @@ namespace Theme {
     // Distinct from drawButton() above, which is the vaporwave chrome the
     // rest of the device uses. Both exist on purpose: this one is for the
     // controls that are meant to feel like they came out of a system dialog.
+    // The Win95 raised/sunken edge, on its own so everything that wants a
+    // panel draws the SAME one. Two rings: an outer hard edge and an inner
+    // soft one, swapped when `sunk`. Lives here rather than in whichever
+    // screen needed it first -- the payphone had it privately, which is why
+    // the WiFi password board could not have a chassis at all.
+    void drawBevel(TFT_eSPI& t, int x, int y, int w, int h, uint16_t face,
+                   uint16_t lit, uint16_t litSoft, uint16_t shd, uint16_t shdSoft,
+                   bool sunk);
+
+    // drawBevel with the Win95 steel ramp already filled in: the payphone
+    // body, the keyboard chassis, the sunken bezel around a readout. The
+    // ramp is chosen because the authentic #c0c0c0/#dfdfdf pair collapses
+    // into one colour in RGB332 and this one does not.
+    void drawSteelPanel(TFT_eSPI& t, int x, int y, int w, int h, bool sunk = false);
+
     // A keyboard key in the payphone's steel: the message board and the
     // WiFi password board share it. `lit` is the key under the finger.
     void drawSteelKey(TFT_eSPI& t, int x, int y, int w, int h, bool lit);
@@ -435,6 +450,11 @@ namespace Theme {
     // summon above; main.cpp turns it into an outfit unlock.
     bool consumeToasterCatch();
 
+    // The Aquarium shark, caught on the SECOND touch: the first one only
+    // turns him round. True once per catch, and true again on a catch after
+    // the costume is already yours -- squachy.cpp decides what that means.
+    bool consumeSharkCatch();
+
     // True once, after the player has caught TWO eyes in a row on the
     // STARFIELD background -- the eyeball is one of the eight junk objects
     // that fly out of the vanishing point, and it only counts while it is
@@ -590,11 +610,15 @@ namespace Theme {
                        const char* typeName, const char* text);
     bool infoPanelHitDismiss(int x, int y, int screenW, int screenH);
 
+    // Which of the ski hill's yeti poses to draw. The sprite has had five
+    // since the hill shipped; the pet could only ever ask for two of them,
+    // which is why he only ever walked and stood.
+    enum class YetiPose : uint8_t { WALK, STAND, NAP, FLINCH };
+
     // The ski hill's yeti, for anyone who wants him off the hill -- the pet
-    // (pet.h) does. `baseY` is the ground his feet stand on, and `walking`
-    // picks between his running gait and standing still. He is drawn at the
-    // size the hill draws him: no new art, and nothing to scale.
-    void drawYeti(TFT_eSPI& t, int x, int baseY, uint32_t now, bool walking);
+    // (pet.h) does. `baseY` is the ground his feet stand on. He is drawn at
+    // the size the hill draws him: no new art, and nothing to scale.
+    void drawYeti(TFT_eSPI& t, int x, int baseY, uint32_t now, YetiPose pose);
     // How wide and tall he is, so a caller can place him without knowing
     // how he is built.
     static const int YETI_W = 36, YETI_H = 42;

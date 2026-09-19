@@ -35,6 +35,12 @@ bool     s_show    = false;
 uint32_t s_typedAt = 0;               // the last character shows for a moment
 WifiPassResult s_result = WifiPassResult::NONE;
 
+// Top of the first key row, as layout() worked it out. The chassis is drawn
+// from here rather than from TOP_H: the rows are bottom-aligned and their
+// height is clamped, so in portrait a fixed top left a hand's width of bare
+// steel between the readout and the keys.
+int      s_keyTop   = 0;
+
 int8_t   s_armed    = -1;
 int8_t   s_lastKey  = -1;
 uint32_t s_lastUpAt = 0;
@@ -85,6 +91,7 @@ void layout(int w, int h) {
     if (rh > 40) rh = 40;
     if (rh < 22) rh = 22;
     int y = bandBottom - (5 * rh + 4 * ROW_GAP);
+    s_keyTop = y;
 
     // Rows 0-1: ten across.
     const int w1 = (avail - 9 * GAP) / 10;
@@ -185,7 +192,8 @@ int fieldW(int w) { return showX(w) - GAP - MARGIN; }
 
 void drawKey(TFT_eSPI& t, uint8_t i) {
     const Key& k = s_keys[i];
-    if (k.ch == K_NONE) { t.fillRect(k.x, k.y, k.w, k.h, Theme::BG); return; }   // a blank on the symbols page
+    // A blank on the symbols page is chassis, not a hole in it.
+    if (k.ch == K_NONE) { t.fillRect(k.x, k.y, k.w, k.h, Theme::W95_FACE); return; }
     const bool lit = (s_armed == (int8_t)i) || (k.ch == K_SHIFT && s_shift);
     Theme::drawSteelKey(t, k.x, k.y, k.w, k.h, lit);
     char one[2];
@@ -202,8 +210,12 @@ void drawKey(TFT_eSPI& t, uint8_t i) {
 // (or all of it with SHOW on), and the cursor.
 void drawField(TFT_eSPI& t, int w, uint32_t now) {
     const int fw = fieldW(w);
-    t.fillRect(MARGIN + 1, FIELD_Y + 1, fw - 2, FIELD_H - 2, Theme::BG);
-    t.drawRect(MARGIN, FIELD_Y, fw, FIELD_H, Theme::VAPOR_PURPLE);
+    // The payphone's readout, to the pixel: a sunken steel bezel with a
+    // black screen in it and green text on that. Drawn here rather than
+    // once in drawAll() because the cursor brings us back every frame and
+    // a bezel that is only painted on a full redraw gets eaten by it.
+    Theme::drawSteelPanel(t, MARGIN - 3, FIELD_Y - 3, fw + 6, FIELD_H + 6, true);
+    t.fillRect(MARGIN, FIELD_Y, fw, FIELD_H, Theme::BLACK);
     const bool reveal = s_len && now - s_typedAt < 900;
     char shown[PASS_MAX + 1];
     for (uint8_t i = 0; i < s_len; i++) shown[i] = (s_show || (reveal && i + 1 == s_len)) ? s_buf[i] : '*';
@@ -212,12 +224,12 @@ void drawField(TFT_eSPI& t, int w, uint32_t now) {
     const int cw = t.textWidth("M");
     const int fits = (fw - 8) / cw;
     const char* tail = s_len > fits ? shown + (s_len - fits) : shown;
-    t.setTextColor(Theme::WHITE, Theme::BG);
+    t.setTextColor(Theme::GREEN, Theme::BLACK);
     t.setCursor(MARGIN + 4, FIELD_Y + (FIELD_H - t.fontHeight()) / 2);
     t.print(tail);
     s_cursorX = MARGIN + 4 + t.textWidth(tail) + 1;
     const bool cursor = (now / 500) % 2;
-    t.fillRect(s_cursorX, FIELD_Y + 3, 2, FIELD_H - 6, cursor ? Theme::CYAN : Theme::BG);
+    t.fillRect(s_cursorX, FIELD_Y + 3, 2, FIELD_H - 6, cursor ? Theme::GREEN : Theme::BLACK);
     t.setTextSize(1);
     s_drawnLen = s_len; s_drawnReveal = reveal; s_drawnCursor = cursor;
 }
@@ -235,7 +247,13 @@ void drawKeys(TFT_eSPI& t) {
 
 void drawAll(TFT_eSPI& t, uint32_t now) {
     const int w = t.width(), h = t.height();
-    t.fillRect(0, 0, w, h, Theme::BG);
+    t.fillRect(0, 0, w, h, Theme::BLACK);
+    // The keys are set into a steel chassis, the way the payphone's board
+    // is. They were always the payphone's keys -- drawSteelKey, same call --
+    // but floating on black they read as a wireframe of a keyboard rather
+    // than as one. The panel is the whole difference.
+    const int panelTop = s_keyTop - ROW_GAP;
+    Theme::drawSteelPanel(t, 0, panelTop, w, h - panelTop, false);
     t.setTextWrap(false);
     // Header: BACK, then which network this is for.
     Theme::drawWin95Button(t, BACK_X, BACK_Y, BACK_W, BACK_H, "BACK", false);
@@ -289,7 +307,7 @@ void uiWifiPassTick(TFT_eSPI& t, uint32_t now) {
     if (s_drawnLen != s_len || s_drawnReveal != reveal) drawField(t, w, now);
     else if (s_drawnCursor != cursor) {
         // The cursor alone, painted over, so the blink never clears the field.
-        t.fillRect(s_cursorX, FIELD_Y + 3, 2, FIELD_H - 6, cursor ? Theme::CYAN : Theme::BG);
+        t.fillRect(s_cursorX, FIELD_Y + 3, 2, FIELD_H - 6, cursor ? Theme::GREEN : Theme::BLACK);
         s_drawnCursor = cursor;
     }
 }

@@ -67,6 +67,10 @@ const OuiEntry kOuiTable[] = {
     {{0x00, 0x18, 0x85}, "ALPR-Mtrla",   DetectionType::ALPR,       Confidence::HIGH_CONF},
     {{0x00, 0x1F, 0x92}, "ALPR-Mtrla",   DetectionType::ALPR,       Confidence::HIGH_CONF},
     {{0x4C, 0xCC, 0x34}, "ALPR-Mtrla",   DetectionType::ALPR,       Confidence::HIGH_CONF},
+    // Registered to Motorola Solutions Malaysia Sdn. Bhd. rather than to the
+    // US parent, which is why it was missing from the sweep that found the
+    // four above -- same company, different registry line.
+    {{0xB8, 0xE2, 0x8C}, "ALPR-Mtrla",   DetectionType::ALPR,       Confidence::HIGH_CONF},
     // Genetec's AutoVu is an LPR platform, so these sit with the ALPR set.
     {{0x00, 0xBF, 0x15}, "ALPR-Gentec",  DetectionType::ALPR,       Confidence::HIGH_CONF},
     {{0x0C, 0xBF, 0x15}, "ALPR-Gentec",  DetectionType::ALPR,       Confidence::HIGH_CONF},

@@ -148,19 +148,17 @@ void appendChar(char c) {
     if (s_len < s_max) { s_buf[s_len++] = c; s_buf[s_len] = '\0'; }
 }
 
-void bevel(TFT_eSPI& t, int x, int y, int w, int h, uint16_t face,
-           uint16_t lit, uint16_t litSoft, uint16_t shd, uint16_t shdSoft, bool sunk) {
-    t.fillRect(x + 2, y + 2, w - 4, h - 4, face);
-    const uint16_t oTL = sunk ? shd : lit,         oBR = sunk ? lit : shd;
-    const uint16_t iTL = sunk ? shdSoft : litSoft, iBR = sunk ? litSoft : shdSoft;
-    t.drawFastHLine(x, y, w, oTL);         t.drawFastVLine(x, y, h, oTL);
-    t.drawFastHLine(x, y + h - 1, w, oBR); t.drawFastVLine(x + w - 1, y, h, oBR);
-    t.drawFastHLine(x + 1, y + 1, w - 2, iTL);     t.drawFastVLine(x + 1, y + 1, h - 2, iTL);
-    t.drawFastHLine(x + 1, y + h - 2, w - 2, iBR); t.drawFastVLine(x + w - 2, y + 1, h - 2, iBR);
+// Both of these moved into Theme so the WiFi password board can have the
+// same chassis -- it could not before, because they lived in here and this
+// file only exists on mesh builds. The local names stay: they are used two
+// dozen times below and the payphone reads better for the short ones.
+inline void bevel(TFT_eSPI& t, int x, int y, int w, int h, uint16_t face,
+                  uint16_t lit, uint16_t litSoft, uint16_t shd, uint16_t shdSoft, bool sunk) {
+    Theme::drawBevel(t, x, y, w, h, face, lit, litSoft, shd, shdSoft, sunk);
 }
 
-void steel(TFT_eSPI& t, int x, int y, int w, int h, bool sunk = false) {
-    bevel(t, x, y, w, h, STEEL, STEEL_HI, STEEL_LT, STEEL_DK, STEEL_SH, sunk);
+inline void steel(TFT_eSPI& t, int x, int y, int w, int h, bool sunk = false) {
+    Theme::drawSteelPanel(t, x, y, w, h, sunk);
 }
 
 void start(const char* text) {

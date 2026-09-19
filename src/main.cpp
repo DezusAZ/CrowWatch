@@ -3035,6 +3035,7 @@ void loop() {
             if (Theme::consumeToasterCatch())   Squachy::unlockChromeWing();
             if (Theme::consumeEyeCatch())       Squachy::unlockVoidEye();
             if (Theme::consumeLodgeKnock())     Squachy::unlockParka();
+            if (Theme::consumeSharkCatch())     Squachy::unlockShark();
     if (Theme::consumePetUnlock())      Squachy::unlockPet();
 
             bool boring = Settings::boringMode();

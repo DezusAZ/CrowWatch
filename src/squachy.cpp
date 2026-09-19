@@ -521,6 +521,7 @@ static bool     s_wolfPeltUnlocked   = false;  // earned by summoning the werewo
 static bool     s_chromeWingUnlocked = false;  // earned by catching the gold toaster
 static bool     s_voidEyeUnlocked    = false;  // earned by catching two Starfield eyes in a row
 static bool     s_parkaUnlocked      = false;  // earned by knocking five times on the Snowfall lodge
+static bool     s_sharkUnlocked      = false;  // earned by catching the Aquarium shark on his return pass
 static bool     s_petUnlocked        = false;  // earned by tapping the lil guy on the toasters
 // Which companion is on: 0 off, 1 VAPOR SHAGGY, 2 the yeti. It was a bool
 // while there was only one of them; a board that saved the bool keeps its
@@ -794,6 +795,7 @@ enum class OutfitId : uint8_t {
     CHROMEWING,
     VOIDEYE,
     PARKA,
+    SHARK,
     COUNT
 };
 
@@ -830,6 +832,9 @@ static const OutfitDef OUTFITS[] = {
     // Earned by knocking five times on the lodge on the SNOWFALL background --
     // see Theme::consumeLodgeKnock().
     { "SNOW PARKA",     OUTFIT_BY_EVENT },
+    // Earned by catching the AQUARIUM shark -- twice over, since the first
+    // touch only turns him. See Theme::consumeSharkCatch().
+    { "SHARK SUIT",     OUTFIT_BY_EVENT },
 };
 static const uint8_t OUTFITS_N = sizeof(OUTFITS) / sizeof(OUTFITS[0]);
 static_assert(OUTFITS_N == (uint8_t)OutfitId::COUNT, "OUTFITS must match OutfitId");
@@ -852,6 +857,7 @@ static bool outfitUnlocked(uint8_t i) {
             case OutfitId::CHROMEWING: return s_chromeWingUnlocked;
             case OutfitId::VOIDEYE:    return s_voidEyeUnlocked;
             case OutfitId::PARKA:      return s_parkaUnlocked;
+            case OutfitId::SHARK:      return s_sharkUnlocked;
             default:                   return false;
         }
     }
@@ -1129,6 +1135,7 @@ static void ensurePrefsLoaded() {
     s_chromeWingUnlocked = s_petPrefs.getBool("chromeWing", false);
     s_voidEyeUnlocked    = s_petPrefs.getBool("voidEye", false);
     s_parkaUnlocked      = s_petPrefs.getBool("parka", false);
+    s_sharkUnlocked      = s_petPrefs.getBool("shark", false);
     s_outfitAnnounced    = s_petPrefs.getUInt("outfitSeen", 0xFFFFFFFFu);
     s_petPrefsLoaded  = true;
 }
@@ -2043,6 +2050,33 @@ void unlockParka() {
     mood      = Mood::BOUNCE;
     moodUntil = millis() + 2000;
     say("somebody was home.", 3600);
+}
+
+void unlockShark() {
+    ensurePrefsLoaded();
+    if (s_sharkUnlocked) {
+        // The other four eggs go quiet once their costume is yours. This one
+        // does not: catching him is the fun part, and a second catch that
+        // silently did nothing would teach you to stop trying. No write, no
+        // unlock toast -- just the reaction.
+        static uint8_t again = 0;
+        static const char* const AGAIN[4] = {
+            "got him again.",
+            "he never learns.",
+            "twice now. rude of us.",
+            "same fish. same result.",
+        };
+        mood      = Mood::BOUNCE;
+        moodUntil = millis() + 1600;
+        say(AGAIN[again++ & 3], 3200);
+        return;
+    }
+    s_sharkUnlocked = true;
+    s_petPrefs.putBool("shark", true);
+    refreshOutfitUnlocks();
+    mood      = Mood::BOUNCE;
+    moodUntil = millis() + 2000;
+    say("he came back for me.", 3600);
 }
 
 void unlockVoidEye() {
@@ -3442,6 +3476,118 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             peltOn(s_armR0x, s_armR0y, s_armR1x, s_armR1y,  Sf(1.0f));
             break;
         }
+        case OutfitId::SHARK: {
+            // A shark onesie: hood over the crown with his own face in the
+            // mouth, a silver suit, and both arms turned into swept fins.
+            //
+            // Every colour is snapped to the RGB332 grid the frame buffer
+            // actually has -- red and green in eighths, BLUE IN QUARTERS
+            // (0/85/170/255). Silver is the worst thing to ask of that: a
+            // silver ramp wants four or five steps of a cool near-neutral and
+            // the panel has four in total, so what is below IS the whole
+            // available range. The obvious deep silver, (109,109,85), renders
+            // OLIVE -- red and green sit two steps above a blue that cannot
+            // follow them. (73,73,85) is the only cool dark there is.
+            const uint16_t silvDk = t.color565( 73,  73,  85);
+            const uint16_t silv   = t.color565(146, 146, 170);
+            const uint16_t silvHi = t.color565(219, 219, 255);
+            const uint16_t gum    = t.color565(219,  36,  85);
+            const uint16_t eyeBk  = t.color565(0, 0, 0);
+            const int halfW = S(16);
+
+            // ---- the dorsal fin, and the hood over his crown -------------
+            t.fillTriangle(cx2 - S(7), hy - S(7), cx2 + S(7), hy - S(7),
+                           cx2 + S(4), hy - S(18), silvDk);
+            t.fillRoundRect(cx2 - halfW, hy - S(10), halfW * 2, S(11), S(5), silvDk);
+            t.fillRoundRect(cx2 - halfW + S(1), hy - S(1), halfW * 2 - S(2), S(4), S(2), silvHi);
+            t.fillRect(cx2 - halfW + S(2), hy + S(2), halfW * 2 - S(4), S(2), gum);
+            {   // the teeth, inset a shade from the jaw so the jaw has a lip
+                const int x0 = cx2 - halfW + S(3), x1 = cx2 + halfW - S(3);
+                const int tw = (x1 - x0) / 7;
+                for (int i = 0; i < 7 && tw > 0; i++) {
+                    const int a = x0 + i * tw;
+                    t.fillTriangle(a, hy + S(4), a + tw, hy + S(4),
+                                   a + tw / 2, hy + S(8), WHITE);
+                }
+            }
+            t.fillCircle(cx2 - S(11), hy - S(6), S(2), silvHi);
+            t.fillCircle(cx2 + S(11), hy - S(6), S(2), silvHi);
+            t.fillCircle(cx2 - S(11), hy - S(6), S(1), eyeBk);
+            t.fillCircle(cx2 + S(11), hy - S(6), S(1), eyeBk);
+
+            // ---- the arms, before the suit ------------------------------
+            // Drawn along wherever each arm ACTUALLY ended up this frame --
+            // drawBody publishes both endpoints for exactly this, and the
+            // wolf pelt already learned what happens to a costume that
+            // assumes the arms are at rest.
+            //
+            // Two things make it a fin rather than a sleeve. It TAPERS from a
+            // wide shoulder to a point, and the point is thrown OUTWARD, away
+            // from his centre line, as well as past the hand: at rest his
+            // arms hang almost straight down, so "past the hand" alone is
+            // also straight down and nothing reads as swept.
+            //
+            // Drawn before the suit so the suit covers where they meet him,
+            // which is how a sleeve sits on a shoulder.
+            {
+                const float over = 11.0f, wide = 5.0f;
+                const int ax[2] = { s_armL0x, s_armR0x }, ay[2] = { s_armL0y, s_armR0y };
+                const int bx[2] = { s_armL1x, s_armR1x }, by[2] = { s_armL1y, s_armR1y };
+                for (int k = 0; k < 2; k++) {
+                    const float dx = (float)(bx[k] - ax[k]), dy = (float)(by[k] - ay[k]);
+                    const float len = sqrtf(dx * dx + dy * dy);
+                    if (len < 1.0f) continue;
+                    const float ux = dx / len, uy = dy / len;
+                    const float px = -uy, py = ux;               // across the arm
+                    const float hw = (float)S(1) * wide;
+                    const float out = (bx[k] < cx2) ? -1.0f : 1.0f;
+                    const int tx = bx[k] + (int)(ux * (float)S(1) * over +
+                                                 out * (float)S(1) * over * 0.9f);
+                    const int ty = by[k] + (int)(uy * (float)S(1) * over * 0.55f);
+                    t.fillTriangle(ax[k] + (int)(px * hw), ay[k] + (int)(py * hw),
+                                   ax[k] - (int)(px * hw), ay[k] - (int)(py * hw),
+                                   tx, ty, silv);
+                    // A keyline down BOTH edges. With the tip thrown outward
+                    // one of the two is the inside of the fin, so lighting one
+                    // and shading the other drew a crease across it.
+                    wideLine(t, ax[k] + px * hw, ay[k] + py * hw,
+                             (float)tx, (float)ty, (float)S(1), silvDk);
+                    wideLine(t, ax[k] - px * hw, ay[k] - py * hw,
+                             (float)tx, (float)ty, (float)S(1), silvDk);
+                    // ...and one short highlight near the shoulder, where the
+                    // light would catch it, rather than down the whole span.
+                    wideLine(t, (float)ax[k], (float)ay[k],
+                             ax[k] + ux * (float)S(1) * 6.0f + out * (float)S(1) * 3.0f,
+                             ay[k] + uy * (float)S(1) * 6.0f, (float)S(1), silvHi);
+                }
+            }
+
+            // ---- the suit ------------------------------------------------
+            // A lit band across the top and a dark one along the bottom:
+            // metal reads by a hard split, not by a gradient, and with four
+            // steps to spend a gradient is not on offer anyway.
+            {
+                const int hw = S(11);
+                t.fillRoundRect(cx2 - hw, hy + S(23), hw * 2, S(17), S(7), silv);
+                t.fillRoundRect(cx2 - hw, hy + S(37), hw * 2, S(3), S(2), silvDk);
+                t.fillRect(cx2 - hw + S(2), hy + S(25), hw * 2 - S(4), S(3), silvHi);
+                t.fillRect(cx2 - hw + S(3), hy + S(25), hw * 2 - S(6), S(1), WHITE);
+                const int bw = hw - S(6);
+                t.fillRoundRect(cx2 - bw, hy + S(28), bw * 2, S(11), S(4), silvHi);
+                t.fillRect(cx2 - bw, hy + S(32), bw * 2, S(1), silv);
+                t.fillRect(cx2 - bw, hy + S(35), bw * 2, S(1), silv);
+                // Gill slashes up on the chest, above where the fins reach.
+                for (int i = 0; i < 3; i++) {
+                    const int gx = cx2 + hw - S(4) - i * S(3);
+                    t.fillTriangle(gx, hy + S(24), gx + S(1), hy + S(24),
+                                   gx - S(1), hy + S(28), silvHi);
+                    const int gl = cx2 - hw + S(4) + i * S(3);
+                    t.fillTriangle(gl, hy + S(24), gl - S(1), hy + S(24),
+                                   gl + S(1), hy + S(28), silvHi);
+                }
+            }
+            break;
+        }
         case OutfitId::UNICORN: {
             // Base sits right at hy -- the top edge of the head shape
             // itself (see drawBody's head fillRoundRect a few lines
@@ -3671,6 +3817,7 @@ static int outfitReach(OutfitId o) {
         case OutfitId::TINFOIL:  return 16;
         case OutfitId::CAPTAIN:  return 16;
         case OutfitId::PARKA:    return 16;
+        case OutfitId::SHARK:    return 18;
         case OutfitId::SPACE:    return  9;
         default:                 return CREST_REACH;
     }
@@ -3689,6 +3836,7 @@ static int topHatSeat(OutfitId o) {
         case OutfitId::TINFOIL:  return  9;   // pushed down onto the cone
         case OutfitId::CAPTAIN:  return  9;   // ...and onto the tricorn
         case OutfitId::PARKA:    return 14;   // on the hood
+        case OutfitId::SHARK:    return 13;   // on the shark hood, under the fin
         case OutfitId::SPACE:    return  9;   // on the dome
         case OutfitId::WOLFPELT: return  7;   // on the pelt, between the ears
         case OutfitId::TALLBRO:  return  6;   // on the cap

@@ -331,6 +331,32 @@ static int itemHeight(const DisplayItem& it, int rowH, int headerH, int tallH) {
     return isTwoLineRow(it.row) ? tallH : rowH;
 }
 
+// How far down the list is allowed to go. Scrolling was clamped at the top
+// and nowhere else, so the list ran on into empty space: past the end you
+// were left looking at background with the rows you wanted somewhere above
+// the fold, and the pinned BACK strip sitting under a thumb that had nothing
+// left to aim at.
+//
+// The stop is two rows of slack under the last item rather than a hard
+// bottom edge. A list that halts with its last row jammed against the strip
+// looks stuck; two rows of air reads as "that is the end" and leaves the
+// bottom rows somewhere comfortable to press.
+//
+// Measured from the END of the list backwards, because the items are not all
+// the same height -- BACKGROUND and OUTFIT take two lines, group headers take
+// less than a row -- so the answer is not arithmetic on a row count.
+static int maxScroll(const DisplayItem* items, uint8_t n,
+                     int top, int bodyBottom, int rowH, int headerH, int tallH) {
+    int want = (bodyBottom - top) - 2 * rowH;
+    if (want < 1) want = 1;            // a screen too short for the slack
+    int s = n, used = 0;
+    while (s > 0 && used < want) {
+        s--;
+        used += itemHeight(items[s], rowH, headerH, tallH);
+    }
+    return s;
+}
+
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom,
                         int& rowH, int& headerH, int& tallH) {
     top = TOP_MARGIN;
@@ -931,6 +957,10 @@ switch (Settings::background()) {
     // +6, not +4: four group headers plus the two tracking rows.
     DisplayItem items[LIST_MAX_N + 6];
     uint8_t n = buildDisplayList(items);
+    // Clamped here rather than in uiSettingsScroll(): row heights come from
+    // live font metrics, which that function has no display to ask.
+    { const int m = maxScroll(items, n, top, bodyBottom, rowH, headerH, tallH);
+      if (g_scroll > m) g_scroll = m; }
 
     int y = top;
     int idx = g_scroll;
@@ -983,6 +1013,10 @@ bool uiSettingsTapHeader(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
 
     DisplayItem items[LIST_MAX_N + 6];
     uint8_t n = buildDisplayList(items);
+    // Same clamp the draw applies, so a tap can never be tested against a
+    // scroll position the screen is not actually showing.
+    { const int m = maxScroll(items, n, top, bodyBottom, rowH, headerH, tallH);
+      if (g_scroll > m) g_scroll = m; }
 
     int cy = top;
     int idx = g_scroll;
@@ -1010,6 +1044,10 @@ SettingsRow uiSettingsHitTest(TFT_eSPI& t, int x, int y, int screenW, int screen
 
     DisplayItem items[LIST_MAX_N + 6];
     uint8_t n = buildDisplayList(items);
+    // Same clamp the draw applies, so a tap can never be tested against a
+    // scroll position the screen is not actually showing.
+    { const int m = maxScroll(items, n, top, bodyBottom, rowH, headerH, tallH);
+      if (g_scroll > m) g_scroll = m; }
 
     int cy = top;
     int idx = g_scroll;
