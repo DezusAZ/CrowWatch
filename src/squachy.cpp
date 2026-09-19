@@ -523,6 +523,12 @@ static bool     s_voidEyeUnlocked    = false;  // earned by catching two Starfie
 static bool     s_parkaUnlocked      = false;  // earned by knocking five times on the Snowfall lodge
 static bool     s_sharkUnlocked      = false;  // earned by catching the Aquarium shark on his return pass
 static bool     s_petUnlocked        = false;  // earned by tapping the lil guy on the toasters
+// Whether the card has been shown for him. Kept separately from the unlock
+// itself, and for the same reason the outfits keep an "announced" bitmask:
+// the pet survives a reboot, so without this the celebration would play
+// again on every boot and read as a bug.
+static bool     s_petAnnounced       = false;
+static bool     s_petCardPending     = false;
 // Which companion is on: 0 off, 1 VAPOR SHAGGY, 2 the yeti. It was a bool
 // while there was only one of them; a board that saved the bool keeps its
 // answer (on -> SHAGGY) the first time this runs.
@@ -1124,6 +1130,7 @@ static void ensurePrefsLoaded() {
     s_outfitIdx       = s_petPrefs.getUChar("outfitIdx", 0);
     s_allOutfitsUnlocked = s_petPrefs.getBool("allOutfits", false);
     s_petUnlocked        = s_petPrefs.getBool("petUnlk", false);
+    s_petAnnounced       = s_petPrefs.getBool("petSeen", false);
     // Defaults ON once earned: somebody who just unlocked a pet wants to
     // see it, not to go and find a switch.
     // "petSel" is the one to read; a board from before there were two
@@ -2008,7 +2015,24 @@ void unlockPet() {
     s_petPrefs.putBool("petUnlk", true);
     mood      = Mood::BOUNCE;
     moodUntil = millis() + 2000;
-    say("he followed me home.", 3600);
+    // No line here any more. This used to be the entire announcement -- one
+    // sentence in his bubble for a whole companion, while a hat got a
+    // celebration card -- and the card that replaces it would bury the line
+    // under itself anyway. See consumePetUnlockCard().
+    if (!s_petAnnounced) s_petCardPending = true;
+}
+
+bool consumePetUnlockCard() {
+    if (!s_petCardPending) return false;
+    s_petCardPending = false;
+    // Marked seen when it is handed out rather than when the card is
+    // dismissed, exactly as consumeOutfitUnlock() does: power down mid-card
+    // and the pet is still yours, so re-announcing on the next boot would
+    // read as a bug.
+    ensurePrefsLoaded();
+    s_petAnnounced = true;
+    s_petPrefs.putBool("petSeen", true);
+    return true;
 }
 
 bool petUnlocked() { ensurePrefsLoaded(); return s_petUnlocked; }

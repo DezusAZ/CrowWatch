@@ -63,6 +63,7 @@
 #include "ui_invite.h"
 #include "ui_update.h"
 #include "ui_wifipass.h"
+#include "ui_outfit_unlock.h"
 #include "ui_sysprops.h"
 #include "ota_core.h"
 #include "ui_wifinets.h"
@@ -487,7 +488,6 @@ int main(int argc, char** argv) {
         else if (screen == "hunt")     uiHuntTick(frame, t, engine);
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
-        else if (screen == "wifipass") uiWifiPassTick(frame, t);
         else if (screen == "bingo")    uiBingoTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
         else if (screen == "roster")   uiSquadTick(frame, t, engine);
@@ -548,6 +548,7 @@ int main(int argc, char** argv) {
         else if (screen == "squadupdate") uiSquadUpdateTick(frame, t, engine);
         else if (screen == "invite")   uiInviteTick(frame, t, engine);
         else if (screen == "wifipass") uiWifiPassTick(frame, t);
+        else if (screen == "petunlock" || screen == "unlock") uiOutfitUnlockTick(frame, t, engine);
         else if (screen == "sysprops") uiSysPropsTick(frame, t, engine);
         else if (screen == "wifinets") uiWifiNetsTick(frame, t);
         else if (screen == "wifiadd")  uiWifiAddTick(frame, t, engine);
@@ -617,7 +618,6 @@ int main(int argc, char** argv) {
     else if (screen == "colorcheck") uiColorCheckInit(frame);
     else if (screen == "boot")       uiBootInit(frame);
     else if (screen == "update")     uiUpdateInit(frame);
-    else if (screen == "wifipass")   uiWifiPassInit(frame, "SquachNet");
     else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "BIGFOOT", v, 30, 0); }
     else if (screen == "squadupdate") uiSquadUpdateInit(frame);
     else if (screen == "invite") {
@@ -631,6 +631,8 @@ int main(int argc, char** argv) {
         uiInviteDemo(PAGES[p], 4821, p == 1 || p == 4 || p == 6 ? "BIGFOOT" : "YETI", p == 0 || p == 3 || p == 5 || p == 7);
     }
     else if (screen == "wifipass")   uiWifiPassInit(frame, "SquachNet");
+    else if (screen == "petunlock")  uiPetUnlockInit(frame);
+    else if (screen == "unlock")     uiOutfitUnlockInit(frame, (uint8_t)(outfitIdx < 0 ? 2 : outfitIdx));
     else if (screen == "sysprops") {
         // The real path: a version arrives, then the release's own lines if
         // it came from the site. --from makes it a squad member's hello,

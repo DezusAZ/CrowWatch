@@ -7,6 +7,9 @@
 
 static uint8_t  s_outfitIdx = 0;
 static uint32_t s_openedAt  = 0;
+// Which card this is. Everything structural below is shared; only the
+// headline, what stands on the stage, and the footer line differ.
+static bool     s_petCard   = false;
 
 // Long enough that a touch still settling from whatever screen was up
 // when this opened cannot dismiss it, short enough that a player who
@@ -17,14 +20,24 @@ static const uint32_t MIN_ON_SCREEN_MS = 900;
 static const uint32_t RISE_MS = 420;   // panel scales open
 static const uint32_t TEXT_MS = 700;   // headline letters land, one by one
 
-void uiOutfitUnlockInit(TFT_eSPI& t, uint8_t outfitIdx) {
-    s_outfitIdx = outfitIdx;
-    s_openedAt  = millis();
+static void openCard(TFT_eSPI& t) {
+    s_openedAt = millis();
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
     // Open loud: the same shared burst every glitch-aware draw call
     // reads from, at the top intensity, so the popup arrives with a
     // tear rather than fading politely in.
     Theme::triggerGlitchBurst(4);
+}
+
+void uiOutfitUnlockInit(TFT_eSPI& t, uint8_t outfitIdx) {
+    s_outfitIdx = outfitIdx;
+    s_petCard   = false;
+    openCard(t);
+}
+
+void uiPetUnlockInit(TFT_eSPI& t) {
+    s_petCard = true;
+    openCard(t);
 }
 
 bool uiOutfitUnlockDismissable(uint32_t now) {
@@ -149,8 +162,9 @@ void uiOutfitUnlockTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // Bangers MD face does not shrink, so a portrait screen needs the
     // two-line form. Measured rather than assumed so a font change
     // cannot silently push it off the edge.
-    const int oneLineW = Theme::bangersTextWidth("OUTFIT UNLOCKED",
-                                                 Theme::BangersSize::MD);
+    const char* headOne = s_petCard ? "PET UNLOCKED" : "OUTFIT UNLOCKED";
+    const char* headTwo = s_petCard ? "PET"          : "OUTFIT";
+    const int oneLineW = Theme::bangersTextWidth(headOne, Theme::BangersSize::MD);
     const bool stacked = oneLineW > (w - 16);
     const int  headTop = panelY + 10;
     const int  lineH   = 30;
@@ -168,10 +182,10 @@ void uiOutfitUnlockTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
                    Theme::blend(Theme::BG, Theme::VAPOR_PURPLE, 140));
     }
     if (stacked) {
-        drawRainbowHeadline(t, w / 2, headTop,         "OUTFIT",   now, reveal);
+        drawRainbowHeadline(t, w / 2, headTop,         headTwo,    now, reveal);
         drawRainbowHeadline(t, w / 2, headTop + lineH, "UNLOCKED", now, reveal);
     } else {
-        drawRainbowHeadline(t, w / 2, headTop, "OUTFIT UNLOCKED", now, reveal);
+        drawRainbowHeadline(t, w / 2, headTop, headOne, now, reveal);
     }
     const int headBottom = headTop + (stacked ? lineH * 2 : lineH) + 12;
 
@@ -181,7 +195,36 @@ void uiOutfitUnlockTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     const int footerTop = panelY + panelH - footerH;
     const int stageH    = footerTop - headBottom;
 
-    if (stageH > 40) {
+    if (stageH > 40 && s_petCard) {
+        // BOTH of them, either side of him. The unlock hands over two
+        // companions, not one, and a card showing a single figure would be
+        // the same half-answer the bubble line already gives -- somebody
+        // would earn this and never learn the other one existed.
+        //
+        // Feet on one baseline, him smaller than on the outfit card so the
+        // three read as a group rather than as a portrait with clutter.
+        // Six clear of the footer: the lil guy at pet size is forty pixels
+        // tall and was standing on the S of SETTINGS.
+        const int baseY = footerTop - 7;
+        float scale = (float)stageH / 68.0f;
+        if (scale > 1.7f) scale = 1.7f;
+        if (scale < 0.6f) scale = 0.6f;
+        Squachy::drawWaving(t, w / 2, baseY, now, scale, nullptr, false, 0);
+        // The yeti on his right, the lil guy on his left, far enough out to
+        // clear his arms at this scale.
+        //
+        // The yeti is drawn at the ONE size the ski hill draws him -- he does
+        // not scale, which is the whole reason he was free to add -- so he is
+        // dropped a few pixels: his sprite's baseY sits his feet a little
+        // higher than drawWaving() puts Squachy's, and on one shared floor
+        // that reads as him hovering.
+        const int gap = (int)(52.0f * scale);
+        Theme::drawYeti(t, w / 2 + gap, baseY + 5, now, Theme::YetiPose::STAND);
+        // Scale 4 is the size the pet itself is drawn at, so the lil guy on
+        // the card is the lil guy you are about to get rather than a smaller
+        // cousin of him.
+        Theme::drawLilGuy(t, w / 2 - gap, baseY, now, 4, true);
+    } else if (stageH > 40) {
         // drawWaving() puts the feet on baseY and the head top at
         // baseY - 58*scale, so the scale that fills the stage is the
         // stage height over that same 58 plus a little breathing room.
@@ -199,7 +242,12 @@ void uiOutfitUnlockTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     }
 
     // ---- name + dismiss hint ---------------------------------------------
-    const char* name = Squachy::outfitNameAt(s_outfitIdx);
+    // On the outfit card this is the costume's name. On the pet card it is
+    // WHERE TO FIND THEM, because the row it points at did not exist until
+    // this moment -- SettingsRow::PET is skipped entirely while the pet is
+    // locked, so earning it makes a new row appear with nothing to say so.
+    const char* name = s_petCard ? "SETTINGS > PET"
+                                 : Squachy::outfitNameAt(s_outfitIdx);
     t.setTextSize(2);
     t.setTextColor(Theme::VAPOR_YELLOW);
     int nw = t.textWidth(name);

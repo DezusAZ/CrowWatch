@@ -14,6 +14,17 @@ class DetectionEngine;
 // being silently swallowed.
 void uiOutfitUnlockInit(TFT_eSPI& t, uint8_t outfitIdx);
 
+// The same card, for the companion. It lives in here rather than in a file
+// of its own because everything except the headline, the stage and the
+// footer is identical -- the glitch burst, the dimmed backdrop, the panel
+// that scales open, the per-letter rainbow reveal, the dismiss guard.
+//
+// It exists at all because the pet was the one unlock with no card. A hat
+// got a celebration; a whole companion got a single line in his bubble --
+// and unlocking the pet also makes a settings row APPEAR that was hidden
+// until then, which nothing told you about. The footer is that fix.
+void uiPetUnlockInit(TFT_eSPI& t);
+
 void uiOutfitUnlockTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
 
 // True once the popup has been on screen long enough to be dismissable —

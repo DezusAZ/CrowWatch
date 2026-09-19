@@ -166,6 +166,11 @@ namespace Squachy {
     // squachy.cpp is how many times you have STROKED him, which is a
     // different thing that unfortunately shares the English.
     void unlockPet();          // earned: tap him on the toasters
+
+    // True once, the first time the pet is earned: main.cpp drains it and
+    // raises the PET UNLOCKED card. False forever after, including across
+    // reboots -- the fact that the card has been shown is saved.
+    bool consumePetUnlockCard();
     bool petUnlocked();
     // Legend stage, where the top hat comes in -- and so where the
     // APPEARANCE page's TOP HAT row appears.

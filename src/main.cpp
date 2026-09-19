@@ -1330,6 +1330,16 @@ static void enterOutfitUnlock(uint8_t idx) {
     uiOutfitUnlockInit(*canvas, idx);
 }
 
+// The companion's card. Same screen state and the same dismiss path -- it is
+// the same card in a different mode, so there is nothing here for the rest
+// of the loop to learn.
+static void enterPetUnlock() {
+    state = AppState::OUTFIT_UNLOCK;
+    outfitUnlockStart = millis();
+    transitionStart = outfitUnlockStart;
+    uiPetUnlockInit(*canvas);
+}
+
 // Pops the celebration if Squachy has earned anything that has not been
 // shown yet. Polled from CLEAR rather than pushed from the unlock sites:
 // an outfit can be earned mid-ALERT (the detection that crossed the
@@ -1338,9 +1348,13 @@ static void enterOutfitUnlock(uint8_t idx) {
 // paths land back on. Returns true if the screen changed.
 static bool maybeEnterOutfitUnlock() {
     uint8_t idx;
-    if (!Squachy::consumeOutfitUnlock(idx)) return false;
-    enterOutfitUnlock(idx);
-    return true;
+    if (Squachy::consumeOutfitUnlock(idx)) { enterOutfitUnlock(idx); return true; }
+    // The pet after the outfits, not before: catching the lil guy can only
+    // earn the companion, but a detection that crosses a threshold at the
+    // same moment would have its costume pushed behind a card it has nothing
+    // to do with. Whichever is left is picked up on the next poll.
+    if (Squachy::consumePetUnlockCard()) { enterPetUnlock(); return true; }
+    return false;
 }
 
 // The alert card takes no touch until the finger that opened it has lifted.
