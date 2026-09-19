@@ -1,5 +1,6 @@
 // SquachWatch-CYD — ignored-devices screen implementation
 #include "ui_ignorelist.h"
+#include "ui_scroll.h"
 #include "theme.h"
 #include "ignore_list.h"
 #include <Arduino.h>
@@ -28,8 +29,9 @@ void uiIgnoreListInit(TFT_eSPI& t) {
 void uiIgnoreListScroll(int delta) {
     g_scroll += delta;
     if (g_scroll < 0) g_scroll = 0;
-    const int n = (int)IgnoreList::count();
-    if (g_scroll > n - 1) g_scroll = (n > 0) ? n - 1 : 0;
+    // The bottom stop is applied where the geometry is, in the draw and the
+    // hit test below. It used to be here and stopped at n-1 -- the last
+    // entry alone at the top of an otherwise empty screen.
 }
 
 static void drawRow(TFT_eSPI& t, int w, int y, int hgt, uint8_t idx) {
@@ -94,6 +96,7 @@ void uiIgnoreListTick(TFT_eSPI& t, uint32_t now) {
         return;
     }
 
+    uiClampScroll(g_scroll, (int)n, bodyBottom - top, rowH);
     int y = top;
     for (uint8_t i = (uint8_t)g_scroll; i < n && y + rowH <= bodyBottom; i++) {
         drawRow(t, w, y, rowH, i);
@@ -121,6 +124,7 @@ uint8_t uiIgnoreListHitRemove(TFT_eSPI& t, int x, int y, int screenW, int screen
     if (x < screenW - REMOVE_W) return 0xFF;      // not in the REMOVE column
 
     const uint8_t n = IgnoreList::count();
+    uiClampScroll(g_scroll, (int)n, bodyBottom - top, rowH);
     int ry = top;
     for (uint8_t i = (uint8_t)g_scroll; i < n && ry + rowH <= bodyBottom; i++) {
         if (y >= ry && y < ry + rowH) return i;

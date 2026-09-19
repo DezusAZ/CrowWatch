@@ -1,5 +1,6 @@
 // SquachWatch-CYD — per-type detection filter screen implementation
 #include "ui_detfilter.h"
+#include "ui_scroll.h"
 #include "theme.h"
 #include "settings.h"
 #include <Arduino.h>
@@ -93,6 +94,7 @@ switch (Settings::background()) {
     Theme::drawListHeading(t, "TYPE FILTER", Theme::AMBER);
 
     uint8_t n = rowCount();
+    uiClampScroll(g_scroll, n, bodyBottom - top, rowH);
     int y = top;
     int idx = g_scroll;
     int visibleCount = 0;
@@ -115,6 +117,7 @@ DetectionType uiDetFilterHitTest(TFT_eSPI& t, int x, int y, int screenW, int scr
     (void)screenW;
 
     uint8_t n = rowCount();
+    uiClampScroll(g_scroll, n, bodyBottom - top, rowH);
     int cy = top;
     int idx = g_scroll;
     while (idx < n) {

@@ -1,5 +1,6 @@
 // SquachWatch-CYD — log screen implementation
 #include "ui_log.h"
+#include "ui_scroll.h"
 #include "clock.h"
 #include "theme.h"
 #include "settings.h"
@@ -304,6 +305,7 @@ switch (Settings::background()) {
     rowLayout(t, bodyTop, detailY, rowH);     // the hit test's numbers, exactly
     const int topPad = detailY - nameH;
 
+    uiClampScroll(g_scroll, count, bodyH, rowH);
     int y = bodyTop;
     int idx = g_scroll;
     int max = (bodyH / rowH);

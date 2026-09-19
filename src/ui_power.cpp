@@ -1,5 +1,6 @@
 // SquachWatch-CYD — POWER SAVER screen implementation
 #include "ui_power.h"
+#include "ui_scroll.h"
 #include "theme.h"
 #include "settings.h"
 #include <Arduino.h>
@@ -172,6 +173,7 @@ switch (Settings::background()) {
     const bool compact = (w < 300);
 
     uint8_t n = rowCount();
+    uiClampScroll(g_scroll, n, bodyBottom - top, rowH);
     int y = top;
     int idx = g_scroll;
     int visibleCount = 0;
@@ -193,6 +195,7 @@ PowerRow uiPowerHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
     computeGeom(t, screenH, top, bodyBottom, rowH);
 
     uint8_t n = rowCount();
+    uiClampScroll(g_scroll, n, bodyBottom - top, rowH);
     int cy = top;
     int idx = g_scroll;
     while (idx < n) {

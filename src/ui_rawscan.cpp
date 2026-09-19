@@ -1,5 +1,6 @@
 // SquachWatch-CYD — manual raw BLE/WiFi scanner screen implementation
 #include "ui_rawscan.h"
+#include "ui_scroll.h"
 #include "theme.h"
 #include "squachy.h"
 #include "settings.h"
@@ -311,6 +312,7 @@ switch (Settings::background()) {
     // as everywhere else in this file already relies on clipping.
     t.setTextWrap(false);
 
+    uiClampScroll(g_scroll, count, bodyH, rowH);
     int y = bodyTop;
     int idx = g_scroll;
     int max = (bodyH / rowH);

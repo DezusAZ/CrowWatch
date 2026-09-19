@@ -1,5 +1,6 @@
 // SquachWatch-CYD — SECURITY submenu. See include/ui_security.h.
 #include "ui_security.h"
+#include "ui_scroll.h"
 #include "theme.h"
 #include "settings.h"
 #include "security.h"
@@ -134,6 +135,7 @@ void uiSecurityTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
 
     const bool compact = (w < 300);
     uint8_t n = rowCount();
+    uiClampScroll(g_scroll, n, bodyBottom - top, rowH);
     int y = top, idx = g_scroll, visibleCount = 0;
     while (idx < n) {
         if (y + rowH > bodyBottom) break;
@@ -149,6 +151,7 @@ SecurityRow uiSecurityHitTest(TFT_eSPI& t, int x, int y, int screenW, int screen
     int top, bodyBottom, rowH;
     computeGeom(t, screenH, top, bodyBottom, rowH);
     uint8_t n = rowCount();
+    uiClampScroll(g_scroll, n, bodyBottom - top, rowH);
     int cy = top, idx = g_scroll;
     while (idx < n) {
         if (cy + rowH > bodyBottom) break;

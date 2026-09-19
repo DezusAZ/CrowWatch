@@ -799,7 +799,19 @@ int main(int argc, char** argv) {
 
     // After uiSettingsInit(), which clears any pending question.
     if (confirmRow >= 0) uiSettingsSetConfirm((SettingsRow)confirmRow);
-    for (int k = 0; k < scrollBy; k++) uiSettingsScroll(1);
+    // --scroll drives whichever list is on screen, not just SETTINGS. Every
+    // one of them clamps at the bottom now, and a flag that could only reach
+    // one of the eight could only ever test one of them.
+    for (int k = 0; k < scrollBy; k++) {
+        if      (screen == "log")        uiLogScroll(1);
+        else if (screen == "rawscan")    uiRawScanScroll(1);
+        else if (screen == "power")      uiPowerScroll(1);
+        else if (screen == "security")   uiSecurityScroll(1);
+        else if (screen == "light")      uiLightScroll(1);
+        else if (screen == "detfilter")  uiDetFilterScroll(1);
+        else if (screen == "ignorelist") uiIgnoreListScroll(1);
+        else                             uiSettingsScroll(1);
+    }
 
     for (int i = 0; i < frames; i++) {
         const uint32_t tNow = now + (uint32_t)i * STEP_MS;
