@@ -1194,6 +1194,24 @@ static char    s_confirmLabel[24];
 // from s_rawScanIsBle) -- RAWSCAN's own WATCH/HUNT branches don't
 // touch this, only LOG's do.
 static bool    s_confirmIsBle = true;
+static bool s_alertLastFree = false;
+
+// Whether a sighting may take the screen, and AUTO SNOOZE's bookkeeping
+// with it. Call it once for each alert about to be raised and obey the
+// answer -- it counts, so asking twice spends two of the device's allowance.
+//
+// The WATCH target is exempt outright. Asking to be told about one device is
+// the clearest statement of intent this board takes, and a feature whose
+// whole job is to interrupt less must never be the thing that overrides it.
+static bool alertMayInterrupt(const Detection& d) {
+    const bool exempt = engine.isWatched(d.mac, true) || engine.isWatched(d.mac, false);
+    switch (engine.alertGate(d.mac, Settings::autoQuietAfter(), exempt)) {
+        case DetectionEngine::AlertGate::HOLD:       return false;
+        case DetectionEngine::AlertGate::ALLOW_LAST: s_alertLastFree = true;  return true;
+        default:                                     s_alertLastFree = false; return true;
+    }
+}
+
 // The current alert's target, captured in enterAlert(). Kept separate
 // from the s_confirm* trio above on purpose: those belong to LOG's
 // long-press confirm panel, and an alert arriving while that panel is
@@ -1369,6 +1387,13 @@ static char s_firstLine[64] = "";
 static void enterAlert(const Detection& d) {
     s_backToDesk = (state == AppState::DESK);
     state = AppState::ALERT;
+    // FIRST. uiAlertInit() clears the card's banner flags, and it used to run
+    // at the END of this function -- after the two uiAlertSet* calls below --
+    // so it wiped them both every time. FIRST OF ITS KIND and AT NIGHT have
+    // therefore never once appeared on an alert card. The spoken line still
+    // worked, which is presumably why nobody noticed the banner was missing.
+    s_infoPending = false;
+    uiAlertInit(*canvas, d);
     // The lifetime count for the type includes this one, so one means first.
     {
         const bool first = engine.lifetimeTypeCount(d.type) == 1;
@@ -1377,6 +1402,7 @@ static void enterAlert(const Detection& d) {
         // is a different thing from one at lunch, and the card says so.
         const bool night = Clock::night();
         uiAlertSetNight(night);
+        uiAlertSetLastFree(s_alertLastFree);
         if (night && !first) {
             static const char* const NIGHT_LINES[] = {
                 "A %s at this hour. That's not nothing.", "%s. At night. I don't love it.",
@@ -1413,8 +1439,6 @@ static void enterAlert(const Detection& d) {
         strncpy(s_alertLabel, lbl, sizeof(s_alertLabel) - 1);
         s_alertLabel[sizeof(s_alertLabel) - 1] = 0;
     }
-    s_infoPending = false;
-    uiAlertInit(*canvas, d);
 #if defined(CYD35)
     clearSharedFrameBuffer();
 #endif
@@ -2868,7 +2892,8 @@ void loop() {
             {
                 const Detection* latest = engine.latest();
                 if (latest && (now - latest->firstSeen) < 200 &&
-                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac)) {
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac) &&
+                    alertMayInterrupt(*latest)) {
                     uiAlertSetRedacted(false);
                     enterAlert(*latest);
                     s_backToDesk = Settings::deskWanted();   // dismissed, back where the window was over
@@ -3025,7 +3050,8 @@ void loop() {
                     // Only the ALERT is suppressed -- the detection is
                     // still counted and still written to the LOG above, so
                     // the device stays visible and un-ignorable.
-                    !IgnoreList::silenced(latest->mac)) {
+                    !IgnoreList::silenced(latest->mac) &&
+                    alertMayInterrupt(*latest)) {
                     uiAlertSetRedacted(false);
                     enterAlert(*latest);
                 }
@@ -4015,6 +4041,7 @@ void loop() {
                             applyBrightness();
                             break;
                         case SettingsRow::CONFIDENCE: Settings::cycleMinConfidence(); break;
+                        case SettingsRow::AUTO_QUIET:  Settings::cycleAutoQuiet(); break;
                         case SettingsRow::DETECTION_FILTER: enterDetFilter(); break;
                         case SettingsRow::POWER_SAVER: enterPower(); break;
                         case SettingsRow::STATUS_LIGHT: enterLight(); break;
@@ -4748,7 +4775,8 @@ void loop() {
                 const Security::LockAlerts la = Security::lockAlerts();
                 const Detection* latest = engine.latest();
                 if (la != Security::LockAlerts::NONE && latest && (now - latest->firstSeen) < 200 &&
-                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac)) {
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac) &&
+                    alertMayInterrupt(*latest)) {
                     uiAlertSetRedacted(la == Security::LockAlerts::TYPE_ONLY);
                     enterAlert(*latest);
                     break;
@@ -4911,7 +4939,8 @@ void loop() {
             {
                 const Detection* latest = engine.latest();
                 if (latest && (now - latest->firstSeen) < 200 &&
-                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac)) {
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac) &&
+                    alertMayInterrupt(*latest)) {
                     uiDeskAlert(*latest, now);
                     lastAlertType = latest->type;
                     Squachy::trigger(Squachy::Event::DETECTION, latest->type, engine.lifetimeTotal(),

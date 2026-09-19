@@ -12,6 +12,12 @@ void uiAlertSetFirst(bool first);
 // Caught between eleven at night and five in the morning, by the real
 // clock: the card says so. False whenever the clock is not set.
 void uiAlertSetNight(bool night);
+// This device has just used the last of its AUTO SNOOZE allowance: the card
+// says so, on the alert it is spending. Told HERE rather than the first time
+// one is held back, because this is the moment you are looking at that
+// device -- and a board that goes quieter without saying so is the failure
+// this whole thing exists to avoid.
+void uiAlertSetLastFree(bool lastFree);
 // SNOOZE (this device, until restart), bottom centre between HUNT and MORE INFO.
 bool uiAlertHitSnooze(int x, int y, int screenW, int screenH);
 // While the device is locked with ALERTS WHEN LOCKED at TYPE ONLY: the type

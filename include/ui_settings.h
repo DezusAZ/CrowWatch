@@ -14,6 +14,7 @@ enum class SettingsRow : uint8_t {
     ROTATION_LOCK,
     BORING_MODE,
     CONFIDENCE,
+    AUTO_QUIET,     // "AUTO SNOOZE": how often one device may interrupt
     DETECTION_FILTER,
     IGNORED_DEVICES,
     POWER_SAVER,

@@ -272,6 +272,14 @@ namespace Settings {
     void        cycleMinConfidence();
     const char* minConfidenceLabel();
 
+    // AUTO SNOOZE: how many times one device may interrupt with the full
+    // ALERT screen before it has to earn the next one by coming CLOSER.
+    // 0 is off. Nothing is actually silenced -- see Detection::quietBar --
+    // which matters on a device whose job is telling you what is near you.
+    uint8_t     autoQuietAfter();
+    void        cycleAutoQuiet();
+    const char* autoQuietLabel();
+
     // Per-type detection on/off (Settings > DETECTION FILTER). A
     // disabled type is dropped at the point it's first classified --
     // never logged, counted, or alerted on -- not just hidden after

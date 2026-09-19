@@ -47,7 +47,8 @@ static char s_watchLabel[24] = "", s_huntLabel[24] = "";
 // removed here, so their SettingsRow values stay stable regardless of
 // which mode is active.
 static const SettingsRow ALL_ROWS[] = {
-    SettingsRow::BORING_MODE, SettingsRow::CONFIDENCE, SettingsRow::DETECTION_FILTER,
+    SettingsRow::BORING_MODE, SettingsRow::CONFIDENCE, SettingsRow::AUTO_QUIET,
+    SettingsRow::DETECTION_FILTER,
     SettingsRow::IGNORED_DEVICES,
     // APPEARANCE opens the display page -- see APPEARANCE_ROWS. It sat at the
     // very top of this list, which put it under the first thumb that opened
@@ -188,6 +189,7 @@ static RowGroupId groupFor(SettingsRow r) {
             return RowGroupId::APPEARANCE;
         case SettingsRow::BORING_MODE:
         case SettingsRow::CONFIDENCE:
+        case SettingsRow::AUTO_QUIET:
         case SettingsRow::DETECTION_FILTER:
         case SettingsRow::IGNORED_DEVICES:
             return RowGroupId::BEHAVIOR;
@@ -763,6 +765,9 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::CONFIDENCE:
             label = "ALERT FILTER"; value = Settings::minConfidenceLabel();
+            break;
+        case SettingsRow::AUTO_QUIET:
+            label = "AUTO SNOOZE"; value = Settings::autoQuietLabel();
             break;
         case SettingsRow::DETECTION_FILTER:
             // "DETECTION FILTER" (the row's own screen title, no width

@@ -273,6 +273,72 @@ public:
     // has to match too: a BLE address and a WiFi BSSID are separate
     // namespaces, so a collision across them would be a wrong answer rather
     // than a near miss.
+    // ---- AUTO SNOOZE -----------------------------------------------------
+    // How much stronger a device has to come back before it may interrupt
+    // again once it has used up its allowance. RSSI wobbles by about five
+    // dB sample to sample with nothing moving, so a bare "stronger than last
+    // time" is beaten by noise on the first reading and the setting does
+    // nothing at all.
+    static const int8_t   QUIET_MARGIN_DB = 7;
+    // ...and how long a device has to be gone before its allowance is handed
+    // back. Without this the bar only ever rises, so the device that once
+    // came closest becomes the one you can never hear from again -- which is
+    // backwards on a detector.
+    static const uint32_t QUIET_DECAY_MS  = 30u * 60u * 1000u;
+
+    // Whether this sighting is allowed to raise the full ALERT screen, and
+    // the bookkeeping that goes with it -- call it once, at the moment an
+    // alert would be raised, and obey the answer.
+    //
+    // `afterN` is Settings::autoQuietAfter(); 0 means the feature is off and
+    // everything is allowed through. `exempt` is for the devices that must
+    // always get through whatever they have cost you -- the one you asked to
+    // WATCH, above all.
+    enum class AlertGate : uint8_t {
+        ALLOW,        // let it interrupt
+        ALLOW_LAST,   // let it interrupt, and this was its last free one
+        HOLD,         // it has not come closer; do not interrupt
+    };
+    // Inline because the emulator swaps src/detection.cpp for a stand-in
+    // (sim/detection_sim.cpp) and this is pure arithmetic over the log --
+    // one copy here means the emulator gates alerts exactly as the board
+    // does, instead of a second implementation drifting from this one.
+    AlertGate alertGate(const uint8_t* mac, uint8_t afterN, bool exempt) {
+    if (afterN == 0 || exempt) return AlertGate::ALLOW;
+    const uint32_t now = millis();
+    for (uint8_t i = 0; i < _logCount; i++) {
+        const uint8_t slot = (_logHead + LOG_CAP - 1 - i) % LOG_CAP;
+        if (memcmp(_log[slot].mac, mac, 6) != 0) continue;
+        Detection& d = _log[slot];
+
+        // Gone long enough to have earned a clean slate.
+        if (d.alerts && (now - d.lastAlertMs) > QUIET_DECAY_MS) {
+            d.alerts   = 0;
+            d.quietBar = 0;
+        }
+
+        if (d.alerts < afterN) {
+            d.alerts++;
+            d.lastAlertMs = now;
+            // The bar is the strongest it has ever interrupted at, not the
+            // last one: five alerts at -80 and one at -60 should leave a
+            // device having to beat -60.
+            if (d.alerts == 1 || d.rssi > d.quietBar) d.quietBar = d.rssi;
+            return (d.alerts == afterN) ? AlertGate::ALLOW_LAST : AlertGate::ALLOW;
+        }
+
+        // Out of free ones. It has to come closer than it ever has, by
+        // enough that noise cannot do it for it.
+        if (d.rssi >= (int)d.quietBar + QUIET_MARGIN_DB) {
+            d.quietBar    = d.rssi;      // the new bar to beat
+            d.lastAlertMs = now;
+            return AlertGate::ALLOW;
+        }
+        return AlertGate::HOLD;
+    }
+    return AlertGate::ALLOW;             // not in the log: nothing to go on
+    }
+
     bool isWatched(const uint8_t* mac, bool ble) const {
         if (_watchKind != (ble ? WatchKind::BLE : WatchKind::WIFI)) return false;
         return memcmp(mac, _watchMac, 6) == 0;

@@ -100,6 +100,23 @@ struct Detection {
     uint32_t       firstSeen;
     uint32_t       lastSeen;
     uint16_t       hits;
+    // AUTO SNOOZE (Settings). `alerts` counts the full-screen alerts this
+    // device has actually raised; `quietBar` is the strongest RSSI it ever
+    // alerted at. Past the threshold it has to beat that bar by a margin to
+    // interrupt again -- so the board stops repeating itself about the
+    // doorbell across the street without ever going deaf to it coming
+    // closer, which a plain mute would not manage.
+    //
+    // NOT `hits`: that counts every sighting on the WiFi path and only the
+    // returns on the Bluetooth one, so it means two different things
+    // depending on which radio found the device.
+    uint8_t        alerts;
+    int8_t         quietBar;
+    // When it last spent one. NOT lastSeen: by the time the gate runs, the
+    // reactivation path has already moved lastSeen to now, so "how long has
+    // it been gone" measured from it is always zero and the allowance would
+    // never be handed back.
+    uint32_t       lastAlertMs;
     // The grade of the signature that actually matched, not the grade of
     // the type. See lookupOui().
     Confidence     conf;

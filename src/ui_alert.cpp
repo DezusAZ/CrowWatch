@@ -141,13 +141,16 @@ static uint8_t glitchStepLevel(uint8_t step) {
 
 static bool s_first = false;
 static bool s_night = false;
+static bool s_lastFree = false;
 void uiAlertSetFirst(bool first) { s_first = first; }
 void uiAlertSetNight(bool night) { s_night = night; }
+void uiAlertSetLastFree(bool lastFree) { s_lastFree = lastFree; }
 
 void uiAlertInit(TFT_eSPI& t, const Detection& d) {
     s_last = d;
     s_first = false;
     s_night = false;
+    s_lastFree = false;
     s_touched = false;
     s_alertStart = millis();
     s_glitchStep = 0;
@@ -488,6 +491,14 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
                        : s_first ? "* FIRST OF ITS KIND *" : "* AT NIGHT *";
         t.setTextSize(1);
         t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
+        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, STRIP_H + 2);
+        t.print(fl);
+    } else if (s_lastFree) {
+        // Shares the line, and loses it to FIRST or AT NIGHT, both of which
+        // are about the catch itself. This one is housekeeping.
+        const char* fl = "* QUIET UNLESS IT NEARS *";
+        t.setTextSize(1);
+        t.setTextColor(Theme::CYAN, Theme::BG);
         t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, STRIP_H + 2);
         t.print(fl);
     }

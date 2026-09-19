@@ -35,6 +35,9 @@ static bool        s_deskSquad     = false;   // the squad on the desk clock as 
 static uint8_t     s_deskCrowd     = 1;       // the desk's own HOW MANY
 static bool        s_deskFullVisit = false;   // one visitor: the whole visit, not a chat
 static uint8_t     s_rotation = 1;
+// OFF / 5 / 10. Stored as the number itself rather than an index, so the
+// value in NVS still means something if the choices ever change.
+static uint8_t s_autoQuiet = 0;
 static bool        s_backgroundLocked = false;
 static uint8_t     s_deskBg     = 255;     // 255: not picked yet, follow s_background
 static bool        s_deskActive = false;
@@ -253,6 +256,8 @@ void load() {
     if (s_deskBg != 255 && s_deskBg >= BACKGROUND_COUNT) s_deskBg = 255;
     s_brightness = s_prefs.getUChar("bri", 255);
     if (s_brightness < 32) s_brightness = 32;
+    s_autoQuiet  = s_prefs.getUChar("autoquiet", 0);
+    if (s_autoQuiet != 0 && s_autoQuiet != 5 && s_autoQuiet != 10) s_autoQuiet = 0;
     s_minConf    = (Confidence)s_prefs.getUChar("conf", (uint8_t)Confidence::LOW_CONF);
     if ((uint8_t)s_minConf > (uint8_t)Confidence::HIGH_CONF) s_minConf = Confidence::LOW_CONF;
     s_boringMode = s_prefs.getBool("boring", false);
@@ -550,6 +555,21 @@ void adjustBrightness(int8_t delta) {
 }
 
 Confidence minConfidence() { return s_minConf; }
+
+uint8_t autoQuietAfter() { return s_autoQuiet; }
+
+const char* autoQuietLabel() {
+    switch (s_autoQuiet) {
+        case 5:  return "AFTER 5";
+        case 10: return "AFTER 10";
+        default: return "OFF";
+    }
+}
+
+void cycleAutoQuiet() {
+    s_autoQuiet = (s_autoQuiet == 0) ? 5 : (s_autoQuiet == 5 ? 10 : 0);
+    s_prefs.putUChar("autoquiet", s_autoQuiet);
+}
 
 void cycleMinConfidence() {
     uint8_t next = (uint8_t)s_minConf + 1;
