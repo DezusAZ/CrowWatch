@@ -306,6 +306,8 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_outfit_unlock.h"
 #include "ui_ignorelist.h"
 #include "frame_push.h"
+#include "frame_prof.h"
+#include "fast_sprite.h"
 #if SQUACH_MESH
 #include "ui_phone.h"
 #include "ui_meshmenu.h"
@@ -492,9 +494,11 @@ constexpr bool PANEL_NEEDS_INVERSION = false;
 // panel needs the same total pixel count (320x240 and 240x320 are
 // both 76800 pixels), so one boot-time allocation covers every
 // orientation forever and rotate never needs to free/realloc again.
-class ResizableSprite : public TFT_eSprite {
+// ...and it sits on FastSprite, which takes over the sprite's slow
+// primitives; see fast_sprite.h.
+class ResizableSprite : public FastSprite {
 public:
-    explicit ResizableSprite(TFT_eSPI* tft) : TFT_eSprite(tft) {}
+    explicit ResizableSprite(TFT_eSPI* tft) : FastSprite(tft) {}
     void resizeInPlace(int16_t w, int16_t h) {
         if (!_created) return;
         _iwidth = _dwidth = _bitwidth = w;
@@ -2449,6 +2453,67 @@ void setup() {
     }
 }
 
+// ---- PRIM: what each drawing primitive costs on the real sprite ----
+// Every framerate conversation before this was a guess about whether a
+// fillCircle is expensive or a gradient is, made without a single number.
+// PRIM on the console draws each primitive N times into the frame buffer
+// and prints the microseconds per call. The frame it scribbles on is
+// repainted on the very next pass, so nothing is visible.
+volatile bool g_benchPrimNow = false;
+#if defined(ARDUINO_ARCH_ESP32)   // the board only: the emulator's sprite has none of this
+template <typename F>
+static void primTime(const char* name, uint32_t n, F body) {
+    const uint32_t t0 = micros();
+    for (uint32_t i = 0; i < n; i++) body(i);
+    const uint32_t us = micros() - t0;
+    Serial.printf("[prim] %-28s %6lu.%02lu us/call  (%lu x)\n", name,
+                  (unsigned long)(us / n), (unsigned long)((us * 100UL / n) % 100), (unsigned long)n);
+}
+static void runPrimBench() {
+    if (!frameBufferOk) { Serial.println("[prim] no frame buffer"); return; }
+    ResizableSprite& f = frame;
+    const int w = f.width(), h = f.height();
+    volatile uint32_t sink = 0;
+    Serial.printf("[prim] sprite %dx%d, 8-bit\n", w, h);
+    primTime("drawFastHLine 320",   2000, [&](uint32_t i){ f.drawFastHLine(0, (int)(i & 127), w, (uint16_t)i); });
+    primTime("drawFastVLine 200",   2000, [&](uint32_t i){ f.drawFastVLine((int)(i & 255), 0, 200, (uint16_t)i); });
+    primTime("fillRect 20x20",      2000, [&](uint32_t i){ f.fillRect((int)(i & 255), (int)((i >> 2) & 127), 20, 20, (uint16_t)i); });
+    primTime("fillRect full screen",  20, [&](uint32_t i){ f.fillRect(0, 0, w, h, (uint16_t)i); });
+    primTime("drawPixel",          20000, [&](uint32_t i){ f.drawPixel((int)(i & 255), (int)((i >> 4) & 127), (uint16_t)i); });
+    primTime("drawLine 100x60",     1000, [&](uint32_t i){ f.drawLine((int)(i & 127), 0, (int)(i & 127) + 100, 60, (uint16_t)i); });
+    primTime("fillCircle r10",      1000, [&](uint32_t i){ f.fillCircle(20 + (int)(i & 255), 20 + (int)((i >> 2) & 127), 10, (uint16_t)i); });
+    primTime("fillCircle r30",       300, [&](uint32_t i){ f.fillCircle(40 + (int)(i & 127), 40 + (int)((i >> 1) & 127), 30, (uint16_t)i); });
+    primTime("fillRoundRect 30x20 r5",1000,[&](uint32_t i){ f.fillRoundRect((int)(i & 255), (int)((i >> 2) & 127), 30, 20, 5, (uint16_t)i); });
+    primTime("fillEllipse 12x8",    1000, [&](uint32_t i){ f.fillEllipse(20 + (int)(i & 255), 20 + (int)((i >> 2) & 127), 12, 8, (uint16_t)i); });
+    primTime("fillTriangle 30x20",  1000, [&](uint32_t i){ int x = (int)(i & 255), y = (int)((i >> 2) & 127); f.fillTriangle(x, y + 20, x + 15, y, x + 30, y + 20, (uint16_t)i); });
+    f.setTextSize(1); f.setTextColor(Theme::CYAN, Theme::BG);
+    primTime("print 11 chars size 1", 300, [&](uint32_t i){ f.setCursor((int)(i & 127), (int)((i >> 1) & 127)); f.print("HELLO WORLD"); });
+    f.setTextSize(2);
+    primTime("print 11 chars size 2", 300, [&](uint32_t i){ f.setCursor((int)(i & 63), (int)((i >> 1) & 127)); f.print("HELLO WORLD"); });
+    f.setTextSize(1);
+    primTime("Bangers NEARBY LG",      50, [&](uint32_t i){ Theme::drawBangersText(f, 40, 60, "NEARBY", Theme::AMBER, Theme::BangersSize::LG); });
+    primTime("Bangers NEARBY MD",      50, [&](uint32_t i){ Theme::drawBangersText(f, 40, 60, "NEARBY", Theme::AMBER, Theme::BangersSize::MD); });
+    primTime("Theme::blend",        20000, [&](uint32_t i){ sink += Theme::blend((uint16_t)i, (uint16_t)(i * 3), (uint16_t)(i & 255)); });
+    primTime("color565",            20000, [&](uint32_t i){ sink += f.color565((uint8_t)i, (uint8_t)(i >> 2), (uint8_t)(i >> 4)); });
+    primTime("sinf",                20000, [&](uint32_t i){ sink += (uint32_t)(sinf((float)i * 0.01f) * 100.0f); });
+    primTime("float mul+add",       20000, [&](uint32_t i){ sink += (uint32_t)((float)i * 1.7f + 3.2f); });
+    primTime("int mul+add",         20000, [&](uint32_t i){ sink += i * 17u + 3u; });
+    // The library's own versions of the four the sprite subclass takes over,
+    // so the gain is on the record next to the cost. And then the proof.
+    primTime("drawPixel (library)",  20000, [&](uint32_t i){ f.basePixel((int)(i & 255), (int)((i >> 4) & 127), (uint16_t)i); });
+    primTime("drawFastVLine 200 (library)", 2000, [&](uint32_t i){ f.baseVLine((int)(i & 255), 0, 200, (uint16_t)i); });
+    primTime("drawLine 100x60 (library)",   1000, [&](uint32_t i){ f.baseLine((int)(i & 127), 0, (int)(i & 127) + 100, 60, (uint16_t)i); });
+    primTime("11 chars size 1 (library)",    300, [&](uint32_t i){ for (int k = 0; k < 11; k++) f.baseChar((int)(i & 127) + k * 6, (int)((i >> 1) & 127), (uint16_t)('A' + k), Theme::CYAN, Theme::BG, 1); });
+    primTime("11 chars size 1 (fast)",       300, [&](uint32_t i){ for (int k = 0; k < 11; k++) f.drawChar((int)(i & 127) + k * 6, (int)((i >> 1) & 127), (uint16_t)('A' + k), Theme::CYAN, Theme::BG, 1); });
+    primTime("11 chars size 2 (library)",    300, [&](uint32_t i){ for (int k = 0; k < 11; k++) f.baseChar((int)(i & 63) + k * 12, (int)((i >> 1) & 127), (uint16_t)('A' + k), Theme::CYAN, Theme::BG, 2); });
+    primTime("11 chars size 2 (fast)",       300, [&](uint32_t i){ for (int k = 0; k < 11; k++) f.drawChar((int)(i & 63) + k * 12, (int)((i >> 1) & 127), (uint16_t)('A' + k), Theme::CYAN, Theme::BG, 2); });
+    const int bad = f.selfCheck(Serial);
+    Serial.printf("[check] %s\n", bad == 0 ? "every fast path is pixel-identical to the library" : "FAST PATHS DIFFER -- do not ship");
+    primTime("index arithmetic only",20000, [&](uint32_t i){ sink += (uint32_t)((int)(i & 255) + (int)((i >> 4) & 127)); });
+    Serial.printf("[prim] done (%lu)\n", (unsigned long)sink);
+}
+#endif
+
 // ---- Frame timing ----
 // Wall-clock cost of the two things that actually set the frame rate:
 // pushing the sprite over SPI, and everything else put together. Both
@@ -2505,6 +2570,7 @@ void loop() {
     // is the only way in for the one serial command the firmware takes.
     Clock::pollSerial();
     uint32_t frameStartUs = micros();
+    FrameProf::begin();
     s_pushAccumUs = 0;
     uint32_t now = millis();
     Clock::tick(now);   // the note to self, when it is due
@@ -2527,6 +2593,9 @@ void loop() {
 #endif
     // The bingo card: marks the radio task handed over, the week turning
     // over, and the one flash write that follows a batch of marks.
+#if defined(ARDUINO_ARCH_ESP32)
+    if (g_benchPrimNow) { g_benchPrimNow = false; runPrimBench(); }
+#endif
     Bingo::tick(now);
     {
         DetectionType bt = DetectionType::UNKNOWN;
@@ -2832,6 +2901,7 @@ void loop() {
         calHoldStart = 0;
     }
 
+    FrameProf::lap(FrameProf::PRE);
     switch (state) {
         case AppState::BOOT: {
 #if defined(CYD35)
@@ -2985,6 +3055,7 @@ void loop() {
 #else
             uiClearTick(*canvas, now, engine, true, s_scanPickerOpen);
 #endif
+            FrameProf::lap(FrameProf::CHROME);
             // Toasts on the main screen too. They were only drawn on LOG and
             // NEARBY, so SNOOZED and READ, both raised on the way here or while
             // here, went unseen.
@@ -5159,13 +5230,16 @@ void loop() {
         if (now - transitionStart < TRANSITION_MS) {
             Theme::drawTransitionGlitch(frame, now - transitionStart, TRANSITION_MS);
         }
+        FrameProf::lap(FrameProf::POST);
         pushFrame(0, 0);
+        FrameProf::lap(FrameProf::PUSH);
     }
 #endif
 
     s_pushUsAvg  = emaUpdate(s_pushUsAvg, s_pushAccumUs);
     const uint32_t frameUs = micros() - frameStartUs;
     s_frameUsAvg = emaUpdate(s_frameUsAvg, frameUs);
+    FrameProf::endFrame();
     if (const char* nm = timedScreenName(state)) {
         if (now - transitionStart >= TRANSITION_MS) {
             if (s_lastScreenAt != transitionStart) {
@@ -5184,12 +5258,13 @@ void loop() {
         static uint32_t lastFrameSay = 0;
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
+            FrameProf::print();
             const volatile uint32_t* ak = advertKinds();
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  bg %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
                           (unsigned long)(1000000UL / s_frameUsAvg),
                           (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10),
-                          (unsigned)state, (unsigned long)ESP.getFreeHeap(),
+                          (unsigned)state, (unsigned)Settings::background(), (unsigned long)ESP.getFreeHeap(),
                           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
                           (unsigned long)wifiFramesSeen(), (unsigned long)advertRate(), (unsigned long)advertsSeen(),
                           (unsigned long)ak[0], (unsigned long)ak[1], (unsigned long)ak[2], (unsigned long)ak[3], (unsigned long)ak[4],

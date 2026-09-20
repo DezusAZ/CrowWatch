@@ -9,6 +9,10 @@
 #include "blackbox.h"    // BLACKBOX dumps it
 #include "ota_core.h"    // VERTEST, on bench builds
 #include "frame_push.h"  // PUSH, the frame-push switch
+#include "fast_sprite.h" // FAST, the sprite fast-path switch
+
+// PRIM, on every build: main.cpp runs the primitive benchmark on its next pass.
+extern volatile bool g_benchPrimNow;
 #if defined(ARDUINO_ARCH_ESP32)
 // MEM reads the board itself: FreeRTOS for the stacks, NVS for the store.
 #include <freertos/FreeRTOS.h>
@@ -472,6 +476,30 @@ void pollSerial() {
                               "the epoch, e.g. TIME %lu\n",
                               (unsigned long)e, (unsigned long)kPlausible + 1u);
             }
+        } else if (strncasecmp(line, "PRIM", 4) == 0) {
+            // Times every drawing primitive on the real frame buffer; see
+            // runPrimBench() in main.cpp. Runs on the next pass of loop().
+            g_benchPrimNow = true;
+            Serial.println("[prim] on the next frame");
+        } else if (strncasecmp(line, "BG ", 3) == 0) {
+            // BG N: show background N until the next boot, without saving it.
+            // For timing them one after another off the [frame] line.
+            const long n = strtol(line + 3, nullptr, 10);
+            if (n >= 0 && Settings::previewBackground((Settings::Background)n))
+                Serial.printf("[bg] %ld %s\n", n, Settings::backgroundName((Settings::Background)n));
+            else
+                Serial.printf("[bg] no background %ld\n", n);
+        } else if (strncasecmp(line, "FAST", 4) == 0) {
+            // FAST ON / FAST OFF: the sprite's fast primitives, or the library's.
+#if defined(ARDUINO_ARCH_ESP32)
+            const char* arg = line + 4;
+            while (*arg == ' ') arg++;
+            if (strncasecmp(arg, "OFF", 3) == 0) FastSprite::setFast(false);
+            else if (strncasecmp(arg, "ON", 2) == 0) FastSprite::setFast(true);
+            Serial.printf("[fast] %s\n", FastSprite::fast() ? "on" : "off -- the library's primitives");
+#else
+            Serial.println("[fast] not on this build");
+#endif
         } else if (strncasecmp(line, "PUSH", 4) == 0) {
             // PUSH / PUSH ON / PUSH OFF. The switch for the overlapped frame
             // push. Not behind BENCH_TOOLS on purpose: its whole job is to

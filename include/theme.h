@@ -514,6 +514,11 @@ namespace Theme {
     // as TFT_eSPI's setCursor for the built-in font.
     void drawBangersText(TFT_eSPI& t, int x, int y, const char* s,
                         uint16_t color, BangersSize size);
+    // The solid outline behind a headline: the 24-offset trick in ONE pass,
+    // pixel for pixel the same. Draw this in the outline colour, then the
+    // text itself with drawBangersText() on top. See theme.cpp for the why.
+    void drawBangersOutline(TFT_eSPI& t, int x, int y, const char* s, uint16_t color,
+                            BangersSize size, uint8_t radius);
 
     // Total advance width of s at the given size, for centering —
     // same role as TFT_eSPI's textWidth().

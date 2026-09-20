@@ -404,6 +404,12 @@ bool backgroundSelectable(Background b) {
 // BACKGROUND_COUNT rather than looping until it finds one: if a future
 // change ever made everything unselectable this would spin forever, and a
 // hung UI is a worse failure than a background that will not change.
+bool previewBackground(Background b) {
+    if ((uint8_t)b >= BACKGROUND_COUNT || !backgroundSelectable(b)) return false;
+    s_background = b;
+    return true;
+}
+
 void cycleBackground() {
     for (uint8_t i = 0; i < BACKGROUND_COUNT; i++) {
         s_background = (Background)(((uint8_t)s_background + 1) % BACKGROUND_COUNT);

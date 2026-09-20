@@ -1,5 +1,6 @@
 // SquachWatch-CYD — clear (idle) screen implementation
 #include "ui_clear.h"
+#include "frame_prof.h"
 // Needed this early: the message helpers sit up with the visit machine,
 // above where the rest of this file pulls these in.
 #include "theme.h"
@@ -2796,8 +2797,10 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // Squachy is still told his band starts at titleBottom. He sizes himself
     // from the space he is given, so telling him about these rows would make
     // him a tenth bigger and move everything hanging off him.
+    FrameProf::lap(FrameProf::CHROME);   // the counting and geometry above
     Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::clearBackgroundFloor();
+    FrameProf::lap(FrameProf::BG);
 
     // Squachy: main character, reacts to events, cracks jokes when idle.
     // His available region runs all the way to countersTop (not
@@ -2899,9 +2902,11 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // presence is skipped above (boring mode) or would collide with
     // the walkthrough's own bubble (onboarding) -- a UFO flying past
     // mid-lesson would be more distraction than delight.
+    FrameProf::lap(FrameProf::SQUACHY);
     if (!Settings::boringMode() && !Squachy::onboardingActive()) {
         IdleEvents::tick(t, now, 0, titleBottom, w, squachyBottom, advance);
     }
+    FrameProf::lap(FrameProf::IDLE);
 
     // Whatever the background wants on top of the mascot. Right now
     // that is the werewolf's speech bubble: drawFire computes it but
@@ -2939,6 +2944,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // Is anything actually live right now? Not lifetime -- a camera seen an
     // hour ago is not something happening, and the counters decay for the
     // same reason.
+    FrameProf::lap(FrameProf::CHROME);
     bool anyActive = false;
     for (uint8_t i = 0; i < (uint8_t)DetectionType::COUNT; i++) {
         if (eng.countByType((DetectionType)i) > 0) { anyActive = true; break; }
@@ -3011,10 +3017,8 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         int ty = headlineTop;
         if (tw <= w - 8) {
             int tx = (w - tw) / 2;
-            for (uint8_t i = 0; i < 24; i++) {
-                Theme::drawBangersText(t, tx + OUTLINE_OFS[i][0], ty + OUTLINE_OFS[i][1],
-                                        msg, Theme::BLACK, HEADLINE_SIZE);
-            }
+            // One pass, not twenty-four: this was 14.8 ms of every frame.
+            Theme::drawBangersOutline(t, tx, ty, msg, Theme::BLACK, HEADLINE_SIZE, 2);
             Theme::drawBangersText(t, tx, ty, msg, col, HEADLINE_SIZE);
             // Padded well past the ink: the word is only 33px tall and it is
             // pressed with a thumb, over a moving Squachy.
@@ -3044,6 +3048,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
             s_nearbyOn = true;
         }
     }
+    FrameProf::lap(FrameProf::HEADLINE);
 
     // The pet, after Squachy AND after the headline.
     //

@@ -49,6 +49,9 @@ namespace Settings {
 
     Background background();
     void       cycleBackground();    // advances+wraps, persists
+    // For the bench: this session only, NOT saved, so the owner's own pick
+    // is back at the next boot. Refuses a background the menu cannot reach.
+    bool       previewBackground(Background b);
 
     // Desk mode keeps its own background, remembered separately ("deskBg"),
     // so the scene you leave beside the keyboard is not the scene you carry

@@ -1,5 +1,6 @@
 // SquachWatch-CYD — theme implementation
 #include "theme.h"
+#include "frame_prof.h"
 #include "caustic_tile.h"
 #include "lil_guy.h"
 #include "detection.h"
@@ -3213,6 +3214,7 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // Kelp: jointed multi-segment strands, sway amplitude growing
     // toward the tip like real kelp anchored at the base, with little
     // leaf ticks along each segment.
+    FrameProf::lap(FrameProf::X1);   // water, rays, snow, floor
     int weedBaseY = yEnd - 1;
     static const uint8_t NW = 6;
     for (uint8_t i = 0; i < NW; i++) {
@@ -3237,6 +3239,7 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         }
     }
 
+    FrameProf::lap(FrameProf::X2);   // weeds
     for (uint8_t i = 0; i < NB; i++) {
         bubY[i] -= 0.6f * s_animK;
         if (bubY[i] < yStart) { bubY[i] = (float)yEnd; bubX[i] = (float)random(0, w); }
@@ -3245,6 +3248,7 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
 
     // Fish panic and speed up while the shark is out — a little
     // reactive touch that ties the tank together.
+    FrameProf::lap(FrameProf::X3);   // bubbles
     float fleeMul = sharkActive ? 2.2f : 1.0f;
 
     for (uint8_t i = 0; i < N; i++) {
@@ -3326,6 +3330,7 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // scales as 1/d^2, so a pass through the middle blows the school
     // apart and the cohesion rule pulls it back together afterwards
     // without anyone scripting the recovery.
+    FrameProf::lap(FrameProf::X4);   // the eight fish and the jellies
     static const uint8_t NS = 26;
     static float shX[NS], shY[NS], shVX[NS], shVY[NS];
     static bool  shInited = false;
@@ -9082,6 +9087,65 @@ void drawBangersText(TFT_eSPI& t, int x, int y, const char* s, uint16_t color, B
     }
 
     drawBangersPass(t, s, x + jitterX, y, color, size, glitching, bucket, level);
+}
+
+// The outline behind a headline, in one pass instead of twenty-four.
+//
+// The 24-pass trick draws the same text at every offset in a 5x5 square but
+// the centre, each pass scanning every glyph bitmap bit by bit and drawing
+// every ink run again. NEARBY at LG that way was 14.8 ms of every frame on
+// the main screen -- measured -- which is as much as the whole animated
+// background and nearly as much as pushing the frame to the panel.
+//
+// Same picture, one scan: every ink run becomes one block, the run widened
+// by `radius` each side and `radius` rows above and below. The union of
+// those blocks IS the union of the 24 offsets (the one pixel the offsets
+// miss, the run's own, the colour pass then paints over in both versions),
+// so the result is identical to the pixel -- checked against the emulator's
+// renders, not asserted.
+//
+// The glitch is reproduced, not skipped: same jitter, same dropped rows,
+// from the same hash of the same bucket the colour pass will use, so a
+// burst tears the outline and the fill together the way it did before.
+void drawBangersOutline(TFT_eSPI& t, int x, int y, const char* s, uint16_t color,
+                        BangersSize size, uint8_t radius) {
+    uint32_t now = millis();
+    bool glitching = updateGlitchState(now);
+    uint8_t level = s_glitchLevel;
+    uint32_t bucket = now / 40;
+    int jitterMax = JITTER_MAX_BY_LEVEL[level];
+    int jitterX = glitching ? (int)(glitchHash(bucket) % (2 * jitterMax + 1)) - jitterMax : 0;
+    int dropoutMod = DROPOUT_MOD_BY_LEVEL[level];
+    const int r = radius;
+    const int tall = 2 * r + 1;
+
+    int cursorX = x + jitterX;
+    for (const char* p = s; *p; p++) {
+        const BangersFont::Glyph* g = bangersFind(*p, size);
+        if (!g) continue;
+        if (g->bitmap) {
+            int rowBytes = (g->w + 7) / 8;
+            for (int row = 0; row < g->h; row++) {
+                if (glitching && (glitchHash(bucket * 131u + row) % dropoutMod) == 0) continue;
+                const uint8_t* rowPtr = g->bitmap + row * rowBytes;
+                int runStart = -1;
+                for (int col = 0; col <= g->w; col++) {
+                    bool bit = false;
+                    if (col < g->w) {
+                        uint8_t byte = rowPtr[col / 8];
+                        bit = (byte >> (7 - (col % 8))) & 1;
+                    }
+                    if (bit && runStart < 0) runStart = col;
+                    if (!bit && runStart >= 0) {
+                        t.fillRect(cursorX + g->xoff + runStart - r, y + g->yoff + row - r,
+                                   (col - runStart) + 2 * r, tall, color);
+                        runStart = -1;
+                    }
+                }
+            }
+        }
+        cursorX += g->advance;
+    }
 }
 
 // Ported from squachy.cpp verbatim (was a private static there,

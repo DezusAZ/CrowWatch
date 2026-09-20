@@ -76,10 +76,8 @@ void uiWatchAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, boo
     int tw = Theme::bangersTextWidth(msg, Theme::BangersSize::MD);
     if (tw <= w - 8) {
         int tx = (w - tw) / 2;
-        for (uint8_t i = 0; i < 24; i++) {
-            Theme::drawBangersText(t, tx + OUTLINE_OFS[i][0], ty + OUTLINE_OFS[i][1],
-                                    msg, Theme::BLACK, Theme::BangersSize::MD);
-        }
+        // One pass, not twenty-four -- see drawBangersOutline() in theme.cpp.
+        Theme::drawBangersOutline(t, tx, ty, msg, Theme::BLACK, Theme::BangersSize::MD, 2);
         Theme::drawBangersText(t, tx, ty, msg, col, Theme::BangersSize::MD);
     } else {
         // Narrowest portrait rotations: same fallback CLEAR's status
