@@ -25,10 +25,14 @@
 class TFT_eSPI;
 class TFT_eSprite;
 
-// The 2.8" CYDs, both panel types, fast and slow. -DCYD is also set by the
-// two RL Phantom builds, so they are named out rather than assumed away.
+// The 2.8" CYDs, both panel types, fast and slow, and the RL Phantom 2.4" in
+// both touch variants. The Phantom was named out for a day for a reason that
+// turned out not to apply: this push holds the bus inside the same
+// transaction the library's own does, and its touch reads happen between
+// frames as they always did. The 3.5" and AWOK stay out until somebody has
+// watched their screens.
 #if defined(ARDUINO_ARCH_ESP32) && defined(CYD) && !defined(CYD35) && \
-    !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
+    !defined(AWOK)
   #define SQW_FRAME_PUSH 1
 #else
   #define SQW_FRAME_PUSH 0
