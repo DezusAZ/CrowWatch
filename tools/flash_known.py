@@ -19,7 +19,12 @@ BOARDS = {
     "78:42:1c:94:e7:5c": ("rlphantom-r", "RL Phantom 2.4in, resistive"),
     "88:57:21:2e:ba:34": ("cyd-ili9341", "2.8in ILI9341, no 80 MHz"),
     "8c:94:df:4e:ee:dc": ("cyd-ili9341", "2.8in ILI9341, no 80 MHz"),
-    # a4:f0:0f:8e:3a:88 is the 3.5in (cyd35): on hold, only when asked
+    # The 3.5in. It was kept out of this table while it was on hold -- it draws
+    # in two bands, and that path corrupted the heap and crashed it every 30 s.
+    # Back in on 2026-09-20 to see what the faster drawing did for it; if it
+    # goes back on hold, comment it out again rather than leaving a board here
+    # that nobody means to flash.
+    "a4:f0:0f:8e:3a:88": ("cyd35-fast", "3.5in, 80MHz, two-band drawing"),
     # 88:57:21:2e:e6:e0 runs SquachEmit, not this firmware
     # d4:d4:da:88:62:b8 is something else entirely (HoloCube?): never
 }

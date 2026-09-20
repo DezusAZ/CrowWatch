@@ -37,6 +37,26 @@ class FastSprite : public TFT_eSprite {
 public:
     explicit FastSprite(TFT_eSPI* tft) : TFT_eSprite(tft) {}
 
+    // The buffer's own size and start, which is NOT what width()/height()
+    // report: with a datum viewport set those return the VIEWPORT's size, and
+    // the 3.5" pushes its main screen through a 480x320 viewport laid over a
+    // 480x160 buffer. Anything that walks the buffer row by row has to ask
+    // here or it reads straight off the end -- a LoadStoreError panic, found
+    // on that board on 2026-09-20 and the reason FramePush::push() takes a
+    // buffer and a size rather than a sprite.
+#if defined(ARDUINO_ARCH_ESP32)
+    int32_t  bufW() const { return _dwidth; }
+    int32_t  bufH() const { return _dheight; }
+    uint8_t* buf()  const { return _img8; }
+#else
+    // The emulator's sprite is a different class and keeps none of those, but
+    // it has no fast push to feed either -- these exist so the one call site
+    // compiles there.
+    int32_t  bufW() { return width(); }
+    int32_t  bufH() { return height(); }
+    uint8_t* buf()  { return nullptr; }
+#endif
+
 #if defined(ARDUINO_ARCH_ESP32)
     // FAST OFF on the console: every override hands straight to the library,
     // so the two can be compared on one boot.

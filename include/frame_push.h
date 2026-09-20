@@ -23,15 +23,17 @@
 #include <Arduino.h>
 
 class TFT_eSPI;
-class TFT_eSprite;
 
 // The 2.8" CYDs, both panel types, fast and slow, and the RL Phantom 2.4" in
 // both touch variants. The Phantom was named out for a day for a reason that
 // turned out not to apply: this push holds the bus inside the same
 // transaction the library's own does, and its touch reads happen between
-// frames as they always did. The 3.5" and AWOK stay out until somebody has
-// watched their screens.
-#if defined(ARDUINO_ARCH_ESP32) && defined(CYD) && !defined(CYD35) && \
+// frames as they always did. The 3.5" came in on 2026-09-20, once the panel
+// record was keyed by panel row rather than by row-within-the-sprite: it
+// pushes two bands a frame and a per-sprite record would have had the second
+// band reading the first one's rows. AWOK stays out until somebody has
+// watched its screen.
+#if defined(ARDUINO_ARCH_ESP32) && (defined(CYD) || defined(CYD35)) && \
     !defined(AWOK)
   #define SQW_FRAME_PUSH 1
 #else
@@ -113,11 +115,19 @@ void invalidate();
 // Rows actually sent by the last push, for the frame line.
 int32_t lastRows();
 
-// Ships the sprite. Returns false if it declined -- wrong board, switched
-// off, not an 8-bit sprite, no buffer (a rotate can lose it), a size that
-// does not divide into the hardware's 64-byte bursts -- and the caller must
-// then push it the ordinary way. Never partially draws: it either does the
-// whole frame or touches nothing.
-bool push(TFT_eSPI& tft, TFT_eSprite& spr, int32_t x, int32_t y);
+// Ships `h` rows of `w` 8-bit pixels from `src` to the panel at x,y.
+//
+// It takes the buffer rather than the sprite on purpose. A sprite's
+// width()/height() report the VIEWPORT when one is set with a datum, not the
+// buffer, and the 3.5" pushes its main screen through a full-screen viewport
+// laid over a half-height buffer -- asking the sprite gave twice the rows
+// that exist and read straight off the end of it. The caller knows the real
+// size (FastSprite::bufW()/bufH()) and passes it.
+//
+// Returns false if it declined -- wrong board, switched off, no buffer (a
+// rotate can lose it), a size that does not divide into the hardware's
+// 64-byte bursts -- and the caller must then push it the ordinary way. Never
+// partially draws: it either does the whole thing or touches nothing.
+bool push(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int32_t x, int32_t y);
 
 }  // namespace FramePush

@@ -21,12 +21,19 @@ static const uint32_t PX_PER_BURST = 32;
 // the counters and the buttons -- about a third -- repainted identically
 // every frame by code that does not know they did not change.
 //
+// Rows are remembered by their PANEL row, not their row within the sprite.
+// The 3.5" draws its main screen in two bands -- one half-height sprite
+// pushed twice, at the top of the screen and then halfway down -- and a
+// record indexed within the sprite would have the second band reading the
+// first band's rows and skipping whatever happened to match. Indexing by
+// (y + row) gives each band its own half of the record and costs nothing.
+//
 // The record is only as good as its last full push, so it is thrown away
 // (invalidate()) whenever anything else could have touched the panel -- a
 // rotation, a fall-back to the ordinary push -- and every 64th frame is a
 // full one regardless, so nothing that slips past that can stay on screen
 // for more than three seconds.
-static const int32_t MAX_ROWS = 320;   // the 2.8" in portrait
+static const int32_t MAX_ROWS = 480;   // the 3.5" in portrait, the tallest there is
 static uint32_t s_rowHash[MAX_ROWS];
 static bool     s_valid   = false;
 static int32_t  s_validW  = 0, s_validH = 0;
@@ -89,25 +96,21 @@ static void pushPixels(const uint8_t* p, uint32_t total) {
 
 static uint32_t gcd32(uint32_t a, uint32_t b) { while (b) { uint32_t t = a % b; a = b; b = t; } return a; }
 
-bool push(TFT_eSPI& tft, TFT_eSprite& spr, int32_t x, int32_t y) {
+bool push(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int32_t x, int32_t y) {
     if (!s_ready || !s_enabled) return false;
-    if (spr.getColorDepth() != 8) return false;
-
-    const int32_t w = spr.width();
-    const int32_t h = spr.height();
-    if (w <= 0 || h <= 0 || h > MAX_ROWS || (w & 3)) return false;
-    const uint32_t total = (uint32_t)w * (uint32_t)h;
-    if (total % PX_PER_BURST != 0) return false;
-
     // Null when the sprite was never created, or was lost to a failed
     // re-create after a rotate. The caller's fallback handles it -- and
     // handles it by doing nothing, same as pushSprite() would.
-    const uint8_t* src = (const uint8_t*)spr.getPointer();
     if (!src) return false;
+    if (w <= 0 || h <= 0 || y < 0 || y + h > MAX_ROWS || (w & 3)) return false;
+    const uint32_t total = (uint32_t)w * (uint32_t)h;
+    if (total % PX_PER_BURST != 0) return false;
 
     // A span has to be whole bursts: 320 wide, any row is; 240 wide, two.
     const int32_t align = (int32_t)(PX_PER_BURST / gcd32((uint32_t)w, PX_PER_BURST));
 
+    // A frame is every band of it, so the periodic full refresh counts pushes
+    // rather than frames: 64 pushes is 64 frames on one band and 32 on two.
     const bool full = !s_valid || s_validW != w || s_validH != h || (s_frameNo % 64) == 0;
     s_frameNo++;
 
@@ -116,8 +119,8 @@ bool push(TFT_eSPI& tft, TFT_eSprite& spr, int32_t x, int32_t y) {
     int32_t nChanged = 0;
     for (int32_t r = 0; r < h; r++) {
         const uint32_t hv = rowHash(src + (size_t)r * (size_t)w, w);
-        changed[r] = full || hv != s_rowHash[r];
-        s_rowHash[r] = hv;
+        changed[r] = full || hv != s_rowHash[y + r];
+        s_rowHash[y + r] = hv;
         if (changed[r]) nChanged++;
     }
     s_lastRows = 0;
@@ -155,7 +158,7 @@ void setEnabled(bool) {}
 bool enabled() { return false; }
 void invalidate() {}
 int32_t lastRows() { return 0; }
-bool push(TFT_eSPI&, TFT_eSprite&, int32_t, int32_t) { return false; }
+bool push(TFT_eSPI&, const uint8_t*, int32_t, int32_t, int32_t, int32_t) { return false; }
 
 #endif
 

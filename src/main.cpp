@@ -2539,7 +2539,10 @@ static inline void pushFrame(int x, int y) {
     // rather than half-draws, and the ordinary push is what it declines to;
     // both leave the frame fully on the panel before the clock below stops,
     // so DIAGNOSTICS and the [frame] line measure the same thing either way.
-    if (!FramePush::push(tft, frame, x, y)) {
+    // The buffer and its REAL size: with a viewport set the sprite reports the
+    // viewport's size, not the buffer's, and cyd35 pushes through one.
+    if (frame.getColorDepth() != 8 ||
+        !FramePush::push(tft, frame.buf(), frame.bufW(), frame.bufH(), x, y)) {
         frame.pushSprite(x, y);
         FramePush::invalidate();   // the panel now holds something push() did not record
     }
