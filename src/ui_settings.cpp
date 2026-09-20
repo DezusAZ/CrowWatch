@@ -26,7 +26,9 @@ static int g_scrollFor[4] = { 0, 0, 0, 0 };
 
 // BACK is pinned along the bottom now. Height of that strip, reserved out of
 // the body so the last row cannot hide underneath it.
-static const int PINNED_BACK_H = 26;
+// Its own copy, kept in step with Theme's -- the list stops above this
+// strip, so a disagreement puts the last row under it, untappable.
+#define PINNED_BACK_H (Theme::pinnedBackH(screenW))
 
 // Which groups are folded shut. Session-only on purpose: a fold is a "get this
 // out of my way for a minute", not a preference worth surviving a reboot.
@@ -364,15 +366,18 @@ static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom,
     top = TOP_MARGIN;
     // The pinned BACK strip owns the bottom of the screen, so the list stops
     // above it -- otherwise the last row draws underneath and cannot be tapped.
-    bodyBottom = screenH - PINNED_BACK_H - 2;
-    t.setTextSize(2);
+    bodyBottom = screenH - Theme::pinnedBackH(t.width()) - 2;
+    t.setTextSize(Theme::uiMenuTextSize(t));
     // Two pixels taller than the text strictly needs on each side: a 24 px
     // row was a near miss for a thumb, 26 is not, and seven of them still
-    // fit above the BACK strip in landscape.
+    // fit above the BACK strip in landscape. A wide panel draws the row a
+    // size bigger, and this carries it: taller letters, taller row, bigger
+    // thumb target, all off the one number.
     rowH = t.fontHeight() + 10;
     const int big = t.fontHeight();
-    t.setTextSize(1);
+    t.setTextSize(Theme::uiTextSize(t, 1));
     headerH = t.fontHeight() + 6;
+    t.setTextSize(1);
     tallH   = t.fontHeight() + big + 7;
 }
 
@@ -540,7 +545,7 @@ bool uiSettingsRowIsOff(SettingsRow r) {
 static void pinnedBackRect(int screenW, int screenH, int& x, int& y, int& w, int& h) {
     x = 0;
     w = screenW;
-    h = PINNED_BACK_H;
+    h = Theme::pinnedBackH(screenW);
     y = screenH - h;
 }
 
@@ -549,7 +554,8 @@ static void drawPinnedBack(TFT_eSPI& t, int screenW, int screenH) {
     pinnedBackRect(screenW, screenH, x, y, w, h);
     t.fillRect(x, y, w, h, Theme::BG);
     t.drawFastHLine(x, y, w, Theme::PURPLE);
-    t.setTextSize(2);
+    t.setTextFont(1);
+    t.setTextSize(Theme::uiMenuTextSize(t));
     t.setTextColor(Theme::CYAN, Theme::BG);
     // The DESK MODE page splits the strip: OK on the left goes straight out
     // to wherever Settings was opened from, the desk or the main screen; UP
@@ -583,7 +589,9 @@ bool uiSettingsTapPinnedBack(TFT_eSPI& t, int x, int y, int screenW, int screenH
 }
 
 static void drawHeader(TFT_eSPI& t, int w, int y, int hgt, RowGroupId g) {
-    t.setTextSize(1);
+    // One short word, alone on its row: the easiest thing on the screen to
+    // step up, and the thing that vanished most on a 480-wide panel.
+    t.setTextSize(Theme::uiTextSize(t, 1));
     t.setTextColor(groupColor(g), Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(groupName(g));
@@ -676,7 +684,7 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, const char* label,
     // backing below stays anyway: it costs nothing now and it is what keeps
     // text crisp if a row is ever drawn without a panel behind it.
     rowPanel(t, w, y, hgt);
-    t.setTextSize(compact ? 1 : 2);
+    t.setTextSize(compact ? 1 : Theme::uiMenuTextSize(t));
     t.setTextColor(danger ? Theme::RED : labelColor, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(label);

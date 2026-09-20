@@ -133,6 +133,13 @@ namespace Theme {
     static const int LIST_TOP       = 16;   // under the corner icons
     static const int LIST_HEADING_H = 14;   // the Settings group header's height
     static const int PINNED_BACK_H  = 26;
+    // ...and how tall it actually is on THIS panel. The strip is the bottom
+    // button on every menu screen, and those rows draw a size bigger on a
+    // wide panel -- a size-2 BACK under size-3 rows is the one small thing
+    // left on the screen. Size 3 is 24 px of glyph, which 26 cannot hold.
+    // Takes a width rather than a display because two of its callers are hit
+    // tests that are handed a screen size and nothing else.
+    int pinnedBackH(int panelW);
     void drawListHeading(TFT_eSPI& t, const char* text, uint16_t color);
 
     // The face speech bubbles are set in. Chosen at compile time by
@@ -190,6 +197,36 @@ namespace Theme {
 
     // No-op unless a toast is live. Call last, after the screen has drawn.
     void drawToast(TFT_eSPI& t, uint32_t now);
+
+    // How big to draw the built-in font on THIS panel.
+    //
+    // The layout is already responsive -- every box, bar and row is sized
+    // from t.width()/t.height() -- but the text inside was not, so on the
+    // 3.5" the boxes grew and the letters did not. It is worse than it
+    // sounds: that panel is 165 pixels to the inch against the 2.8"'s 143,
+    // so the same 8-pixel glyph is physically SMALLER on the bigger screen,
+    // 1.23 mm against 1.42.
+    //
+    // The built-in font scales in whole numbers only, so a 480-wide row is
+    // 80 characters at size 1 or 40 at size 2 -- the 2.8"'s comfortable 53
+    // is not reachable. So this steps up only the smallest text, and only
+    // where a short label has the room: headings, buttons, status. Dense
+    // lists keep size 1 and their row counts with it.
+    //
+    // Keyed on the WIDTH a line actually has, not on which board it is: the
+    // 3.5" in portrait is 320 wide, the same as the 2.8" in landscape, and
+    // should read the same there. Every narrower panel gets `base` back and
+    // nothing about it changes.
+    uint8_t uiTextSize(TFT_eSPI& t, uint8_t base);
+
+    // Menu and list rows. These are already drawn at size 2 everywhere, and
+    // on the 3.5" that is still physically SMALLER than size 2 on the 2.8" --
+    // 165 pixels to the inch against 143 -- so a wide panel steps them to 3.
+    // Every list in this codebase takes its row height from fontHeight(), by
+    // long-standing habit so drawing and hit-testing cannot drift, which
+    // means the rows get taller by themselves and the targets grow with the
+    // letters. Narrow panels get 2 back and nothing about them moves.
+    uint8_t uiMenuTextSize(TFT_eSPI& t);
 
     void drawButton(TFT_eSPI& t, int x, int y, int w, int h,
                     const char* label, bool pressed, uint8_t textSize = 1);

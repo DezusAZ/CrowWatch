@@ -164,6 +164,13 @@ void uiAlertInit(TFT_eSPI& t, const Detection& d) {
 // screen (title, target label, confidence, vendor, MAC, RSSI, radar,
 // wordmark) stays horizontally centered regardless of rotation, so a
 // corner is the one spot guaranteed clear on all of them.
+// Every number on this screen was measured against a 320x240 panel and then
+// fixed there, so on the 3.5" the card, the radar and the three buttons all
+// kept their old sizes and drifted apart around a hole in the middle. These
+// scale them together; the narrow case returns exactly what it always did.
+static inline bool wideAlert(int w) { return w >= 400; }
+static inline int  stripHOf(int w)  { return wideAlert(w) ? 56 : 42; }
+
 static void moreInfoBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, int& bh) {
     // Stacked "MORE"/"INFO" on two lines (see the draw call below)
     // instead of one wide "MORE INFO" row -- a size-2 attempt at a
@@ -178,8 +185,8 @@ static void moreInfoBtnRect(int screenW, int screenH, int& bx, int& by, int& bw,
     // not runtime data -- the actual draw call still centers each line
     // with a live t.textWidth() regardless, so a few px of slop here
     // just shows up as slightly uneven padding, never a layout break.
-    bw = 70;
-    bh = 48;
+    bw = wideAlert(screenW) ? 104 : 70;
+    bh = wideAlert(screenW) ?  64 : 48;
     bx = screenW - bw - 4;
     by = screenH - bh - 4;
 }
@@ -191,8 +198,8 @@ static void moreInfoBtnRect(int screenW, int screenH, int& bx, int& by, int& bw,
 // "HUNT" is one short line and doesn't need the height -- matching the
 // neighbour matters more here than shrinking to fit the label.
 static void huntBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, int& bh) {
-    bw = 70;
-    bh = 48;
+    bw = wideAlert(screenW) ? 104 : 70;
+    bh = wideAlert(screenW) ?  64 : 48;
     bx = 4;
     by = screenH - bh - 4;
 }
@@ -201,7 +208,7 @@ static void huntBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, int
 // scope rather than a local in the draw function because the IGNORE button
 // sits inside this strip and is centred in it -- a number two things have to
 // agree on is not one either of them should own privately.
-static const int STRIP_H = 42;
+
 
 // IGNORE sits in the header strip, at its right-hand end. The bottom two
 // corners are taken by HUNT and MORE INFO, and the strip's left-hand end is
@@ -212,7 +219,7 @@ static void ignoreBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, i
     // Deliberately smaller than HUNT and MORE INFO, which are 70x48 down
     // in the corners where nothing else goes. Up here it shares the header
     // strip with the target label, and the label's budget is measured off
-    // this rect (see the STRIP_H block), so every pixel taken here is a
+    // this rect (see the stripHOf(w) block), so every pixel taken here is a
     // pixel taken from the longest type names.
     //
     // 62x28. Thicker than the 54x20 it replaced, and WIDER in step with it
@@ -232,8 +239,8 @@ static void ignoreBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, i
     // built-in font. 62 leaves 5px of margin. The only two names over the
     // line -- "PROXIMITY BEACON" at 188 and "HACKER HARDWARE" at 187 --
     // were already stepping down at any width.
-    bw = 62;
-    bh = 28;
+    bw = wideAlert(screenW) ? 92 : 62;
+    bh = wideAlert(screenW) ? 38 : 28;
     // 8 from the edge rather than 4. The margin has to clear the BORDER, not
     // the screen: with a 3px frame drawn over the outermost columns, a 4px
     // margin left the button one pixel off it, which reads as a collision
@@ -243,9 +250,9 @@ static void ignoreBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, i
     // left 18 rows of dead colour underneath and made the button read as
     // stuck to the ceiling instead of sitting in a title bar. The strip is
     // the only thing behind it, so centring on the strip IS centring on
-    // everything it overlaps -- and it is derived, so if STRIP_H ever moves
+    // everything it overlaps -- and it is derived, so if stripHOf(w) ever moves
     // the button moves with it.
-    by = (STRIP_H - bh) / 2;
+    by = (stripHOf(screenW) - bh) / 2;
 }
 
 bool uiAlertHitIgnore(int x, int y, int screenW, int screenH) {
@@ -266,8 +273,8 @@ bool uiAlertHitIgnore(int x, int y, int screenW, int screenH) {
 // above the bottom row, so between HUNT and MORE INFO is the one strip
 // left clear on every rotation: 92 px on the narrow one, 84 used.
 static void snoozeBtnRect(int screenW, int screenH, int& bx, int& by, int& bw, int& bh) {
-    bw = 84;
-    bh = 28;
+    bw = wideAlert(screenW) ? 124 : 84;
+    bh = wideAlert(screenW) ?  40 : 28;
     bx = (screenW - bw) / 2;
     by = screenH - bh - 4;
 }
@@ -338,13 +345,13 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     //
     // 42 rows because Bangers MD is a 33px cell and it has to sit inside.
     const uint16_t typeCol = Theme::colorFor(s_last.type);
-    t.fillRect(0, 0, w, STRIP_H, typeCol);
+    t.fillRect(0, 0, w, stripHOf(w), typeCol);
 
     // Inset by the border width. The frame draws last and would otherwise
     // paint straight over the strip's lit top edge and both its side edges,
     // leaving only the bottom shadow -- which is not a bevel. The strip sits
     // INSIDE the frame, so its bevel has to as well.
-    stripBevel(t, BORDER_W, BORDER_W, w - 2 * BORDER_W, STRIP_H - BORDER_W, typeCol);
+    stripBevel(t, BORDER_W, BORDER_W, w - 2 * BORDER_W, stripHOf(w) - BORDER_W, typeCol);
 
     // The label in Bangers MD rather than LG: MD is narrower per glyph, and
     // the longest labels here ("PROXIMITY BEACON", "HACKER HARDWARE") are
@@ -373,10 +380,10 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         } else {
             // No smaller Bangers exists, so step down through the built-in
             // font rather than clip.
-            t.setTextSize(2);
-            if (t.textWidth(tgt) > avail) t.setTextSize(1);
+            t.setTextSize(wideAlert(w) ? 3 : 2);
+            if (t.textWidth(tgt) > avail) t.setTextSize(wideAlert(w) ? 2 : 1);
             t.setTextColor(Theme::BG, typeCol);
-            t.setCursor(10, (STRIP_H - t.fontHeight()) / 2);
+            t.setCursor(10, (stripHOf(w) - t.fontHeight()) / 2);
             t.print(tgt);
         }
     }
@@ -396,11 +403,30 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     // Two columns when there is width for them: identity on the left,
     // the gauge on the right. The 240px rotation cannot hold both, so it
     // keeps the full-width plate and puts a smaller gauge underneath.
-    const bool wide = (w >= 300);
+    // Two columns need a LANDSCAPE shape, not just 300 pixels of width. The
+    // 3.5" in portrait is 320x480: wide enough by the old test, so it took the
+    // side-by-side layout meant for 320x240 and left the bottom half of the
+    // screen empty under it. Asking whether the panel is wider than it is tall
+    // sorts that out and cannot change any existing board -- 320x240 is still
+    // wide, 240x320 was already narrow.
+    const bool wide = (w >= 300 && w > h);
     const int PLATE_X = wide ? 12 : 14;
-    const int PLATE_Y = STRIP_H + 12;
-    const int PLATE_W = wide ? 168 : (w - 28);
-    const int PLATE_H = 98;
+    const int PLATE_Y = stripHOf(w) + 12;
+    const int PLATE_W = wideAlert(w) ? 250 : (wide ? 168 : (w - 28));
+    const int PLATE_H = wideAlert(w) ? 152 : 98;
+
+    // Where each line sits inside the plate. The old numbers were measured
+    // against a 98px card and a size-1 readout; a wide panel gets a 138px card
+    // and a size-2 one, so they are re-measured rather than stretched.
+    const bool  bigPlate = wideAlert(w);
+    const uint8_t readSz = bigPlate ? 2 : 1;
+    const int NAME_DY  = bigPlate ?  46 : 38;
+    const int MAC_DY   = bigPlate ?  66 : 50;
+    const int BAR_DY   = bigPlate ? 112 : 72;
+    const int LABEL_DY = bigPlate ?  22 : 12;   // above the bar
+    const int INFO_DY  = bigPlate ?  22 : 11;   // up from the plate's bottom
+    const int BAR_HH   = bigPlate ?  14 : 12;
+
     t.fillRect(PLATE_X, PLATE_Y, PLATE_W, PLATE_H, Theme::BG);
     t.drawRect(PLATE_X, PLATE_Y, PLATE_W, PLATE_H, typeCol);
 
@@ -425,7 +451,7 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         } else {
             t.setTextSize(2);
             t.setTextColor(Theme::CYAN, Theme::BG);
-            t.setCursor(PLATE_X + (PLATE_W - t.textWidth(src)) / 2, PLATE_Y + 10);
+            t.setCursor(PLATE_X + (PLATE_W - t.textWidth(src)) / 2, PLATE_Y + (bigPlate ? 14 : 10));
             t.print(src);
         }
     }
@@ -433,10 +459,10 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     // The device's own name, where it has one -- a Flipper's nickname, a
     // Pwnagotchi's, a drone's serial, an iBeacon's deployment. Carried in
     // Detection all along and never drawn on this screen.
-    t.setTextSize(1);
+    t.setTextSize(readSz);
     t.setTextColor(Theme::WHITE, Theme::BG);
     if (s_last.name[0] && !s_redacted) {
-        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(s_last.name)) / 2, PLATE_Y + 38);
+        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(s_last.name)) / 2, PLATE_Y + NAME_DY);
         t.print(s_last.name);
     }
 
@@ -447,14 +473,14 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
                  s_last.mac[0], s_last.mac[1], s_last.mac[2],
                  s_last.mac[3], s_last.mac[4], s_last.mac[5]);
-    t.setCursor(PLATE_X + (PLATE_W - t.textWidth(mac)) / 2, PLATE_Y + 50);
+    t.setCursor(PLATE_X + (PLATE_W - t.textWidth(mac)) / 2, PLATE_Y + MAC_DY);
     t.print(mac);
 
     // Signal as a bar as well as a number: -90 dBm empty, -40 full. The
     // number is for the log; the bar is what reads from across a room.
     {
-        const int BAR_X = PLATE_X + 8, BAR_Y = PLATE_Y + 72;
-        const int BAR_W = PLATE_W - 16, BAR_H = 12;
+        const int BAR_X = PLATE_X + 8, BAR_Y = PLATE_Y + BAR_DY;
+        const int BAR_W = PLATE_W - 16, BAR_H = BAR_HH;
         t.setTextColor(Theme::CYAN, Theme::BG);
         // Label above the bar rather than beside it: the two-column layout
         // leaves the plate 168 wide, and a label plus a usable meter do not
@@ -462,11 +488,11 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         // right-aligned -- which is also what takes it out of the readout
         // line below, where the four fields together ran 174px into a 168px
         // plate and pushed the sighting count off the edge.
-        t.setCursor(PLATE_X + 8, BAR_Y - 12);
+        t.setCursor(PLATE_X + 8, BAR_Y - LABEL_DY);
         t.print("SIGNAL");
         t.setTextColor(confColor, Theme::BG);
         const char* cl = confidenceLabel(conf);
-        t.setCursor(PLATE_X + PLATE_W - 8 - t.textWidth(cl), BAR_Y - 12);
+        t.setCursor(PLATE_X + PLATE_W - 8 - t.textWidth(cl), BAR_Y - LABEL_DY);
         t.print(cl);
         int v = s_last.rssi;
         if (v < -90) v = -90;
@@ -482,7 +508,7 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
     snprintf(info, sizeof(info), "%d dBm   CH %u   x%u",
              s_last.rssi, s_last.channel, (unsigned)s_last.hits);
     t.setTextColor(confColor, Theme::BG);
-    t.setCursor(PLATE_X + (PLATE_W - t.textWidth(info)) / 2, PLATE_Y + PLATE_H - 11);
+    t.setCursor(PLATE_X + (PLATE_W - t.textWidth(info)) / 2, PLATE_Y + PLATE_H - INFO_DY);
     t.print(info);
     // The first one of its kind, ever, on this board: a line in the gap
     // between the strip and the plate, in the strip's own colour.
@@ -491,7 +517,7 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
                        : s_first ? "* FIRST OF ITS KIND *" : "* AT NIGHT *";
         t.setTextSize(1);
         t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
-        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, STRIP_H + 2);
+        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, stripHOf(w) + 2);
         t.print(fl);
     } else if (s_lastFree) {
         // Shares the line, and loses it to FIRST or AT NIGHT, both of which
@@ -499,7 +525,7 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         const char* fl = "* QUIET UNLESS IT NEARS *";
         t.setTextSize(1);
         t.setTextColor(Theme::CYAN, Theme::BG);
-        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, STRIP_H + 2);
+        t.setCursor(PLATE_X + (PLATE_W - t.textWidth(fl)) / 2, stripHOf(w) + 2);
         t.print(fl);
     }
 
@@ -521,7 +547,7 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         // the buttons. Centring it on the PLATE instead put its well three
         // pixels into the strip -- the plate starts 12 rows below the strip,
         // so a circle centred on the plate is not centred on the gap.
-        const int ceilY  = STRIP_H + 4;
+        const int ceilY  = stripHOf(w) + 4;
         const int floorY = h - 56;
         const int gx = wide ? (PLATE_X + PLATE_W + (w - PLATE_X - PLATE_W) / 2)
                             : (w / 2);
@@ -533,7 +559,8 @@ void uiAlertTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
         int gr = wide ? ((w - PLATE_X - PLATE_W) / 2 - 6) : 26;
         if (gy - gr - 4 < ceilY)  gr = gy - ceilY - 4;
         if (gy + gr + 4 > floorY) gr = floorY - gy - 4;
-        if (gr > 60) gr = 60;
+        const int grMax = wideAlert(w) ? 92 : 60;
+        if (gr > grMax) gr = grMax;
         if (gr > 8) {
             t.fillRect(gx - gr - 4, gy - gr - 4, (gr + 4) * 2, (gr + 4) * 2, Theme::BG);
             t.drawRect(gx - gr - 4, gy - gr - 4, (gr + 4) * 2, (gr + 4) * 2, typeCol);

@@ -68,7 +68,17 @@ const char* const FILL_LINES[8] = {
 // of pranks should find the pranks where they left them.
 uint8_t     s_tab = 0;
 
-const int BW = 68, BH = 26, AW = 44, TW = 56;
+// TYPE, and the page arrows. These were left at their old width when BACK and
+// FILL grew, so TYPE sat half as wide as the buttons beside it with its label
+// still at size 1 -- the one that gets noticed, because it is between them.
+static inline int AWof(TFT_eSPI& t) { return t.width() >= 400 ?  72 : 44; }
+static inline int TWof(TFT_eSPI& t) { return t.width() >= 400 ? 112 : 56; }
+// BACK, SEND, FILL and the rest. 68x26 was measured against size-1 labels on
+// a 320-wide panel; a 480-wide one draws them at size 2, and "[ CANCEL ]" is
+// 120 px at that size, so the box has to lead the label or drawButton just
+// declines the step-up and they stay small. Everything narrower is unchanged.
+static inline int BWof(TFT_eSPI& t) { return t.width() >= 400 ? 128 : 68; }
+static inline int BHof(TFT_eSPI& t) { return t.width() >= 400 ?  36 : 26; }
 
 // Held to 36 characters. Portrait is 240 wide and these start 8 in, so 38 is
 // the most that fits; the first versions ran to 41 and lost their last words
@@ -436,13 +446,15 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
     // portrait. The longest line is twenty characters, which is wider than half
     // of 240, so portrait keeps a single column.
     const int cols = port ? 1 : 2;
-    const int cw = (w - 8 - (cols - 1) * 6) / cols, ch = port ? 18 : 20;
+    // The cell grows with the letters, or a size-2 line sits on the border.
+    const int cw = (w - 8 - (cols - 1) * 6) / cols;
+    const int ch = port ? 18 : (Theme::uiTextSize(t, 1) == 1 ? 20 : 28);
     const int y0 = by + bh + 6;
     s_lineN = 0;
     if (s_typedOn) {
         // The whole message, large, where the lines were -- read once more
         // before it goes, which is the point of asking.
-        const int px = 4, py = y0, pw = w - 8, ph = (h - BH - 6 - 16) - y0;
+        const int px = 4, py = y0, pw = w - 8, ph = (h - BHof(t) - 6 - 16) - y0;
         t.fillRect(px, py, pw, ph, Theme::BG);
         t.drawRect(px, py, pw, ph, Theme::VAPOR_PINK);
         t.setTextColor(Theme::W95_LIGHT, Theme::BG);
@@ -476,7 +488,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
         const uint8_t n = EmoteScript::PER_TAB;
         const int ecols = port ? 2 : 3, erows = (n + ecols - 1) / ecols;
         const int ew = (w - 8 - (ecols - 1) * 6) / ecols;
-        int eh = ((h - BH - 6 - 16) - ty0 - (erows - 1) * 5) / erows;
+        int eh = ((h - BHof(t) - 6 - 16) - ty0 - (erows - 1) * 5) / erows;
         if (eh > 44) eh = 44;
         for (uint8_t i = 0; i < n; i++) {
             const MeshMsg::Emote e = EmoteScript::atTab(s_tab, i);
@@ -499,10 +511,11 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
             }
         }
     } else if (s_fillOn) {
-        const int LTH = 18;
+        const int LTH = Theme::uiTextSize(t, 1) == 1 ? 18 : 26;
+        t.setTextSize(Theme::uiTextSize(t, 1));
         t.setTextColor(Theme::VAPOR_YELLOW, Theme::BG);
         const char* hd = "PICK A START, TYPE THE REST";
-        t.setCursor((w - t.textWidth(hd)) / 2, y0 + (LTH - 8) / 2);
+        t.setCursor((w - t.textWidth(hd)) / 2, y0 + (LTH - t.fontHeight()) / 2);
         t.print(hd);
         const int ly0 = y0 + LTH + 5;
         for (int i = 0; i < 8; i++) {
@@ -512,8 +525,9 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
             s_lineN++;
             t.fillRect(x, y, cw, ch, Theme::BG);
             t.drawRect(x, y, cw, ch, Theme::VAPOR_YELLOW);
+            t.setTextSize(Theme::uiTextSize(t, 1));
             t.setTextColor(Theme::WHITE, Theme::BG);
-            t.setCursor(x + 6, y + (ch - 8) / 2);
+            t.setCursor(x + 6, y + (ch - t.fontHeight()) / 2);
             t.print(FILL_LINES[i]);
             t.setTextColor(Theme::W95_SHADOW, Theme::BG);
             t.print("___");
@@ -521,7 +535,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
     } else {
         // The same tab row the emote half draws, in the same place, so the two
         // pickers read as one control with two halves.
-        const int LTH = 18;
+        const int LTH = Theme::uiTextSize(t, 1) == 1 ? 18 : 26;
         const int ltw = (w - 8 - (MeshMsg::CANNED_TABS - 1) * 3) / MeshMsg::CANNED_TABS;
         for (uint8_t i = 0; i < MeshMsg::CANNED_TABS; i++) {
             const int x = 4 + i * (ltw + 3);
@@ -531,7 +545,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
             t.drawRect(x, y0, ltw, LTH, on ? Theme::VAPOR_PINK : Theme::W95_SHADOW);
             const char* nm = MeshMsg::CANNED_TAB_NAME[i];
             t.setTextColor(on ? Theme::labelOn(Theme::PURPLE) : Theme::W95_LIGHT, on ? Theme::PURPLE : Theme::BG);
-            t.setCursor(x + (ltw - t.textWidth(nm)) / 2, y0 + (LTH - 8) / 2);
+            t.setCursor(x + (ltw - t.textWidth(nm)) / 2, y0 + (LTH - t.fontHeight()) / 2);
             t.print(nm);
         }
         const int ly0 = y0 + LTH + 5;
@@ -546,8 +560,9 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
             const uint16_t bg = sel ? Theme::PURPLE : Theme::BG;
             t.fillRect(x, y, cw, ch, bg);
             t.drawRect(x, y, cw, ch, sel ? Theme::VAPOR_PINK : Theme::CYAN);
+            t.setTextSize(Theme::uiTextSize(t, 1));
             t.setTextColor(sel ? Theme::labelOn(bg) : Theme::WHITE, bg);
-            t.setCursor(x + 6, y + (ch - 8) / 2);
+            t.setCursor(x + 6, y + (ch - t.fontHeight()) / 2);
             t.print(MeshMsg::CANNED[idx]);
         }
     }
@@ -581,7 +596,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
     }
     if (st) {
         t.setTextColor(sc, Theme::BG);
-        t.setCursor(8, h - BH - 6 - 12);
+        t.setCursor(8, h - BHof(t) - 6 - 12);
         t.print(st);
     }
 
@@ -590,7 +605,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
     // SEND -- at opposite ends, so the one cannot be hit reaching for the
     // other -- and the page arrows go, so the choice cannot scroll out of
     // sight. A typed message's way back is EDIT: to the keyboard, text kept.
-    s_back = { 4, (int16_t)(h - BH - 6), BW, BH };
+    s_back = { 4, (int16_t)(h - BHof(t) - 6), (int16_t)BWof(t), (int16_t)BHof(t) };
     s_send = { 0, 0, 0, 0 };
     s_help = { 0, 0, 0, 0 };
     s_type = { 0, 0, 0, 0 };
@@ -598,7 +613,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
     s_random   = { 0, 0, 0, 0 };
     s_fill     = { 0, 0, 0, 0 };
     if (s_typedOn || s_sel >= 0) {
-        s_send = { (int16_t)(w - 4 - BW), (int16_t)(h - BH - 6), BW, BH };
+        s_send = { (int16_t)(w - 4 - BWof(t)), (int16_t)(h - BHof(t) - 6), (int16_t)BWof(t), (int16_t)BHof(t) };
         Theme::drawButton(t, s_back.x, s_back.y, s_back.w, s_back.h,
                           s_typedOn ? "[ EDIT ]" : "[ CANCEL ]", false);
         Theme::drawButton(t, s_send.x, s_send.y, s_send.w, s_send.h, "[ SEND ]", false);
@@ -606,14 +621,14 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
         // Back to the lines, not off the screen; the EMOTE button, still lit,
         // does the same.
         Theme::drawButton(t, s_back.x, s_back.y, s_back.w, s_back.h, "[ LINES ]", false);
-        s_random = { (int16_t)(w - 4 - BW - 8), (int16_t)(h - BH - 6), (int16_t)(BW + 8), BH };
+        s_random = { (int16_t)(w - 4 - BWof(t) - 8), (int16_t)(h - BHof(t) - 6), (int16_t)(BWof(t) + 8), (int16_t)BHof(t) };
         Theme::drawButton(t, s_random.x, s_random.y, s_random.w, s_random.h, "[ RANDOM ]", false);
-        s_emoteBtn = { (int16_t)(w - 4 - BW), 2, BW, 20 };
+        s_emoteBtn = { (int16_t)(w - 4 - BWof(t)), 2, (int16_t)BWof(t), (int16_t)(BHof(t) - 6) };
         Theme::drawButton(t, s_emoteBtn.x, s_emoteBtn.y, s_emoteBtn.w, s_emoteBtn.h, "[ EMOTE ]", true);
     } else {
         Theme::drawButton(t, s_back.x, s_back.y, s_back.w, s_back.h, "[ BACK ]", false);
         // FILL, where the emote half keeps RANDOM: the openings with a blank.
-        s_fill = { (int16_t)(w - 4 - BW - 8), (int16_t)(h - BH - 6), (int16_t)(BW + 8), BH };
+        s_fill = { (int16_t)(w - 4 - BWof(t) - 8), (int16_t)(h - BHof(t) - 6), (int16_t)(BWof(t) + 8), (int16_t)BHof(t) };
         Theme::drawButton(t, s_fill.x, s_fill.y, s_fill.w, s_fill.h, s_fillOn ? "[ LINES ]" : "[ FILL ]", s_fillOn);
         // No page arrows any more: the lines are on labelled tabs, and the
         // emote half never had arrows either.
@@ -621,7 +636,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
         // TYPE between BACK and the arrows, where the page count used to sit;
         // the count moved up beside "?".
         const int mid = (s_back.x + s_back.w + right) / 2;
-        s_type = { (int16_t)(mid - TW / 2), (int16_t)(h - BH - 6), TW, BH };
+        s_type = { (int16_t)(mid - TWof(t) / 2), (int16_t)(h - BHof(t) - 6), (int16_t)TWof(t), (int16_t)BHof(t) };
         Theme::drawButton(t, s_type.x, s_type.y, s_type.w, s_type.h, "[ TYPE ]", false);
         // "?" replays the tutorial. Top right, level with the title, where
         // nothing else on this screen can be reached for by mistake.
@@ -631,7 +646,7 @@ void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
             // The emotes, beside it. It was a small smiley, which nobody found;
             // now it is a full-width button, filled, and says what it is --
             // the one thing on this screen most people came for.
-            s_emoteBtn = { (int16_t)(s_help.x - 6 - BW), 2, BW, 20 };
+            s_emoteBtn = { (int16_t)(s_help.x - 6 - BWof(t)), 2, (int16_t)BWof(t), (int16_t)(BHof(t) - 6) };
             Theme::drawButton(t, s_emoteBtn.x, s_emoteBtn.y, s_emoteBtn.w, s_emoteBtn.h, "[ EMOTE ]", true);
         }
     }

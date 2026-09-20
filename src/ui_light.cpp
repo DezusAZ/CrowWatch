@@ -16,8 +16,8 @@ static LightRow rowAt(uint8_t i) { return (LightRow)i; }
 
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
     top = TOP_MARGIN + Theme::LIST_HEADING_H;
-    bodyBottom = screenH - Theme::PINNED_BACK_H - 2;
-    t.setTextSize(2);
+    bodyBottom = screenH - Theme::pinnedBackH(t.width()) - 2;
+    t.setTextSize(Theme::uiMenuTextSize(t));
     // Two pixels taller than the text strictly needs on each side: a 24 px
     // row was a near miss for a thumb, 26 is not, and seven of them still
     // fit above the BACK strip in landscape.

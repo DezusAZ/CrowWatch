@@ -197,7 +197,27 @@ void uiBootTick(TFT_eSPI& t, uint32_t now) {
         // hold a 14px bubble, his 60 base units, and air at each end. 2.0 hits
         // it exactly and leaves 2px top and bottom, which is a rounding error
         // away from touching. 1.95 gives 4px at both ends instead.
-        Squachy::drawWaving(t, w / 2, h - 21, now, 1.95f, BOOT_LINES[s_bootLineIdx]);
+        // 1.95 was fitted by hand to a 240-tall panel, where the band between
+        // the subtitle and INITIALIZING is about 150 rows and the bubble above
+        // his head was what capped it. A 320-tall panel leaves 80 rows more and
+        // he sat in the middle of them, small, with air all round -- the same
+        // complaint the main screen's geometry solved years ago by sizing him
+        // from the band he is handed rather than from a constant.
+        //
+        // So on a wide panel he is sized from the band. The limit is unchanged:
+        // his head anchor is baseY - 58*scale and the bubble sits above that,
+        // so the scale that just clears the subtitle is (band / 58). Narrow
+        // panels keep the measured 1.95 exactly -- this is the one screen
+        // where the constant was chosen against a render, and it still holds
+        // there.
+        float bootScale = 1.95f;
+        if (w >= 400) {
+            const int band = (h - 21) - 34 - (sy + 16);   // feet, bubble, subtitle
+            bootScale = (float)(band - 10) / 58.0f;       // 10 rows of air at the top
+            if (bootScale < 1.95f) bootScale = 1.95f;
+            if (bootScale > 3.2f)  bootScale = 3.2f;
+        }
+        Squachy::drawWaving(t, w / 2, h - 21, now, bootScale, BOOT_LINES[s_bootLineIdx]);
     }
 
     // INITIALIZING...  vX.Y.Z -- version tacked onto this line rather

@@ -14,7 +14,7 @@ static int g_scroll = 0;
 // use -- shared by drawing and hit-testing so the two cannot drift apart.
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
     top = TOP_MARGIN + Theme::LIST_HEADING_H;
-    bodyBottom = screenH - Theme::PINNED_BACK_H - 2;
+    bodyBottom = screenH - Theme::pinnedBackH(t.width()) - 2;
     // Two lines per row now -- type above, MAC below -- so this is a fixed
     // height rather than one derived from a single line of text.
     (void)t;
@@ -43,7 +43,7 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, uint8_t idx) {
     // muted something without telling you what, and the log entry that would
     // have answered that has usually scrolled out of the ring by then.
     const DetectionType ty = IgnoreList::typeAt(idx);
-    t.setTextSize(2);
+    t.setTextSize(Theme::uiMenuTextSize(t));
     t.setTextColor(Theme::colorFor(ty), Theme::BG);
     t.setCursor(6, y + 3);
     t.print(detectionTypeName(ty));
@@ -80,7 +80,7 @@ void uiIgnoreListTick(TFT_eSPI& t, uint32_t now) {
     if (n == 0) {
         // An empty list is the normal state for most people, so it gets a
         // real explanation rather than a blank screen that reads as broken.
-        t.setTextSize(2);
+        t.setTextSize(Theme::uiMenuTextSize(t));
         t.setTextColor(Theme::WHITE, Theme::BG);
         const char* m1 = "NOTHING MUTED";
         t.setCursor((w - t.textWidth(m1)) / 2, h / 2 - 26);

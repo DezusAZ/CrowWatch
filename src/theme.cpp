@@ -375,18 +375,26 @@ void drawListRowPanel(TFT_eSPI& t, int w, int y, int hgt) {
     t.drawRect(x0, y + 1, ww, hh, PURPLE);
 }
 
+int pinnedBackH(int panelW) { return panelW >= 400 ? 36 : PINNED_BACK_H; }
+
 void drawPinnedBack(TFT_eSPI& t, const char* label) {
-    const int w = t.width(), h = PINNED_BACK_H, y = t.height() - h;
+    const int w = t.width(), h = pinnedBackH(w), y = t.height() - h;
     t.fillRect(0, y, w, h, BG);
     t.drawFastHLine(0, y, w, PURPLE);
-    t.setTextSize(2);
+    // The font, not just the size. textfont is sticky state on the sprite and
+    // this helper inherits whatever drew last -- and FONT2 renders through
+    // setWindow(), which does not apply the viewport datum, so on the 3.5"'s
+    // second band it lands outside the buffer and draws nothing at all. A
+    // strip with no label on it. Shared helpers say what they want.
+    t.setTextFont(1);
+    t.setTextSize(uiMenuTextSize(t));
     t.setTextColor(CYAN, BG);
     t.setCursor((w - t.textWidth(label)) / 2, y + (h - t.fontHeight()) / 2);
     t.print(label);
 }
 
 bool pinnedBackHit(int x, int y, int screenW, int screenH) {
-    return x >= 0 && x < screenW && y >= screenH - PINNED_BACK_H && y < screenH;
+    return x >= 0 && x < screenW && y >= screenH - pinnedBackH(screenW) && y < screenH;
 }
 
 void drawTitleBar(TFT_eSPI& t, const char* title) {
@@ -420,13 +428,33 @@ void drawTitleBar(TFT_eSPI& t, const char* title) {
     if (Security::enabled()) drawLockIcon(t, w, ICON_BOX_H);
 }
 
+uint8_t uiTextSize(TFT_eSPI& t, uint8_t base) {
+    return (base == 1 && t.width() >= 400) ? 2 : base;
+}
+
+uint8_t uiMenuTextSize(TFT_eSPI& t) {
+    return t.width() >= 400 ? 3 : 2;
+}
+
 void drawButton(TFT_eSPI& t, int x, int y, int w, int h,
                 const char* label, bool pressed, uint8_t textSize) {
     uint16_t fill = pressed ? PURPLE : BG;
     uint16_t fg   = pressed ? labelOn(PURPLE) : CYAN;
     t.fillRect(x, y, w, h, fill);
     t.drawRect(x, y, w, h, PURPLE);
-    t.setTextSize(textSize);
+    // Button labels are short and their boxes grew with the panel, so this is
+    // the safest place for the step-up. But not every button is a third of the
+    // screen: the phone screen's QWERTY and BACK sit in boxes sized for size-1
+    // text, and the bigger label ran straight out of them with its brackets
+    // cut off. So the step-up has to earn its place -- measure it, and keep
+    // the smaller size if it does not fit. That makes this self-limiting for
+    // every button on every screen instead of a list of exceptions.
+    uint8_t ts = uiTextSize(t, textSize);
+    if (ts != textSize) {
+        t.setTextSize(ts);
+        if (t.textWidth(label) > w - 6) ts = textSize;
+    }
+    t.setTextSize(ts);
     t.setTextColor(fg, fill);
     int tw = t.textWidth(label);
     int th = t.fontHeight();

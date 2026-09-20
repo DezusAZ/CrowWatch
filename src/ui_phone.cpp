@@ -46,9 +46,28 @@ const uint16_t STEEL    = Theme::W95_FACE;
 const uint16_t STEEL_SH = Theme::W95_SHADOW;
 const uint16_t STEEL_DK = Theme::W95_DKSHADOW;
 
-const int UX = 78, UY = 8, UW = 164, UH = 224;
+const int UY = 8, UW = 164, UH = 224;
+// The handset's left edge. It was 78 -- (320 - 164) / 2, centred by hand for
+// a 320-wide panel and then fixed there, so on the 3.5"'s 480 it sat well
+// left of centre with the scene showing beside it. Centred from the panel's
+// actual width instead, which is 78 again on every board that had it.
+// The panel width the handset was last DRAWN at. The tap handlers are given a
+// point and nothing else -- uiPhoneTouch(x, y, now, phase) -- and the case is
+// centred on the panel now rather than pinned at 78, so they have to learn it
+// from the drawing. Safe because a screen is always drawn before it can be
+// touched; the default only matters if that were somehow untrue.
+static int s_panelW = 320, s_panelH = 240;
+// 78 was (320 - 164) / 2 -- centred by hand for a 320-wide panel and frozen.
+// Centring it from the real width is right, and in portrait it also stops the
+// case running off the right edge (78 + 164 = 242 on a 240-wide screen). But
+// that edge case is on the 2.8" too, and that board is not to move: the fix
+// follows the 3.5" only, by its long side, so it holds in both rotations.
+static inline int caseX() {
+    const bool bigPanel = (s_panelW >= 400 || s_panelH >= 400);
+    return bigPanel ? (s_panelW - UW) / 2 : 78;
+}
 const int KW = 48, KH = 30, KGAP = 3;
-const int KX = UX + (UW - (KW * 3 + KGAP * 2)) / 2;
+static inline int keysX() { return caseX() + (UW - (KW * 3 + KGAP * 2)) / 2; }
 const int KY = UY + 60;
 
 const char* const KEY_D[12] = { "1","2","3","4","5","6","7","8","9","*","0","#" };
@@ -180,7 +199,17 @@ void start(const char* text) {
 // The phone body occupies x 78..242, so the strip down the left of the screen
 // is free at any rotation. Bottom-left because that is where every other
 // screen in this firmware puts BACK.
-const int BX = 4, BW = 68, BH = 26;
+const int BX = 4;
+// 68x26 was measured against size-1 labels on a 320-wide panel. "[ QWERTY ]"
+// is 126 px at size 2, so on a wide panel the box has to lead the label or
+// drawButton declines the step-up and these two stay small while every other
+// button on the device grows.
+// Width only. BH stays a compile-time 26 because the static_assert below ties
+// it to the QWERTY band's bottom inset -- making it dynamic would move the
+// keyboard -- and 26 holds size-2 text at 16 px with room either side.
+// s_panelW rather than a TFT_eSPI&: the tap handlers have no display to ask.
+static inline int BW_() { return s_panelW >= 400 ? 132 : 68; }
+const int BH = 26;
 static int backY(int screenH) { return screenH - BH - 6; }
 static_assert(BH + 6 + 6 == Qwerty::BAND_BOTTOM_INSET,
               "the QWERTY band must end above the BACK row -- see qwerty.h");
@@ -194,7 +223,7 @@ static_assert(BH + 6 + 6 == Qwerty::BAND_BOTTOM_INSET,
 // full width, so it moves to the far end of BACK's own row.
 static int s_toggleX = 0, s_toggleY = 0;
 static void toggleRect(int w, int h, bool qwerty) {
-    if (qwerty) { s_toggleX = w - BX - BW; s_toggleY = backY(h); }
+    if (qwerty) { s_toggleX = w - BX - BW_(); s_toggleY = backY(h); }
     else        { s_toggleX = BX;          s_toggleY = backY(h) - BH - 6; }
 }
 
@@ -328,19 +357,19 @@ void        uiPhonePinWait(const char* m) { s_pinWaitMsg = m; if (m) { s_len = 0
 static void pinTouch(int x, int y, uint32_t now) {
     // FORGOT works during a lockout wait too: that is exactly when somebody
     // who has forgotten the PIN is standing there.
-    if (s_pinForgot && x >= BX && x <= BX + BW && y >= s_backY && y <= s_backY + BH) {
+    if (s_pinForgot && x >= BX && x <= BX + BW_() && y >= s_backY && y <= s_backY + BH) {
         if (forgotArmed(now)) { s_pinForgotHit = true; s_pinReady = false; s_done = true; }
         else                  { s_forgotTaps = 1; s_forgotAt = now; }
         return;
     }
     if (s_pinWaitMsg) return;
-    if (s_pinBack && x >= BX && x <= BX + BW && y >= s_backY && y <= s_backY + BH) {
+    if (s_pinBack && x >= BX && x <= BX + BW_() && y >= s_backY && y <= s_backY + BH) {
         s_pinReady = false;
         s_done = true;
         return;
     }
     for (int i = 0; i < 12; i++) {
-        const int kx = KX + (i % 3) * (KW + KGAP);
+        const int kx = keysX() + (i % 3) * (KW + KGAP);
         const int ky = KY + (i / 3) * (KH + KGAP);
         if (x < kx || x > kx + KW || y < ky || y > ky + KH) continue;
         if (i == 9) { if (s_len) s_buf[--s_len] = '\0'; return; }   // DEL
@@ -358,13 +387,14 @@ static void pinTouch(int x, int y, uint32_t now) {
 // of bare digits, no letters, no QWERTY toggle, no message counter.
 static void drawPinPad(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
+    s_panelW = w; s_panelH = h;
     Theme::Palette saved = Theme::dimPaletteForOverlay(120);
     Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 140);
     s_backY = backY(h);
 
-    const int ux = UX, uy = UY;
+    const int ux = caseX(), uy = UY;
     t.fillRect(ux + 4, uy + 5, UW, UH, Theme::BLACK);
     steel(t, ux, uy, UW, UH);
 
@@ -400,7 +430,7 @@ static void drawPinPad(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
 
     // Digits, reusing the payphone keypad geometry.
     for (int i = 0; i < 12; i++) {
-        const int kx = KX + (i % 3) * (KW + KGAP);
+        const int kx = keysX() + (i % 3) * (KW + KGAP);
         const int ky = KY + (i / 3) * (KH + KGAP);
         const char* lab = (i == 9) ? "DEL" : (i <= 8) ? KEY_D[i] : (i == 10) ? "0" : "";
         if (!lab[0]) continue;                       // * and # left blank
@@ -413,9 +443,9 @@ static void drawPinPad(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bo
     }
 
     if (s_pinBack)
-        Theme::drawButton(t, BX, s_backY, BW, BH, "[ BACK ]", false);
+        Theme::drawButton(t, BX, s_backY, BW_(), BH, "[ BACK ]", false);
     else if (s_pinForgot)
-        Theme::drawButton(t, BX, s_backY, BW, BH, armed ? "[ WIPE? ]" : "[ FORGOT ]", armed);
+        Theme::drawButton(t, BX, s_backY, BW_(), BH, armed ? "[ WIPE? ]" : "[ FORGOT ]", armed);
 }
 
 void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
@@ -435,7 +465,7 @@ void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
     // the only way out, so backing away from a half-typed name meant
     // committing it. Checked before the keypad, since it is outside the pad
     // and cannot collide.
-    if (x >= BX && x <= BX + BW && y >= s_backY && y <= s_backY + BH) {
+    if (x >= BX && x <= BX + BW_() && y >= s_backY && y <= s_backY + BH) {
         commitPending();
         s_msgOk = false;
         s_done = true;
@@ -443,7 +473,7 @@ void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
     }
     // The layout switch. Pending multi-tap letters are committed first, so
     // switching mid-letter keeps the letter rather than half of a cycle.
-    if (x >= s_toggleX && x <= s_toggleX + BW && y >= s_toggleY && y <= s_toggleY + BH) {
+    if (x >= s_toggleX && x <= s_toggleX + BW_() && y >= s_toggleY && y <= s_toggleY + BH) {
         commitPending();
         s_sliding = false;
         s_armed = -1;
@@ -454,7 +484,7 @@ void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
     if (Settings::phoneQwerty()) { qwertyPress(x, y, now); return; }
 
     for (int i = 0; i < 12; i++) {
-        const int kx = KX + (i % 3) * (KW + KGAP);
+        const int kx = keysX() + (i % 3) * (KW + KGAP);
         const int ky = KY + (i / 3) * (KH + KGAP);
         if (x < kx || x > kx + KW || y < ky || y > ky + KH) continue;
         // The panel dropping out for a frame -- see BOUNCE_MS.
@@ -504,6 +534,7 @@ void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
 }
 
 void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
+    s_panelW = t.width(); s_panelH = t.height();
     (void)eng;
     if (pin()) { drawPinPad(t, now, eng, advance); return; }
     const int w = t.width(), h = t.height();
@@ -526,7 +557,7 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // same object reshaped to hold ten columns instead of three. It ends just
     // above BACK's row, which is also where the keyboard's band ends.
     const bool qw = Settings::phoneQwerty();
-    const int ux = qw ? 2 : UX, uy = qw ? 4 : UY;
+    const int ux = qw ? 2 : caseX(), uy = qw ? 4 : UY;
     const int uw = qw ? w - 4 : UW;
     const int uh = qw ? (h - Qwerty::BAND_BOTTOM_INSET + 4) - uy : UH;
     t.fillRect(ux + 4, uy + 5, uw, uh, Theme::BLACK);
@@ -536,7 +567,7 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // On QWERTY the readout spans the width, less the preview box to its
     // right. Everything below -- the right-alignment and the caret -- is the
     // same code for both boards.
-    const int dX = qw ? 10 : UX + 12, dY = qw ? 10 : UY + 10;
+    const int dX = qw ? 10 : caseX() + 12, dY = qw ? 10 : UY + 10;
     const int dW = qw ? w - 66 : UW - 24, dH = 26;
     steel(t, dX - 3, dY - 3, dW + 6, dH + 6, true);
     t.fillRect(dX, dY, dW, dH, Theme::BLACK);
@@ -615,12 +646,12 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         if (msg()) {
             t.setTextSize(1);
             t.setTextColor(STEEL_DK);
-            t.setCursor(UX + UW - 12 - t.textWidth(rem), dY + dH + 6);
+            t.setCursor(caseX() + UW - 12 - t.textWidth(rem), dY + dH + 6);
             t.print(rem);
         }
         // ---- keypad -------------------------------------------------------
         for (int i = 0; i < 12; i++) {
-            const int kx = KX + (i % 3) * (KW + KGAP);
+            const int kx = keysX() + (i % 3) * (KW + KGAP);
             const int ky = KY + (i / 3) * (KH + KGAP);
             const bool lit = (s_liveKey == i);
             bevel(t, kx, ky, KW, KH, lit ? Theme::PURPLE : Theme::TASKBAR,
@@ -640,19 +671,19 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
 
         // ---- coin return and plate ----------------------------------------
         const int pY = KY + 4 * (KH + KGAP) + 4;
-        steel(t, UX + 30, pY, UW - 60, 9, true);
+        steel(t, caseX() + 30, pY, UW - 60, 9, true);
         t.setTextSize(1);
         t.setTextColor(STEEL_DK);
-        t.setCursor(UX + (UW - t.textWidth("CYBERDELIA")) / 2, pY + 12);
+        t.setCursor(caseX() + (UW - t.textWidth("CYBERDELIA")) / 2, pY + 12);
         t.print("CYBERDELIA");
     }
 
     // ---- back -------------------------------------------------------------
-    Theme::drawButton(t, BX, s_backY, BW, BH, "[ BACK ]", false);
+    Theme::drawButton(t, BX, s_backY, BW_(), BH, "[ BACK ]", false);
 
     // ---- layout switch ----------------------------------------------------
     toggleRect(w, h, qw);
-    Theme::drawButton(t, s_toggleX, s_toggleY, BW, BH, qw ? "[ KEYPAD ]" : "[ QWERTY ]", false);
+    Theme::drawButton(t, s_toggleX, s_toggleY, BW_(), BH, qw ? "[ KEYPAD ]" : "[ QWERTY ]", false);
 
 }
 

@@ -22,8 +22,14 @@ static void removeRect(TFT_eSPI& t, int& x, int& y, int& w, int& h) {
 // smallest the built-in font offers.
 static const char* removeLabel(TFT_eSPI& t, int w) {
     const char* full = "REMOVE FROM WATCH LIST";
+    // At the size this button will actually be drawn. On a wide panel that is
+    // size 2, where the full label wants 270 px in a 240 px box -- so it takes
+    // the short word and keeps the bigger letters, rather than keeping all
+    // twenty-two characters and being the one small button on the screen.
+    t.setTextSize(Theme::uiTextSize(t, 1));
+    const bool fits = t.textWidth(full) <= w - 8;
     t.setTextSize(1);
-    return (t.textWidth(full) <= w - 8) ? full : "UNWATCH";
+    return fits ? full : "UNWATCH";
 }
 
 void uiWatchAlertInit(TFT_eSPI& t) {

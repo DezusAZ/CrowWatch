@@ -5725,9 +5725,34 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     if (charAvailFloor < 8) charAvailFloor = 8;   // keep the division sane at extreme minScale
     int charAvail = availHeight - bubbleRowH - headroom;
     if (charAvail < charAvailFloor) charAvail = charAvailFloor;
+    // The ceiling on how big he may be drawn, and there are two of them.
+    //
+    // He is sized from the HEIGHT of the band he is handed, and a band can be
+    // far taller than it is wide: the 3.5" in portrait gives him about 340
+    // rows across 320 columns, so he came out as wide as the panel with his
+    // crest clipped off the top. A body is 56 wide in scale units; the 8 is
+    // air, so two of them do not touch. Wide landscape panels never reach it
+    // -- 472/56 is 8.4 -- so it binds only where it was actually broken.
+    //
+    // With company he gets half the panel, because there are two of him on it.
+    // ...on the 3.5" only. Honouring the ceiling would shrink him about a
+    // tenth on the 2.8" in portrait, where the uncapped branch below has been
+    // drawing him at 3.32 for as long as the SIZE setting has existed -- and
+    // that board is not to move. The panel is identified by its LONG side, so
+    // this follows the 3.5" through both rotations and no 320-or-smaller
+    // panel reaches it in either.
+    const bool bigPanel = (t.width() >= 400 || t.height() >= 400);
+    float scaleMax = 3.0f;
+    if (bigPanel) {
+        const float span = (float)t.width() / (s_company ? 2.0f : 1.0f) - 8.0f;
+        scaleMax = span / 56.0f;
+        if (scaleMax > 3.0f) scaleMax = 3.0f;
+        if (scaleMax < minScale) scaleMax = minScale;
+    }
+
     float scale = (float)charAvail / (float)baseH;
     if (scale < minScale) scale = minScale;
-    if (scale > 3.0f) scale = 3.0f;
+    if (scale > scaleMax) scale = scaleMax;   // 3.0 everywhere; narrower on a wide panel with company
 
     int headTopY = topY + bubbleRowH + headroom;
 
@@ -5752,6 +5777,13 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         if (shrunk < charAvailFloor) shrunk = charAvailFloor;
         float s2 = (float)shrunk / (float)baseH;
         if (s2 < minScale) s2 = minScale;
+        // The same ceiling the branch above gets. This one had a floor and no
+        // roof at all, and it is the path a visit takes: drawVisit() passes
+        // 70% to make room for the guest, but 70% of a 340-row band is still
+        // scale 3.5 -- past the 3.0 the other path stops at -- so the host and
+        // the guest both came out at full size, standing on top of each other.
+        // shrunk comes back down with it, or his feet stop meeting the floor.
+        if (bigPanel && s2 > scaleMax) { s2 = scaleMax; shrunk = (int)(s2 * (float)baseH); }
         scale    = s2;
         headTopY = topY + availHeight - shrunk;
     }

@@ -2706,6 +2706,12 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // changes w/h live, and the counter layout should follow it rather
     // than staying stuck at whatever orientation was active at boot.
     bool landscape = w > h;
+    // Two rows in landscape on every board, the 3.5" included. Stepping the
+    // counters up to size 2 was tried and taken back out: thirteen types is
+    // about 77 characters, which is 924 px at size 2 against a 480 px row, so
+    // bigger digits could only be paid for with four rows instead of two --
+    // and four bars of counters under the mascot is not what that screen is
+    // for. The counters stay small and stay two lines.
     const uint8_t counterRows = landscape ? COUNTER_ROWS_LANDSCAPE : COUNTER_ROWS_PORTRAIT;
 
     Theme::ButtonBarGeom bar = Theme::computeButtonBar(w, h);

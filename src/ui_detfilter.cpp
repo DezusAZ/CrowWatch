@@ -18,8 +18,8 @@ static DetectionType rowType(uint8_t i) { return (DetectionType)(i + 1); }
 // and hit-testing so they can't drift apart.
 static void computeGeom(TFT_eSPI& t, int screenH, int& top, int& bodyBottom, int& rowH) {
     top = TOP_MARGIN + Theme::LIST_HEADING_H;
-    bodyBottom = screenH - Theme::PINNED_BACK_H - 2;
-    t.setTextSize(2);
+    bodyBottom = screenH - Theme::pinnedBackH(t.width()) - 2;
+    t.setTextSize(Theme::uiMenuTextSize(t));
     // Two pixels taller than the text strictly needs on each side: a 24 px
     // row was a near miss for a thumb, 26 is not, and seven of them still
     // fit above the BACK strip in landscape.
@@ -39,7 +39,7 @@ void uiDetFilterScroll(int delta) {
 static void drawRow(TFT_eSPI& t, int w, int y, int hgt, DetectionType type) {
     bool on = Settings::typeEnabled(type);
     Theme::drawListRowPanel(t, w, y, hgt);
-    t.setTextSize(2);
+    t.setTextSize(Theme::uiMenuTextSize(t));
     t.setTextColor(Theme::AMBER, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
     t.print(detectionTypeName(type));

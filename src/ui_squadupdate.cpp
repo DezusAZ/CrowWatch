@@ -39,7 +39,7 @@ Geom geom(TFT_eSPI& t) {
     g.shareY = Theme::LIST_TOP + Theme::LIST_HEADING_H + 4 + 12 * 3 + 6;
     g.sendW  = 150;
     g.sendX  = (t.width() - g.sendW) / 2;
-    g.sendY  = t.height() - Theme::PINNED_BACK_H - BTN_H - 8;
+    g.sendY  = t.height() - Theme::pinnedBackH(t.width()) - BTN_H - 8;
     return g;
 }
 
@@ -177,7 +177,7 @@ void uiSquadUpdateTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
             const int colW = w / 2;
             for (uint8_t i = 0; i < s_tallyN; i++) {
                 const int cx = 8 + (i % 2) * colW, cy = y + (i / 2) * (t.fontHeight() + 4);
-                if (cy + t.fontHeight() > h - Theme::PINNED_BACK_H - 4) break;
+                if (cy + t.fontHeight() > h - Theme::pinnedBackH(t.width()) - 4) break;
                 t.setTextColor(Theme::GREEN, Theme::BG);
                 t.setCursor(cx, cy);
                 t.print(s_tally[i]);

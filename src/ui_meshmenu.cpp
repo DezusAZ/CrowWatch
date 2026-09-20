@@ -22,7 +22,7 @@ const uint8_t ROW_N = 7;     // BACK is pinned to the bottom edge now, not a row
 // codebase computes it rather than hard-coding it.
 void geom(TFT_eSPI& t, int& top, int& rowH) {
     top = TOP_MARGIN;
-    t.setTextSize(2);
+    t.setTextSize(Theme::uiMenuTextSize(t));
     rowH = t.fontHeight() + 10;
 }
 
@@ -32,7 +32,7 @@ void row(TFT_eSPI& t, int w, int y, int hgt, const char* label,
     // the labels sat straight on the dimmed backdrop, and the synthwave sun
     // came through the gaps in every word.
     Theme::drawListRowPanel(t, w, y, hgt);
-    t.setTextSize(2);
+    t.setTextSize(Theme::uiMenuTextSize(t));
     t.setTextWrap(false);
     t.setTextColor(Theme::VAPOR_PINK, Theme::BG);
     t.setCursor(8, y + (hgt - t.fontHeight()) / 2);
@@ -113,7 +113,7 @@ void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool 
     // Seven rows leave no room under them in landscape, so there the one
     // line that matters most sits beside the heading instead: a warning
     // about messages if there is one, else what the two switches mean.
-    const bool below = top + ROW_N * rowH + 6 + 2 * t.fontHeight() + 3 <= h - Theme::PINNED_BACK_H - 2;
+    const bool below = top + ROW_N * rowH + 6 + 2 * t.fontHeight() + 3 <= h - Theme::pinnedBackH(t.width()) - 2;
     if (below) {
         t.setCursor(8, top + ROW_N * rowH + 6);
         t.print(note);
