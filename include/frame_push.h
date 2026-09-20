@@ -24,17 +24,15 @@
 
 class TFT_eSPI;
 
-// The 2.8" CYDs, both panel types, fast and slow, and the RL Phantom 2.4" in
-// both touch variants. The Phantom was named out for a day for a reason that
-// turned out not to apply: this push holds the bus inside the same
-// transaction the library's own does, and its touch reads happen between
-// frames as they always did. The 3.5" came in on 2026-09-20, once the panel
-// record was keyed by panel row rather than by row-within-the-sprite: it
-// pushes two bands a frame and a per-sprite record would have had the second
-// band reading the first one's rows. AWOK stays out until somebody has
-// watched its screen.
-#if defined(ARDUINO_ARCH_ESP32) && (defined(CYD) || defined(CYD35)) && \
-    !defined(AWOK)
+// Every board, now. The gate started narrow on purpose -- one board at a
+// time, each one measured before the next was let in -- and they have all
+// been through it: the 2.8" CYDs in v1.15.0, the RL Phantom and the 3.5"
+// after that, and AWOK on 2026-09-20, which turned out to be spending two
+// thirds of its frame on the wire. Nothing board-specific is left in here,
+// so the condition is simply "a board", and a new one inherits it: the push
+// is the library's own transaction with the waiting put to use, and it
+// declines any frame whose shape it does not recognise rather than guessing.
+#if defined(ARDUINO_ARCH_ESP32)
   #define SQW_FRAME_PUSH 1
 #else
   #define SQW_FRAME_PUSH 0

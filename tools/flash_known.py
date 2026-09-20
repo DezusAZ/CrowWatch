@@ -17,6 +17,7 @@ BOARDS = {
     "d4:8a:fc:c8:e5:e4": ("cyd-fast",    "soak, 2.8in ST7789"),
     "8c:94:df:4e:84:10": ("cyd-fast",    "2.8in ST7789, the newer one"),
     "78:42:1c:94:e7:5c": ("rlphantom-r", "RL Phantom 2.4in, resistive"),
+    "78:42:1c:8e:df:f8": ("awok",        "AWOK, touch on the display bus"),
     "88:57:21:2e:ba:34": ("cyd-ili9341", "2.8in ILI9341, no 80 MHz"),
     "8c:94:df:4e:ee:dc": ("cyd-ili9341", "2.8in ILI9341, no 80 MHz"),
     # The 3.5in. It was kept out of this table while it was on hold -- it draws
