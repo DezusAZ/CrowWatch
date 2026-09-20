@@ -11,6 +11,7 @@
 #include "frame_push.h"  // PUSH, the frame-push switch
 #include "fast_sprite.h" // FAST, the sprite fast-path switch
 #include "ui_clear.h"    // PACE, the mascot step clock
+#include "draw_band.h"   // BAND, the 3.5in row gate
 #include "squachy.h"     // TEMPO, his durations
 
 // PRIM, on every build: main.cpp runs the primitive benchmark on its next pass.
@@ -491,6 +492,15 @@ void pollSerial() {
                 Serial.printf("[bg] %ld %s\n", n, Settings::backgroundName((Settings::Background)n));
             else
                 Serial.printf("[bg] no background %ld\n", n);
+        } else if (strncasecmp(line, "BAND", 4) == 0) {
+            // BAND ON/OFF: the 3.5in's per-pass row gate. Nothing anywhere
+            // else -- the other boards draw one pass over a whole frame, and
+            // the gate is not compiled into them at all.
+            const char* arg = line + 4;
+            while (*arg == ' ') arg++;
+            if (strncasecmp(arg, "ON", 2) == 0)       DrawBand::setEnabled(true);
+            else if (strncasecmp(arg, "OFF", 3) == 0) DrawBand::setEnabled(false);
+            Serial.printf("[band] row gate %s\n", DrawBand::enabled() ? "on" : "off (whole screen, both passes)");
         } else if (strncasecmp(line, "TEMPO", 5) == 0) {
             // TEMPO P: every one of Squachy's durations at P percent, kept.
             const char* arg = line + 5;

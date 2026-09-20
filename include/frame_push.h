@@ -110,8 +110,14 @@ bool enabled();
 // push(): a rotation, a fall-back to the ordinary push.
 void invalidate();
 
-// Rows actually sent by the last push, for the frame line.
+// Rows actually sent, and where the time went, since the last newFrame().
+// Accumulated rather than replaced: the 3.5" pushes twice a frame, and a
+// figure that only ever showed the second band made a 150-row frame read as
+// 74 and the push look twice as slow per row as it is.
+void    newFrame();
 int32_t lastRows();
+uint32_t hashUs();
+uint32_t wireUs();
 
 // Ships `h` rows of `w` 8-bit pixels from `src` to the panel at x,y.
 //

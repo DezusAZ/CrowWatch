@@ -1,5 +1,6 @@
 // SquachWatch-CYD — theme implementation
 #include "theme.h"
+#include "draw_band.h"
 #include "frame_prof.h"
 #include "caustic_tile.h"
 #include "lil_guy.h"
@@ -3043,7 +3044,7 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         }
         rayInited = true;
     }
-    for (int y = yStart; y < yEnd; y++) {
+    for (int y = DrawBand::top(yStart); y < DrawBand::bot(yEnd); y++) {
         const float d   = (float)(y - yStart) / (float)bandH;   // 0 surface, 1 floor
         const float lit = 1.0f - d;
         // A narrow ramp, deliberately. Widening it to buy quantisation
@@ -3180,7 +3181,7 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         // Caustics brighten and dim together as the surface above moves.
         const float breathe = 0.72f + 0.28f * sinf((float)now / 1700.0f);
         const uint16_t causticCol = t.color565(138, 202, 206);
-        for (int y = floorTop; y < yEnd; y++) {
+        for (int y = DrawBand::top(floorTop); y < DrawBand::bot(yEnd); y++) {
             const float near = (float)(y - floorTop) / (float)(yEnd - floorTop); // 0 back, 1 front
             const float z    = 1.0f / (0.20f + near * 0.80f);
             // Sand, seen through progressively more water toward the
@@ -3873,7 +3874,7 @@ void drawFireflies(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
                                   (uint16_t)(dusk * 255.0f));
     static const int8_t SKY_DITH[4] = { -9, 4, 9, -4 };
     const int skyH = horizon - yStart;
-    for (int y = yStart; y < horizon; y++) {
+    for (int y = DrawBand::top(yStart); y < DrawBand::bot(horizon); y++) {
         int k = ((y - yStart) * 255) / (skyH > 1 ? skyH - 1 : 1) + SKY_DITH[(y - yStart) & 3];
         if (k < 0) k = 0;
         if (k > 255) k = 255;
@@ -3965,7 +3966,7 @@ void drawFireflies(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         }
         return f > 1.0f ? 1.0f : f;
     };
-    for (int y = horizon + 2; y < grassTop; y++) {
+    for (int y = DrawBand::top(horizon + 2); y < DrawBand::bot(grassTop); y++) {
         const float f = fogAt(y);
         if (f < 0.04f) continue;
         int a = (int)(f * 120.0f) + SKY_DITH[y & 3] / 2;
@@ -6575,7 +6576,7 @@ void drawSnowfall(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // it only crosses a boundary where one is genuinely close, which is
     // what dithering is supposed to do.
     static const int8_t SKY_DITH[4] = { -9, 4, 9, -4 };
-    for (int y = yStart; y < yBot; y++) {
+    for (int y = DrawBand::top(yStart); y < DrawBand::bot(yBot); y++) {
         int k = ((y - yStart) * 255) / (bandH > 1 ? bandH - 1 : 1);
         k += SKY_DITH[(y - yStart) & 3];
         if (k < 0) k = 0;
@@ -8174,7 +8175,7 @@ static uint16_t sunsetSkyColorAt(TFT_eSPI& t, int y, int yTop, int yHoriz) {
 
 void drawSunsetSky(TFT_eSPI& t, uint32_t now, int yTop, int yHoriz) {
     int w = t.width();
-    for (int y = yTop; y < yHoriz; y++) {
+    for (int y = DrawBand::top(yTop); y < DrawBand::bot(yHoriz); y++) {
         t.drawFastHLine(0, y, w, sunsetSkyColorAt(t, y, yTop, yHoriz));
     }
 
@@ -8270,7 +8271,7 @@ void drawSeagulls(TFT_eSPI& t, uint32_t now, int yTop, int yHoriz) {
 
 void drawRetroFloor(TFT_eSPI& t, uint32_t now, int yHoriz, int yBottom) {
     int w = t.width();
-    for (int y = yHoriz; y < yBottom; y++) {
+    for (int y = DrawBand::top(yHoriz); y < DrawBand::bot(yBottom); y++) {
         float tt = (float)(y - yHoriz) / (float)(yBottom - yHoriz);
         uint8_t b = (uint8_t)(15 + 30 * tt);
         t.drawFastHLine(0, y, w, t.color565(b, 0, (uint8_t)(b * 0.7f)));
@@ -8347,7 +8348,7 @@ void drawSynthwave(TFT_eSPI& t, uint32_t now, int yTop, int yBottom,
     if (skyH < 8 || seaH < 8) return;
 
     // ---- sky -------------------------------------------------------
-    for (int y = yTop; y < yHoriz; y++) {
+    for (int y = DrawBand::top(yTop); y < DrawBand::bot(yHoriz); y++) {
         t.drawFastHLine(0, y, w, sunsetSkyColorAt(t, y, yTop, yHoriz));
     }
 
@@ -8485,7 +8486,7 @@ void drawSynthwave(TFT_eSPI& t, uint32_t now, int yTop, int yBottom,
     // *brightness* ripple, one sinf per row. The sun's reflection does
     // get displaced, because there the shape is visible.
     const uint16_t waterBase = t.color565(10, 0, 30);
-    for (int y = yHoriz; y < yBottom; y++) {
+    for (int y = DrawBand::top(yHoriz); y < DrawBand::bot(yBottom); y++) {
         const float d = (float)(y - yHoriz) / (float)seaH;   // 0 horizon, 1 viewer
         const int srcY = yHoriz - (int)(d * skyH * 0.82f);
 

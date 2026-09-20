@@ -1,5 +1,6 @@
 // SquachWatch-CYD — clear (idle) screen implementation
 #include "ui_clear.h"
+#include "draw_band.h"
 #include "frame_prof.h"
 // Needed this early: the message helpers sit up with the visit machine,
 // above where the rest of this file pulls these in.
@@ -2932,7 +2933,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     Theme::drawBackgroundOverlay(t, now);
 
     // Title bar at the top
-    Theme::drawTitleBar(t, ">> SQUACHWATCH <<  SCANNING");
+    if (DrawBand::has(0, titleBottom)) Theme::drawTitleBar(t, ">> SQUACHWATCH <<  SCANNING");
 
     // The watch/hunt indicator, in the title bar's empty middle. AFTER the bar
     // itself, which repaints that whole band -- see drawWatchPill()'s comment
@@ -2941,8 +2942,13 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     {
         const bool watching = eng.watchKind() != DetectionEngine::WatchKind::NONE;
         const bool hunting  = eng.huntKind()  != DetectionEngine::WatchKind::NONE;
-        s_watchPillOn = false;
-        if (watching || hunting) drawWatchPill(t, w, watching, hunting);
+        // The flag goes inside the guard with the drawing it describes. Left
+        // outside it, the pass that cannot reach the title bar would clear a
+        // pill the other pass had just drawn, and it would stop being tappable.
+        if (DrawBand::has(0, titleBottom)) {
+            s_watchPillOn = false;
+            if (watching || hunting) drawWatchPill(t, w, watching, hunting);
+        }
     }
 
     // ALL CLEAR (only flash if there are NO active detections). Same
@@ -3033,8 +3039,10 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         if (tw <= w - 8) {
             int tx = (w - tw) / 2;
             // One pass, not twenty-four: this was 14.8 ms of every frame.
-            Theme::drawBangersOutline(t, tx, ty, msg, Theme::BLACK, HEADLINE_SIZE, 2);
-            Theme::drawBangersText(t, tx, ty, msg, col, HEADLINE_SIZE);
+            if (DrawBand::has(ty, ty + HEADLINE_H)) {
+                Theme::drawBangersOutline(t, tx, ty, msg, Theme::BLACK, HEADLINE_SIZE, 2);
+                Theme::drawBangersText(t, tx, ty, msg, col, HEADLINE_SIZE);
+            }
             // Padded well past the ink: the word is only 33px tall and it is
             // pressed with a thumb, over a moving Squachy.
             s_nbX = (int16_t)(tx - 16); s_nbY = (int16_t)(ty - 10);
@@ -3107,15 +3115,20 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     uint8_t start = 0;
     for (uint8_t row = 0; row < counterRows; row++) {
         uint8_t n = base + (row < remainder ? 1 : 0);
-        drawCounterLine(t, w, counterTextTop + row * lineH, eng, counterTypes + start, n);
+        const int rowY = counterTextTop + row * lineH;
+        // `start` advances either way: the rows share one list of types, so a
+        // row that is not painted still has to hand the next one its place.
+        if (DrawBand::has(rowY, rowY + lineH))
+            drawCounterLine(t, w, rowY, eng, counterTypes + start, n);
         start += n;
     }
 
     // Soft buttons, straight over the background: it repaints the whole
     // strip under them every frame, margins and gaps included. Each
     // button fills its own box, so the labels stay on a dark ground.
-    Theme::drawButtonBar(t, ButtonId::NONE,
-                         scanMenu ? Theme::ButtonBarMode::SCAN_PICKER : Theme::ButtonBarMode::MAIN);
+    if (DrawBand::has(bar.y, bar.y + bar.h))
+        Theme::drawButtonBar(t, ButtonId::NONE,
+                             scanMenu ? Theme::ButtonBarMode::SCAN_PICKER : Theme::ButtonBarMode::MAIN);
 #if SQUACH_MESH
     // Last, so it sits over the counters and the buttons -- which it has
     // taken over for as long as it runs; main.cpp routes every tap to it.

@@ -306,6 +306,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_outfit_unlock.h"
 #include "ui_ignorelist.h"
 #include "frame_push.h"
+#include "draw_band.h"
 #include "frame_prof.h"
 #include "fast_sprite.h"
 #if SQUACH_MESH
@@ -2551,6 +2552,9 @@ static void runPrimBench() {
 static uint32_t s_pushUsAvg  = 0;
 static uint32_t s_frameUsAvg = 0;
 static uint32_t s_pushAccumUs = 0;   // summed within a frame: cyd35 pushes twice
+#if defined(CYD35)
+static uint32_t s_bandUs[2] = {0, 0};      // measurement: the 3.5"'s two draw passes
+#endif
 
 static inline void pushFrame(int x, int y) {
     uint32_t t0 = micros();
@@ -2601,6 +2605,7 @@ void loop() {
     uint32_t frameStartUs = micros();
     FrameProf::begin();
     s_pushAccumUs = 0;
+    FramePush::newFrame();
     uint32_t now = millis();
     Clock::tick(now);   // the note to self, when it is due
 #if SQUACH_MESH && defined(BENCH_TOOLS)
@@ -3069,12 +3074,22 @@ void loop() {
                 // first pass so Squachy/digital-rain state advances once
                 // per logical frame even though this draws twice.
                 int halfH = tft.height() / 2;
+                uint32_t tBand = micros();
+                // The rows each pass can actually paint. Drawing that lands
+                // entirely outside them is declined a block at a time rather
+                // than clipped a pixel at a time -- see draw_band.h.
+                DrawBand::set(0, halfH);
                 frame.setViewport(0, 0, tft.width(), tft.height(), true);
                 uiClearTick(frame, now, engine, true, s_scanPickerOpen);
+                s_bandUs[0] = micros() - tBand;
                 pushFrame(0, 0);
+                tBand = micros();
+                DrawBand::set(halfH, tft.height());
                 frame.setViewport(0, -halfH, tft.width(), tft.height(), true);
                 uiClearTick(frame, now, engine, false, s_scanPickerOpen);
+                s_bandUs[1] = micros() - tBand;
                 pushFrame(0, halfH);
+                DrawBand::all();
                 frame.resetViewport();
             } else {
                 // Fallback if a post-boot rotate ever failed to
@@ -5289,6 +5304,13 @@ void loop() {
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
             FrameProf::print();
+#if defined(CYD35)
+            // Measurement, not a feature: where the 3.5"'s frame really goes.
+            Serial.printf("[bands] draw %lu / %lu us   hash %lu us   wire %lu us   rows %ld\n",
+                          (unsigned long)s_bandUs[0], (unsigned long)s_bandUs[1],
+                          (unsigned long)FramePush::hashUs(), (unsigned long)FramePush::wireUs(),
+                          (long)FramePush::lastRows());
+#endif
             const volatile uint32_t* ak = advertKinds();
             Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms (%ld rows)  screen %u  bg %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),

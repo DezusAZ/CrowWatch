@@ -33,12 +33,26 @@ static const uint32_t PX_PER_BURST = 32;
 // rotation, a fall-back to the ordinary push -- and every 64th frame is a
 // full one regardless, so nothing that slips past that can stay on screen
 // for more than three seconds.
+//
+// Stretching that to one in 192 was tried and put back. It is worth about a
+// third of a millisecond a frame on the 3.5" -- one percent -- and it costs
+// every board a stale-row window three times longer: six seconds on a 2.8"
+// running at thirty frames a second, where today it is two. That is a bad
+// trade to make on five boards for one percent on the sixth.
 static const int32_t MAX_ROWS = 480;   // the 3.5" in portrait, the tallest there is
 static uint32_t s_rowHash[MAX_ROWS];
 static bool     s_valid   = false;
 static int32_t  s_validW  = 0, s_validH = 0;
 static uint32_t s_frameNo = 0;
 static int32_t  s_lastRows = 0;
+#if defined(CYD35)
+static uint32_t s_hashUs = 0, s_wireUs = 0;
+#define SQW_PUSH_CLOCK(v) const uint32_t v = micros()
+#define SQW_PUSH_CHARGE(acc, v) acc += micros() - (v)
+#else
+#define SQW_PUSH_CLOCK(v) ((void)0)
+#define SQW_PUSH_CHARGE(acc, v) ((void)0)
+#endif
 
 static bool s_ready   = false;
 static bool s_enabled = true;
@@ -55,6 +69,15 @@ bool available() { return s_ready; }
 void setEnabled(bool on) { s_enabled = on; }
 bool enabled() { return s_ready && s_enabled; }
 void invalidate() { s_valid = false; }
+#if defined(CYD35)
+void newFrame() { s_lastRows = 0; s_hashUs = 0; s_wireUs = 0; }
+uint32_t hashUs() { return s_hashUs; }
+uint32_t wireUs() { return s_wireUs; }
+#else
+void newFrame() { s_lastRows = 0; }
+uint32_t hashUs() { return 0; }
+uint32_t wireUs() { return 0; }
+#endif
 int32_t lastRows() { return s_lastRows; }
 
 // FNV-1a over a row, a word at a time. Rows are a multiple of four bytes on
@@ -117,14 +140,16 @@ bool push(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int32_t x, in
     // Hash every row, and mark the ones to send. Full: all of them.
     static bool changed[MAX_ROWS];
     int32_t nChanged = 0;
+    SQW_PUSH_CLOCK(tHash);
     for (int32_t r = 0; r < h; r++) {
         const uint32_t hv = rowHash(src + (size_t)r * (size_t)w, w);
         changed[r] = full || hv != s_rowHash[y + r];
         s_rowHash[y + r] = hv;
         if (changed[r]) nChanged++;
     }
-    s_lastRows = 0;
+    SQW_PUSH_CHARGE(s_hashUs, tHash);
     if (nChanged) {
+        SQW_PUSH_CLOCK(tWire);
         // Exactly what pushSprite() -> pushImage() does around its own loop:
         // one transaction, chip select held low, the data/command line left
         // on data after each window. 512 bits per kick, as the library does.
@@ -143,6 +168,7 @@ bool push(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int32_t x, in
             s_lastRows += r1 - r0;
         }
         tft.endWrite();
+        SQW_PUSH_CHARGE(s_wireUs, tWire);
     }
     s_valid  = true;
     s_validW = w;

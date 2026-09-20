@@ -44,6 +44,46 @@ public:
     // here or it reads straight off the end -- a LoadStoreError panic, found
     // on that board on 2026-09-20 and the reason FramePush::push() takes a
     // buffer and a size rather than a sprite.
+#if defined(CYD35)
+    // The window-write guard. TFT_eSprite::setWindow() clamps the window it
+    // is handed to width()/height(), and those report the VIEWPORT, not the
+    // buffer -- so on a 480x160 buffer under a 480x320 viewport it will
+    // happily accept row 319 and let pushColor() store at _img8[319*480],
+    // 76 KB past the end of the allocation.
+    //
+    // That is a real crash, not a theoretical one: TFT_eSPI::drawWedgeLine()
+    // (behind drawWideLine, which the art uses) starts its scan at the line's
+    // RAW start row -- clipWindow() crops the end of the range but never the
+    // start -- and feeds it straight to setWindow(). On every other board the
+    // viewport IS the buffer and the datum is zero, so raw equals clipped and
+    // this has been correct for years. Only the two-band buffer separates
+    // them, which is why this is built for that board alone.
+    //
+    // The fix is the library's own logic against the right numbers: a window
+    // wholly outside the buffer goes to the spare pixel callocSprite() puts
+    // at the end for exactly this purpose, and one that overlaps is cropped
+    // to the buffer. pushColor() wraps back to the window's start when it
+    // runs off the end, so a cropped window can never walk out of it.
+    //
+    // It stops the corruption; it does not make a drawWideLine() land in the
+    // right band, because that call reads the datum inconsistently to begin
+    // with. Art drawn into the band sprite wants the four virtual primitives.
+    void setWindow(int32_t x0, int32_t y0, int32_t x1, int32_t y1) override {
+        if (x0 > x1) { const int32_t t = x0; x0 = x1; x1 = t; }
+        if (y0 > y1) { const int32_t t = y0; y0 = y1; y1 = t; }
+        if ((x0 >= _iwidth) || (x1 < 0) || (y0 >= _iheight) || (y1 < 0)) {
+            _xs = 0; _ys = _dheight; _xe = 0; _ye = _dheight;   // the spare pixel
+        } else {
+            if (x0 < 0) x0 = 0;
+            if (y0 < 0) y0 = 0;
+            if (x1 >= _iwidth)  x1 = _iwidth  - 1;
+            if (y1 >= _iheight) y1 = _iheight - 1;
+            _xs = x0; _ys = y0; _xe = x1; _ye = y1;
+        }
+        _xptr = _xs; _yptr = _ys;
+    }
+#endif
+
 #if defined(ARDUINO_ARCH_ESP32)
     int32_t  bufW() const { return _dwidth; }
     int32_t  bufH() const { return _dheight; }
