@@ -179,6 +179,7 @@ static void usage() {
         "  --bg N            background style 0..9 (see Settings::Background)\n"
         "  --theme N         palette index\n"
         "  --alert N         DetectionType the ALERT screen fires on\n"
+        "  --first / --night / --lastfree   the ALERT card's banners\n"
         "  --noseed          no detections at all -- CLEAR's idle state\n"
         "  --pet N           companion: 0 off, 1 VAPOR SHAGGY, 2 the yeti\n"
         "  --peer N          draw a visiting SquachMesh peer in outfit N\n"
@@ -225,6 +226,7 @@ int main(int argc, char** argv) {
     // was a DRONE, and the other types' headlines, colours and
     // confidence rows were never looked at.
     int alertType = -1;
+    bool alertFirst = false, alertNight = false, alertLastFree = false;
     // --noseed leaves the engine empty. The CLEAR screen has two states
     // now -- the headline only draws when something is actually live --
     // and with detections always seeded the emulator could not render
@@ -269,6 +271,9 @@ int main(int argc, char** argv) {
         else if (a == "--confirm" && i + 1 < argc) confirmRow = atoi(argv[++i]);
         else if (a == "--info" && i + 1 < argc) infoType = atoi(argv[++i]);
         else if (a == "--alert" && i + 1 < argc) alertType = atoi(argv[++i]);
+        else if (a == "--first") alertFirst = true;
+        else if (a == "--night") alertNight = true;
+        else if (a == "--lastfree") alertLastFree = true;
         else if (a == "--noseed") noSeed = true;
         else if (a == "--peer" && i + 1 < argc) peerOutfit = atoi(argv[++i]);
         else if (a == "--peername" && i + 1 < argc) peerName = argv[++i];
@@ -795,6 +800,10 @@ int main(int argc, char** argv) {
         }
         if (!d) { fprintf(stderr, "no seeded detection to alert on\n"); return 1; }
         uiAlertInit(frame, *d);
+        // The banners, the way main.cpp sets them: after init, which clears them.
+        if (alertFirst)    uiAlertSetFirst(true);
+        if (alertNight)    uiAlertSetNight(true);
+        if (alertLastFree) uiAlertSetLastFree(true);
     }
 
     // After uiSettingsInit(), which clears any pending question.

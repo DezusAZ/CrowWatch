@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Renders a release's show-off clip: captioned scenes, one after another.
+
+    python3 make_show_demo.py --render-only [--clip NAME]   # under WSL, after `make`
+    python  make_show_demo.py --encode-only [--clip NAME]   # wherever Pillow is installed
+
+Every scene is a run of the one-shot emulator, so every frame is the shipping
+code deciding what to draw; the caption under it is the only thing staged.
+Output lands in the firmware's docs/ so the release notes can embed it from
+the tag -- which is the whole reason this is a script in the repo and not a
+one-off: the v1.13.0 clip was rendered from a heredoc, never copied into
+docs/, and shipped in no release notes at all.
+
+A scene is (screen, warm-up frames, captured frames, extra args, env, hold
+ms, caption). A scene whose captured-frames field is a list is a scroll
+sweep: one run per --scroll value, one frame each, which is how a list
+scrolling to its stop is shown.
+
+The clock is pinned (SQUACH_EPOCH) so the clip renders the same on any day.
+"""
+import json, os, shutil, subprocess, sys
+
+HERE  = os.path.dirname(os.path.abspath(__file__))
+FONT  = os.path.join(HERE, "Bangers-Regular.ttf")
+EPOCH = "1789396740"   # Mon 14 Sep 2026, 14:39 UTC -- the desk clip's moment too
+W, H  = 320, 240
+ZOOM  = 2              # integer only: nearest-neighbour keeps device pixels square
+MS    = 66             # per captured frame: two 33 ms steps, about real time
+BAND  = 52             # the caption band under the screen, in output pixels
+CYAN  = (0, 214, 214)
+
+# ---- the clips ----
+
+CLIPS = {
+    # v1.14.0 "Stoop Kid": what changed, in the order it matters to a viewer.
+    "stoop-kid": [
+        ("clear",    60, 36, ["--bg", "4"],            {},  700, "TEXT DRAWS SIX TIMES FASTER"),
+        ("clear",    60, 36, ["--bg", "0"],            {},  700, "15 TO 21 FPS ON THE MAIN SCREEN"),
+        ("alert",    30, 16, ["--lastfree"],           {}, 1900, "AUTO SNOOZE: FIVE ALERTS, THEN IT HAS TO COME CLOSER"),
+        ("alert",    30, 16, ["--first", "--night"],   {}, 1500, "TWO BANNERS THAT NEVER DREW, DRAWING"),
+        ("settings", 10, 12, ["--scroll", "0"],        {}, 1500, "SETTINGS > BEHAVIOR > AUTO SNOOZE"),
+        ("log",      20, list(range(0, 13)), [],       {}, 1300, "EVERY LIST STOPS AT THE BOTTOM NOW"),
+    ],
+}
+
+def out_dir(clip):
+    return os.path.join(HERE, "out", "show-" + clip)
+
+def gif_path(clip):
+    return os.path.join(HERE, "..", "docs", clip + ".gif")
+
+# ---- render ----
+
+def run(cmd, env):
+    e = dict(os.environ, SQUACH_EPOCH=EPOCH)
+    e.update(env)
+    if subprocess.call(cmd, cwd=HERE, env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        sys.exit("render failed: " + " ".join(cmd))
+
+def render(clip):
+    sim = os.path.join(HERE, "squachsim")
+    if not os.path.exists(sim):
+        sys.exit("build the emulator first: make -j8 squachsim")
+    out = out_dir(clip)
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
+    man = []
+    for i, (screen, warm, n, extra, env, hold, caption) in enumerate(CLIPS[clip]):
+        if isinstance(n, list):
+            # A scroll sweep: one frame per value.
+            for k, sc in enumerate(n):
+                raw = os.path.join(out, "scene%d_%d.raw" % (i, k))
+                run([sim, screen, os.path.join(out, "x.png"), "--frames", str(warm),
+                     "--sequence", "1", "--raw", raw, "--scroll", str(sc)] + extra, env)
+                if os.path.getsize(raw) != W * H * 3:
+                    sys.exit("scene %d/%d: bad frame size" % (i, k))
+                last = (k == len(n) - 1)
+                man.append({"raw": os.path.basename(raw), "index": 0,
+                            "ms": (MS * 2) if not last else MS + hold, "caption": caption})
+            continue
+        raw = os.path.join(out, "scene%d.raw" % i)
+        run([sim, screen, os.path.join(out, "x.png"), "--frames", str(warm),
+             "--sequence", str(n), "--raw", raw] + extra, env)
+        if os.path.getsize(raw) != W * H * 3 * n:
+            sys.exit("scene %d: %d bytes, expected %d" % (i, os.path.getsize(raw), W * H * 3 * n))
+        for k in range(n):
+            man.append({"raw": os.path.basename(raw), "index": k,
+                        "ms": MS if k < n - 1 else MS + hold, "caption": caption})
+    json.dump(man, open(os.path.join(out, "manifest.json"), "w"))
+    print("%d frames rendered into %s" % (len(man), out))
+
+# ---- encode ----
+
+def caption_band(text, width):
+    """The band under the screen: the caption in Bangers, leaning forward,
+    the way the v1.13.0 clip had it."""
+    from PIL import Image, ImageDraw, ImageFont
+    band = Image.new("RGB", (width, BAND), (0, 0, 0))
+    if not text:
+        return band
+    size = 30
+    f = ImageFont.truetype(FONT, size)
+    probe = ImageDraw.Draw(band)
+    while size > 14:
+        f = ImageFont.truetype(FONT, size)
+        a, b, c, d = probe.textbbox((0, 0), text, font=f)
+        if c - a <= width - 40:
+            break
+        size -= 2
+    tw, th = c - a, d - b
+    # Render upright on a transparent layer, then shear it for the lean.
+    layer = Image.new("RGBA", (tw + 24, BAND), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).text((12 - a, (BAND - th) // 2 - b), text, font=f, fill=CYAN + (255,))
+    shear = 0.18
+    layer = layer.transform(layer.size, Image.AFFINE, (1, shear, -shear * BAND / 2, 0, 1, 0),
+                            resample=Image.BICUBIC)
+    band.paste(layer, ((width - layer.width) // 2, 0), layer)
+    return band
+
+def encode(clip):
+    from PIL import Image
+    out = out_dir(clip)
+    mp = os.path.join(out, "manifest.json")
+    if not os.path.exists(mp):
+        sys.exit("no frames -- run --render-only under WSL first")
+    man = json.load(open(mp))
+    raws, ims = {}, []
+    bands = {}
+    for f in man:
+        if f["raw"] not in raws:
+            raws[f["raw"]] = open(os.path.join(out, f["raw"]), "rb").read()
+        b = raws[f["raw"]]
+        off = f["index"] * W * H * 3
+        im = Image.frombytes("RGB", (W, H), b[off:off + W * H * 3])
+        if ZOOM > 1:
+            im = im.resize((W * ZOOM, H * ZOOM), Image.NEAREST)
+        if f["caption"] not in bands:
+            bands[f["caption"]] = caption_band(f["caption"], im.width)
+        page = Image.new("RGB", (im.width, im.height + BAND), (0, 0, 0))
+        page.paste(im, (0, 0))
+        page.paste(bands[f["caption"]], (0, im.height))
+        ims.append(page)
+    # One palette for the whole clip, so nothing shimmers between scenes.
+    sheet = Image.new("RGB", (ims[0].width, ims[0].height * len(ims)))
+    for i, im in enumerate(ims):
+        sheet.paste(im, (0, ims[0].height * i))
+    ref = sheet.quantize(colors=256, dither=Image.NONE)
+    frames = [im.quantize(palette=ref, dither=Image.NONE) for im in ims]
+    gif = gif_path(clip)
+    os.makedirs(os.path.dirname(gif), exist_ok=True)
+    frames[0].save(gif, save_all=True, append_images=frames[1:],
+                   duration=[f["ms"] for f in man], loop=0, optimize=True, disposal=1)
+    total = sum(f["ms"] for f in man) / 1000.0
+    print("%d frames, %.1fs, %dx%d -> %s (%d KB)"
+          % (len(frames), total, frames[0].width, frames[0].height,
+             os.path.normpath(gif), os.path.getsize(gif) // 1024))
+
+if __name__ == "__main__":
+    clip = "stoop-kid"
+    if "--clip" in sys.argv:
+        clip = sys.argv[sys.argv.index("--clip") + 1]
+    if clip not in CLIPS:
+        sys.exit("no clip called %s; one of: %s" % (clip, ", ".join(CLIPS)))
+    if "--render-only" in sys.argv:   render(clip)
+    elif "--encode-only" in sys.argv: encode(clip)
+    else:                             render(clip); encode(clip)
