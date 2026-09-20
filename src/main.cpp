@@ -938,6 +938,16 @@ static TouchPoint pollTouch() {
     if (!cyd35TouchCalibrated[screenRotation]) return tp;
     {
         uint16_t sx, sy;
+        // A cheap pressure read FIRST. TFT_eSPI's getTouch() opens with a
+        // debounce loop -- "wait until pressure stops increasing", one
+        // delay(1) per turn -- and only checks the pressure threshold after
+        // it. So an untouched screen pays the whole loop, every frame, and
+        // on the 3.5" that measured 12.9 ms of a 106 ms frame: more than a
+        // tenth of the device's time asking a screen nobody was touching.
+        // getTouchRawZ() is two SPI reads and no delay at all. Same
+        // threshold the library uses, so a touch it would have seen is a
+        // touch this sees.
+        if (tft.getTouchRawZ() <= 600) return tp;
         if (!tft.getTouch(&sx, &sy)) return tp;
         tp.x = (int)sx;
         tp.y = (int)sy;
@@ -972,6 +982,16 @@ static TouchPoint pollTouch() {
     if (!awokTouchCalibrated) return tp;
     {
         uint16_t sx, sy;
+        // A cheap pressure read FIRST. TFT_eSPI's getTouch() opens with a
+        // debounce loop -- "wait until pressure stops increasing", one
+        // delay(1) per turn -- and only checks the pressure threshold after
+        // it. So an untouched screen pays the whole loop, every frame, and
+        // on the 3.5" that measured 12.9 ms of a 106 ms frame: more than a
+        // tenth of the device's time asking a screen nobody was touching.
+        // getTouchRawZ() is two SPI reads and no delay at all. Same
+        // threshold the library uses, so a touch it would have seen is a
+        // touch this sees.
+        if (tft.getTouchRawZ() <= 600) return tp;
         if (!tft.getTouch(&sx, &sy)) return tp;
         tp.x = (int)sx;
         tp.y = (int)sy;
