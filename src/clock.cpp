@@ -10,6 +10,8 @@
 #include "ota_core.h"    // VERTEST, on bench builds
 #include "frame_push.h"  // PUSH, the frame-push switch
 #include "fast_sprite.h" // FAST, the sprite fast-path switch
+#include "ui_clear.h"    // PACE, the mascot step clock
+#include "squachy.h"     // TEMPO, his durations
 
 // PRIM, on every build: main.cpp runs the primitive benchmark on its next pass.
 extern volatile bool g_benchPrimNow;
@@ -489,6 +491,24 @@ void pollSerial() {
                 Serial.printf("[bg] %ld %s\n", n, Settings::backgroundName((Settings::Background)n));
             else
                 Serial.printf("[bg] no background %ld\n", n);
+        } else if (strncasecmp(line, "TEMPO", 5) == 0) {
+            // TEMPO P: every one of Squachy's durations at P percent, kept.
+            const char* arg = line + 5;
+            while (*arg == ' ') arg++;
+            if (*arg >= '0' && *arg <= '9') {
+                Settings::setMascotTempoPct((uint8_t)strtoul(arg, nullptr, 10));
+                Squachy::setTempo(Settings::mascotTempoPct());
+            }
+            Serial.printf("[tempo] Squachy at %u%% -- a 2 s mood lasts %lu ms\n",
+                          (unsigned)Settings::mascotTempoPct(), (unsigned long)(2000UL * Settings::mascotTempoPct() / 100));
+        } else if (strncasecmp(line, "PACE", 4) == 0) {
+            // PACE N: the mascot steps every N ms from now on (this boot).
+            // PACE alone reports. For choosing the number by eye.
+            const char* arg = line + 4;
+            while (*arg == ' ') arg++;
+            if (*arg >= '0' && *arg <= '9') uiMascotStepSet((uint32_t)strtoul(arg, nullptr, 10));
+            Serial.printf("[pace] mascot steps every %lu ms (%lu a second)\n",
+                          (unsigned long)uiMascotStepMs(), (unsigned long)(1000 / uiMascotStepMs()));
         } else if (strncasecmp(line, "FAST", 4) == 0) {
             // FAST ON / FAST OFF: the sprite's fast primitives, or the library's.
 #if defined(ARDUINO_ARCH_ESP32)

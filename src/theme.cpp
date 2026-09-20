@@ -3214,7 +3214,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // Kelp: jointed multi-segment strands, sway amplitude growing
     // toward the tip like real kelp anchored at the base, with little
     // leaf ticks along each segment.
-    FrameProf::lap(FrameProf::X1);   // water, rays, snow, floor
     int weedBaseY = yEnd - 1;
     static const uint8_t NW = 6;
     for (uint8_t i = 0; i < NW; i++) {
@@ -3239,7 +3238,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
         }
     }
 
-    FrameProf::lap(FrameProf::X2);   // weeds
     for (uint8_t i = 0; i < NB; i++) {
         bubY[i] -= 0.6f * s_animK;
         if (bubY[i] < yStart) { bubY[i] = (float)yEnd; bubX[i] = (float)random(0, w); }
@@ -3248,7 +3246,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
 
     // Fish panic and speed up while the shark is out — a little
     // reactive touch that ties the tank together.
-    FrameProf::lap(FrameProf::X3);   // bubbles
     float fleeMul = sharkActive ? 2.2f : 1.0f;
 
     for (uint8_t i = 0; i < N; i++) {
@@ -3330,7 +3327,6 @@ void drawAquarium(TFT_eSPI& t, uint32_t now, int yStart, int yEnd) {
     // scales as 1/d^2, so a pass through the middle blows the school
     // apart and the cohesion rule pulls it back together afterwards
     // without anyone scripting the recovery.
-    FrameProf::lap(FrameProf::X4);   // the eight fish and the jellies
     static const uint8_t NS = 26;
     static float shX[NS], shY[NS], shVX[NS], shVY[NS];
     static bool  shInited = false;

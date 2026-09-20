@@ -89,6 +89,8 @@ namespace Squachy {
     // about, so without this there is no way to see the set. Any tap
     // ends it; it also ends on its own after the last pose.
     void startShowOff();
+    // A percentage on every duration of his. See setTempo() in squachy.cpp.
+    void setTempo(uint8_t pct);
     void stopShowOff();
     bool showOffActive();
 

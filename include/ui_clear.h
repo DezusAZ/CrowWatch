@@ -13,6 +13,24 @@ void uiClearInit(TFT_eSPI& t);
 // swaps the bottom bar to Theme::ButtonBarMode::SCAN_PICKER. Nothing
 // else on this screen changes; the caller (main.cpp) is what actually
 // interprets a tap on the relabeled slots differently.
+// The mascot's own clock. Squachy, the pet, a visitor, the crowd and the
+// idle events step once per call with no notion of elapsed time -- they were
+// tuned by eye on a board that drew sixteen frames a second, and the day the
+// frame rate doubled they ran at double speed. The backgrounds scale their
+// motion by elapsed time and did not. So the screen draws every frame, and
+// the mascot STEPS on this clock: true when at least MASCOT_STEP_MS has
+// passed since the last step, and the caller hands it to every tick() as
+// `advance` -- which already means "draw, but do not move" when false,
+// because the 3.5" board draws twice per frame and needed exactly that.
+//
+// 62 ms was the pace the 80 MHz boards had before they got fast; 120 is
+// what two boards side by side said was right once they had. Live on the
+// console as PACE N (milliseconds a step) and kept in settings, so the
+// number is chosen by eye on a real board rather than argued about.
+bool     uiMascotStep(uint32_t now, bool advance);
+void     uiMascotStepSet(uint32_t ms);
+uint32_t uiMascotStepMs();
+
 void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
                   bool advance = true, bool scanMenu = false);
 

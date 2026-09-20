@@ -3,6 +3,19 @@
 #include "theme.h"
 #include "signatures.h"
 #include "settings.h"
+
+// ---- tempo ----
+// Squachy's behaviour is scheduled in milliseconds: how long a mood lasts,
+// how long a bubble stays, how often an idle gag fires, how long a drop or a
+// stretch takes. None of that changed when the frame rate doubled -- the
+// same 260 ms drop just got twice the frames -- and it read as brisker for
+// it. This is one percentage on every one of those durations: 100 as the
+// numbers were written, 70 a good deal slower. Chosen by eye on a real board
+// (TEMPO P on the console) and kept in settings. The clock itself is never
+// scaled: a mascot whose time drifts against the board's would break every
+// hold-and-tap gesture within the hour.
+static uint8_t s_tempoPct = 70;   // until settings are read; the same default
+static inline uint32_t tempo(uint32_t ms) { return ms * s_tempoPct / 100; }
 #include "clock.h"
 #include "void_eye.h"
 #if SQUACH_MESH
@@ -440,11 +453,13 @@ static uint32_t      moodUntil       = 0;
 // pace stays the same regardless of how many times he crosses.
 // How long a double-take runs before SHOCKED settles into its normal
 // pose. See the offset curve in tick().
-static const uint32_t DT_TOTAL_MS = 900;
+static const uint32_t DT_TOTAL_MS_BASE = 900;
+static uint32_t       DT_TOTAL_MS = 900;
 
-static const uint32_t WALK_CYCLE_MS   = 9000;
+static const uint32_t WALK_CYCLE_MS_BASE = 9000;
+static uint32_t       WALK_CYCLE_MS = 9000;
 static const uint8_t  WALK_CYCLES     = 5;
-static const uint32_t WALK_DURATION_MS = WALK_CYCLE_MS * WALK_CYCLES;
+static uint32_t       WALK_DURATION_MS = WALK_CYCLE_MS_BASE * WALK_CYCLES;
 static uint32_t       s_walkStart = 0;
 static int8_t         s_walkDir   = 1;
 static const char*   bubbleText      = nullptr;
@@ -457,7 +472,8 @@ static uint32_t      nextIdleAt      = 4000;
 // The reassurance beat. First one lands a few seconds after boot rather
 // than at t=30s, so a device that has just been switched on says something
 // reassuring while somebody is still looking at it.
-static const uint32_t WATCH_EVERY_MS = 30000;
+static const uint32_t WATCH_EVERY_MS_BASE = 30000;
+static uint32_t       WATCH_EVERY_MS = 30000;
 static uint32_t      s_nextWatchAt   = 6000;
 static uint32_t      lastInteraction = 0;
 static DetectionType s_reactType     = DetectionType::UNKNOWN;
@@ -605,14 +621,18 @@ static uint8_t s_shadeDrop = 0;
 static uint32_t s_dtStart = 0;
 // Gum bubble: when the current one started inflating. GROW then POP;
 // the mood outlasts both slightly so he gets a beat afterward.
-static const uint32_t GUM_GROW_MS = 1200;
-static const uint32_t GUM_HOLD_MS = 600;    // full size, wobbling, before it goes
-static const uint32_t GUM_POP_MS  = 400;
+static const uint32_t GUM_GROW_MS_BASE = 1200;
+static uint32_t       GUM_GROW_MS = 1200;
+static const uint32_t GUM_HOLD_MS_BASE = 600;
+static uint32_t       GUM_HOLD_MS = 600;    // full size, wobbling, before it goes
+static const uint32_t GUM_POP_MS_BASE = 400;
+static uint32_t       GUM_POP_MS = 400;
 static uint32_t s_gumStart = 0;
 // Waking stretch: anchored to its own start rather than to now %
 // STRETCH_MS, so the yawn peaks in the middle of the pose instead of
 // wherever the clock happened to be when he woke up.
-static const uint32_t STRETCH_MS = 1900;
+static const uint32_t STRETCH_MS_BASE = 1900;
+static uint32_t       STRETCH_MS = 1900;
 static uint32_t s_stretchStart = 0;
 // The last three detection types, newest first -- what he juggles.
 // UNKNOWN until something has actually been seen, which is also what
@@ -638,7 +658,8 @@ static uint8_t s_walkBeat = 0;
 // through the ordinary speech bubble so it needs no UI of its own.
 // s_showWB forces a walk beat, which is otherwise chosen by a hash of
 // which sweep he is on and cannot be asked for directly.
-static const uint32_t SHOW_STEP_MS = 2200;
+static const uint32_t SHOW_STEP_MS_BASE = 2200;
+static uint32_t       SHOW_STEP_MS = 2200;
 static const uint8_t  SHOW_N       = 16;
 static bool     s_showOff   = false;
 static uint32_t s_showStart = 0;
@@ -669,8 +690,10 @@ static float s_recoilK = 0.55f;
 // on s_dropStart from wherever he was let go. s_dangle is what the draw
 // path reads -- true for both the carry and the fall, since he hangs
 // the same way through either.
-static const uint32_t DROP_MS = 260;
-static const uint32_t LAND_MS = 220;
+static const uint32_t DROP_MS_BASE = 260;
+static uint32_t       DROP_MS = 260;
+static const uint32_t LAND_MS_BASE = 220;
+static uint32_t       LAND_MS = 220;
 static bool     s_grabbed  = false;
 static bool     s_dangle   = false;
 static int      s_grabX = 0, s_grabY = 0;
@@ -735,11 +758,12 @@ static void say(const char* line, uint32_t ms) {
     if (s_idleRoll && Settings::banter() == 0) return;
     bubbleText  = line;
     bubbleStart = millis();
-    bubbleUntil = bubbleStart + ms;
+    bubbleUntil = bubbleStart + tempo(ms);
 }
 
 // Every bubble stays up at least this long, no matter which line fires.
-static const uint32_t MIN_BUBBLE_MS = 5000;
+static const uint32_t MIN_BUBBLE_MS_BASE = 5000;
+static uint32_t       MIN_BUBBLE_MS = 5000;
 
 // Curated, cycle-through options rather than free-text entry — there's
 // no keyboard UI on this device worth building just for a nickname.
@@ -1159,7 +1183,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
     switch (evt) {
         case Event::DETECTION: {
             mood = Mood::SHOCKED;
-            moodUntil = now + 1400;
+            moodUntil = now + tempo(1400);
             s_hostReact = -1;  // a real one, not an emote's borrowed pose
             s_dtStart = now;   // see the double-take offset in tick()
             // Map RSSI onto 0..1. Anything at or below -100 dBm is the
@@ -1287,7 +1311,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             break;
         case Event::PETTED: {
             mood = Mood::BOUNCE;
-            moodUntil = now + 1200;
+            moodUntil = now + tempo(1200);
             s_petFxStart = now;
             s_petFxUntil = now + 1900;
             ensurePrefsLoaded();
@@ -1309,7 +1333,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
         }
         case Event::HELD: {
             mood = Mood::BOUNCE;
-            moodUntil = now + 1500;
+            moodUntil = now + tempo(1500);
             s_petFxStart = now;
             s_petFxUntil = now + 2600;
             say(pick(HELD_LINES, 6), MIN_BUBBLE_MS);
@@ -1317,7 +1341,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
         }
         case Event::PETTING: {
             mood = Mood::BOUNCE;
-            moodUntil = now + 900;
+            moodUntil = now + tempo(900);
             s_petFxStart = now;
             s_petFxUntil = now + 1400;
             static uint32_t lastLineAt = 0;
@@ -1328,7 +1352,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             break;
         }
     }
-    nextIdleAt = now + 15000 + random(0, 15000);
+    nextIdleAt = now + tempo(15000) + random(0, 15000);
 }
 
 int crownY() { return s_lastCrownY; }
@@ -1399,6 +1423,22 @@ void toasterNear(int x, int y) {
     // A detection outranks a kitchen appliance, so a startle keeps the
     // floor. He still ducks either way; he just does not comment on it.
     if (mood != Mood::SHOCKED) say(pick(DUCK_LINES, 5), 3000);
+}
+
+void setTempo(uint8_t pct) {
+    s_tempoPct = pct < 50 ? 50 : (pct > 200 ? 200 : pct);
+    DT_TOTAL_MS      = tempo(DT_TOTAL_MS_BASE);
+    WALK_CYCLE_MS    = tempo(WALK_CYCLE_MS_BASE);
+    WALK_DURATION_MS = WALK_CYCLE_MS * WALK_CYCLES;
+    WATCH_EVERY_MS   = tempo(WATCH_EVERY_MS_BASE);
+    GUM_GROW_MS      = tempo(GUM_GROW_MS_BASE);
+    GUM_HOLD_MS      = tempo(GUM_HOLD_MS_BASE);
+    GUM_POP_MS       = tempo(GUM_POP_MS_BASE);
+    STRETCH_MS       = tempo(STRETCH_MS_BASE);
+    SHOW_STEP_MS     = tempo(SHOW_STEP_MS_BASE);
+    DROP_MS          = tempo(DROP_MS_BASE);
+    LAND_MS          = tempo(LAND_MS_BASE);
+    MIN_BUBBLE_MS    = tempo(MIN_BUBBLE_MS_BASE);
 }
 
 void startShowOff() {
@@ -1728,7 +1768,7 @@ static void finishOnboarding() {
     s_onboardActive = false;
     s_petPrefs.putBool("onboarded", true);
     bubbleText = nullptr;       // hand the bubble back to the normal idle-quip system
-    nextIdleAt = millis() + 6000; // a short pause feels better than an instant quip right after
+    nextIdleAt = millis() + tempo(6000); // a short pause feels better than an instant quip right after
 }
 
 static void advanceOnboarding() {
@@ -1847,7 +1887,7 @@ void unlockWolfPelt() {
     s_petPrefs.putBool("wolfPelt", true);
     refreshOutfitUnlocks();
     mood      = Mood::SHOCKED;
-    moodUntil = millis() + 2000;
+    moodUntil = millis() + tempo(2000);
     say("...it left me its coat.", 3600);
 }
 
@@ -2014,7 +2054,7 @@ void unlockPet() {
     s_petUnlocked = true;
     s_petPrefs.putBool("petUnlk", true);
     mood      = Mood::BOUNCE;
-    moodUntil = millis() + 2000;
+    moodUntil = millis() + tempo(2000);
     // No line here any more. This used to be the entire announcement -- one
     // sentence in his bubble for a whole companion, while a hat got a
     // celebration card -- and the card that replaces it would bury the line
@@ -2072,7 +2112,7 @@ void unlockParka() {
     s_petPrefs.putBool("parka", true);
     refreshOutfitUnlocks();
     mood      = Mood::BOUNCE;
-    moodUntil = millis() + 2000;
+    moodUntil = millis() + tempo(2000);
     say("somebody was home.", 3600);
 }
 
@@ -2091,7 +2131,7 @@ void unlockShark() {
             "same fish. same result.",
         };
         mood      = Mood::BOUNCE;
-        moodUntil = millis() + 1600;
+        moodUntil = millis() + tempo(1600);
         say(AGAIN[again++ & 3], 3200);
         return;
     }
@@ -2099,7 +2139,7 @@ void unlockShark() {
     s_petPrefs.putBool("shark", true);
     refreshOutfitUnlocks();
     mood      = Mood::BOUNCE;
-    moodUntil = millis() + 2000;
+    moodUntil = millis() + tempo(2000);
     say("he came back for me.", 3600);
 }
 
@@ -2110,7 +2150,7 @@ void unlockVoidEye() {
     s_petPrefs.putBool("voidEye", true);
     refreshOutfitUnlocks();
     mood      = Mood::SHOCKED;
-    moodUntil = millis() + 2000;
+    moodUntil = millis() + tempo(2000);
     say("it blinked first.", 3600);
 }
 
@@ -2121,7 +2161,7 @@ void unlockChromeWing() {
     s_petPrefs.putBool("chromeWing", true);
     refreshOutfitUnlocks();
     mood      = Mood::DANCE;
-    moodUntil = millis() + 2000;
+    moodUntil = millis() + tempo(2000);
     say("caught one!", 3400);
 }
 
@@ -2148,7 +2188,7 @@ void unlockAllOutfits() {
     // whatever topY/availHeight the very next real tick() call passes.
     uint32_t now = millis();
     mood      = Mood::BOUNCE;
-    moodUntil = now + 2500;
+    moodUntil = now + tempo(2500);
     say("EVERY OUTFIT UNLOCKED. GO WILD.", 5000);
     s_legendary      = true;
     s_legendaryUntil = now + 6000;
@@ -2669,7 +2709,7 @@ uint32_t visitSay(const char* line) {
 
 void visitLaugh(uint32_t now) {
     mood      = Mood::BOUNCE;   // 9px at 220ms -- the idle flourish's bounce
-    moodUntil = now + 1500;
+    moodUntil = now + tempo(1500);
 }
 
 void visitReach(uint32_t now, uint32_t ms, Reach level) {
@@ -2871,7 +2911,7 @@ void scanReaction(ScanMoment moment, uint8_t count) {
             break;
         case ScanMoment::HIT:
             mood = Mood::SHOCKED;
-            moodUntil = now + 800;
+            moodUntil = now + tempo(800);
             // Mood still reacts (visual feedback that something was
             // found); only the bubble text is held back so it can't
             // cut the hint off early.
@@ -2879,12 +2919,12 @@ void scanReaction(ScanMoment moment, uint8_t count) {
             break;
         case ScanMoment::DONE_EMPTY:
             mood = Mood::SLEEPY;
-            moodUntil = now + 2000;
+            moodUntil = now + tempo(2000);
             if (now >= s_scanHintUntil) say(pick(SCAN_EMPTY_LINES, 3), 4000);
             break;
         case ScanMoment::DONE_FOUND:
             mood = Mood::BOUNCE;
-            moodUntil = now + 2000;
+            moodUntil = now + tempo(2000);
             if (now >= s_scanHintUntil) say(pick(SCAN_FOUND_LINES, 3), 4500);
             // "A lot" flourish -- same rare party-confetti mechanism
             // milestone detections and the outfit-unlock easter egg
@@ -2919,12 +2959,12 @@ void huntReaction(HuntMoment moment) {
             // there" startle, same pose an UNKNOWN-type detection gets.
             s_reactType = DetectionType::UNKNOWN;
             mood = Mood::SHOCKED;
-            moodUntil = now + 700;
+            moodUntil = now + tempo(700);
             if (now >= s_huntHintUntil) say(pick(HUNT_FIRST_SIGNAL_LINES, 3), 2200);
             break;
         case HuntMoment::WARMER:
             mood = Mood::BOUNCE;
-            moodUntil = now + 800;
+            moodUntil = now + tempo(800);
             if (now >= s_huntHintUntil) say(pick(HUNT_WARMER_LINES, 4), 2200);
             break;
         case HuntMoment::COLDER:
@@ -2934,7 +2974,7 @@ void huntReaction(HuntMoment moment) {
             // an actively-wrong-way cue, and costs no new pose code.
             s_reactType = DetectionType::AIRTAG;
             mood = Mood::SHOCKED;
-            moodUntil = now + 900;
+            moodUntil = now + tempo(900);
             if (now >= s_huntHintUntil) say(pick(HUNT_COLDER_LINES, 4), 2200);
             break;
         case HuntMoment::HOT:
@@ -2942,7 +2982,7 @@ void huntReaction(HuntMoment moment) {
             // great" convention scanReaction()'s big-haul DONE_FOUND
             // uses, rather than an alarmed startle.
             mood = Mood::BOUNCE;
-            moodUntil = now + 1500;
+            moodUntil = now + tempo(1500);
             if (now >= s_huntHintUntil) say(pick(HUNT_HOT_LINES, 3), 3500);
             // Same rare party-confetti flourish milestone detections
             // and a big scan haul use -- a successful hunt earns it.
@@ -2957,7 +2997,7 @@ void huntReaction(HuntMoment moment) {
             break;
         case HuntMoment::STALLED:
             mood = Mood::SLEEPY;
-            moodUntil = now + 2000;
+            moodUntil = now + tempo(2000);
             if (now >= s_huntHintUntil) say(pick(HUNT_STALLED_LINES, 3), 4000);
             break;
     }
@@ -2965,7 +3005,7 @@ void huntReaction(HuntMoment moment) {
 
 void watchAlertReaction() {
     mood = Mood::SHOCKED;
-    moodUntil = millis() + 1200;
+    moodUntil = millis() + tempo(1200);
     say(pick(WATCH_ALERT_LINES, 4), 3000);
 }
 
@@ -5375,6 +5415,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     // independently of mood, and ahead of the idle-quip block below,
     // which it also suppresses entirely while active — his voice is
     // reserved for the script, not random chatter, until it's done.
+    { static bool loaded = false; if (!loaded) { setTempo(Settings::mascotTempoPct()); loaded = true; } }
     if (s_onboardActive && now >= bubbleUntil) {
         advanceOnboarding();
     }
@@ -5410,7 +5451,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         s_nextWatchAt = now + WATCH_EVERY_MS;
         // Hold the random idle roll off so the two do not stack into one
         // bubble replacing another mid-read.
-        if (nextIdleAt < now + 8000) nextIdleAt = now + 8000;
+        if (nextIdleAt < now + 8000) nextIdleAt = now + tempo(8000);
     }
 
     // BANTER scales the gap the roll set for itself: LESS waits two and a
@@ -5440,8 +5481,8 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             if (s_napStart == 0) s_napStart = now;
             say(pick(SLEEPY_LINES, 4), 6000);
             mood = Mood::SLEEPY;
-            moodUntil = now + 8000;
-            nextIdleAt = now + 8000;
+            moodUntil = now + tempo(8000);
+            nextIdleAt = now + tempo(8000);
         } else if (s_napStart != 0) {
             // Just woke up from a capped nap -- back at it, and held
             // off from immediately napping again for a while even
@@ -5455,13 +5496,13 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             mood = Mood::STRETCH;
             s_stretchStart = now;
             moodUntil = now + STRETCH_MS;
-            nextIdleAt = now + 8000;
+            nextIdleAt = now + tempo(8000);
         } else if (random(0, 250) == 0) {
             // Rare shimmering flourish — see drawBody's fur-color swap
             // — escalated into a full rainbow-wash-and-confetti moment.
             say(pick(PARTY_LINES, 4), 5000);
             mood = Mood::BOUNCE;
-            moodUntil = now + 2000;
+            moodUntil = now + tempo(2000);
             s_legendary = true;
             s_legendaryUntil = now + 5000;
             int w = t.width();
@@ -5471,7 +5512,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
                 s_cfvy[i]  = 0.8f + (float)random(0, 100) / 100.0f * 1.4f;
                 s_cfcol[i] = (uint8_t)random(0, 6);
             }
-            nextIdleAt = now + 9000 + random(0, 13000);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
         } else if (s_haveLastDetection && (now - s_lastDetectionAt) < 120000u
                    && s_recentTypes[0] != DetectionType::UNKNOWN
                    && random(0, 3) == 0) {
@@ -5488,8 +5529,8 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             // information rather than just character.
             say(pick(JUGGLE_LINES, 4), 3600);
             mood = Mood::JUGGLE;
-            moodUntil = now + 3600;
-            nextIdleAt = now + 14000 + random(0, 18000);
+            moodUntil = now + tempo(3600);
+            nextIdleAt = now + tempo(14000) + random(0, 18000);
         } else if (random(0, 7) == 0) {
             // Gum. Means nothing, which is the argument for it: every
             // other thing he does is a reaction to the radio.
@@ -5497,7 +5538,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             mood = Mood::GUM;
             s_gumStart = now;
             moodUntil = now + GUM_GROW_MS + GUM_HOLD_MS + GUM_POP_MS + 400;
-            nextIdleAt = now + 14000 + random(0, 18000);
+            nextIdleAt = now + tempo(14000) + random(0, 18000);
         } else if (random(0, 9) == 0) {
             // A stretch on its own, not only on the way out of a nap.
             // Nap exit was the only route in, and a nap needs
@@ -5508,13 +5549,13 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             mood = Mood::STRETCH;
             s_stretchStart = now;
             moodUntil = now + STRETCH_MS;
-            nextIdleAt = now + 12000 + random(0, 16000);
+            nextIdleAt = now + tempo(12000) + random(0, 16000);
         } else if (random(0, 8) == 0) {
             // A little dance break -- see drawBody()'s DANCE arm case.
             say(pick(DANCE_LINES, 4), 3200);
             mood = Mood::DANCE;
-            moodUntil = now + 2400;
-            nextIdleAt = now + 9000 + random(0, 13000);
+            moodUntil = now + tempo(2400);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
         } else if (random(0, 6) == 0) {
             // A little wander away from center and back — see the
             // bodyCx computation below and the leg-cycle in drawBody().
@@ -5529,8 +5570,8 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             // branch for the actual pose (one shut lens + a sparkle).
             say(pick(WINK_LINES, 4), MIN_BUBBLE_MS);
             mood = Mood::WINK;
-            moodUntil = now + 1800;
-            nextIdleAt = now + 9000 + random(0, 13000);
+            moodUntil = now + tempo(1800);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
         } else {
             // Recent real activity (or a long stretch of none) biases
             // which pool this pulls from, so idle chatter reads as
@@ -5561,8 +5602,8 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
                 say(pick(IDLE_LINES, 18), MIN_BUBBLE_MS);
             }
             mood = random(0, 2) ? Mood::WAVE : Mood::BOUNCE;
-            moodUntil = now + 1200;
-            nextIdleAt = now + 9000 + random(0, 13000);
+            moodUntil = now + tempo(1200);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
         }
         s_idleRoll = false;
     }

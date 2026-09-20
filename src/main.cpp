@@ -2491,6 +2491,9 @@ static void runPrimBench() {
     f.setTextSize(2);
     primTime("print 11 chars size 2", 300, [&](uint32_t i){ f.setCursor((int)(i & 63), (int)((i >> 1) & 127)); f.print("HELLO WORLD"); });
     f.setTextSize(1);
+    f.setTextFont(2);
+    primTime("print 11 chars font 2",  300, [&](uint32_t i){ f.setCursor((int)(i & 127), (int)((i >> 1) & 127)); f.print("HELLO WORLD"); });
+    f.setTextFont(1);
     primTime("Bangers NEARBY LG",      50, [&](uint32_t i){ Theme::drawBangersText(f, 40, 60, "NEARBY", Theme::AMBER, Theme::BangersSize::LG); });
     primTime("Bangers NEARBY MD",      50, [&](uint32_t i){ Theme::drawBangersText(f, 40, 60, "NEARBY", Theme::AMBER, Theme::BangersSize::MD); });
     primTime("Theme::blend",        20000, [&](uint32_t i){ sink += Theme::blend((uint16_t)i, (uint16_t)(i * 3), (uint16_t)(i & 255)); });
@@ -2536,7 +2539,10 @@ static inline void pushFrame(int x, int y) {
     // rather than half-draws, and the ordinary push is what it declines to;
     // both leave the frame fully on the panel before the clock below stops,
     // so DIAGNOSTICS and the [frame] line measure the same thing either way.
-    if (!FramePush::push(tft, frame, x, y)) frame.pushSprite(x, y);
+    if (!FramePush::push(tft, frame, x, y)) {
+        frame.pushSprite(x, y);
+        FramePush::invalidate();   // the panel now holds something push() did not record
+    }
     s_pushAccumUs += micros() - t0;
 }
 
@@ -2762,6 +2768,7 @@ void loop() {
         screenRotation = (screenRotation + 1) % 4;
         Settings::saveRotation(screenRotation);
         tft.setRotation(screenRotation);
+        FramePush::invalidate();   // the panel was re-initialised; send every row next
         // The MX/MY/MV bits applyColorOrder() writes are rotation-
         // dependent, so it has to be reissued alongside every
         // setRotation() call, not just at boot.
@@ -5260,10 +5267,10 @@ void loop() {
             lastFrameSay = now;
             FrameProf::print();
             const volatile uint32_t* ak = advertKinds();
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms  screen %u  bg %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms (%ld rows)  screen %u  bg %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
                           (unsigned long)(1000000UL / s_frameUsAvg),
-                          (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10),
+                          (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10), (long)FramePush::lastRows(),
                           (unsigned)state, (unsigned)Settings::background(), (unsigned long)ESP.getFreeHeap(),
                           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
                           (unsigned long)wifiFramesSeen(), (unsigned long)advertRate(), (unsigned long)advertsSeen(),

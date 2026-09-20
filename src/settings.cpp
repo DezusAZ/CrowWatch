@@ -9,6 +9,8 @@ namespace Settings {
 static Preferences s_prefs;
 static uint8_t     s_palette    = 0;
 static Background  s_background = Background::DIGITAL;
+static uint16_t    s_mascotPace   = 120;   // PACE: ms between the mascot's steps
+static uint8_t     s_mascotTempo  = 70;    // TEMPO: percent on his durations
 static bool        s_inverted   = false;
 static bool        s_rgbSwapped = false;
 static bool        s_colorChecked = false;
@@ -219,6 +221,12 @@ void load() {
     s_inverted   = s_prefs.getBool("inv", false);
     s_rgbSwapped = s_prefs.getBool("rgbswap", false);
     s_colorChecked = s_prefs.getBool("colorchk", false);
+    // 120 and 70: chosen by eye on two boards the day the frame rate doubled
+    // (2026-09-20), against 62 and 100, and kept.
+    s_mascotPace   = (uint16_t)s_prefs.getUInt("pace", 120);
+    s_mascotTempo  = s_prefs.getUChar("tempo", 70);
+    if (s_mascotPace < 10 || s_mascotPace > 500) s_mascotPace = 120;
+    if (s_mascotTempo < 50 || s_mascotTempo > 200) s_mascotTempo = 70;
 #if SQUACH_MESH
     // Both off unless asked for. See the note in settings.h.
     s_meshDetect   = s_prefs.getBool("meshrx", false);
@@ -695,6 +703,17 @@ void toggleMessages() {
 bool meshTutorSeen()    { return s_msgTutor; }
 void setMeshTutorSeen() { s_msgTutor = true; s_prefs.putBool("msgtut", true); }
 #endif
+
+uint16_t mascotPaceMs() { return s_mascotPace; }
+void setMascotPaceMs(uint16_t ms) {
+    s_mascotPace = ms < 10 ? 10 : (ms > 500 ? 500 : ms);
+    s_prefs.putUInt("pace", s_mascotPace);
+}
+uint8_t mascotTempoPct() { return s_mascotTempo; }
+void setMascotTempoPct(uint8_t pct) {
+    s_mascotTempo = pct < 50 ? 50 : (pct > 200 ? 200 : pct);
+    s_prefs.putUChar("tempo", s_mascotTempo);
+}
 
 uint8_t squachySizePct() {
     return SQ_SIZE_PCT[s_sqSizeIx < SQ_SIZE_N ? s_sqSizeIx : (uint8_t)(SQ_SIZE_N - 1)];

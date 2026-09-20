@@ -82,5 +82,65 @@ int main() {
     ck("red's bits are in the byte that goes out first",
        (FramePush::rgb332Wire(0xE0) & 0xFF) == 0xF8);
 
+    // ---- the span planner ----
+    // What this guards: a span that misses a changed row by one is a stale
+    // line on the panel that nothing downstream would ever notice.
+    suite("Rows to send: nothing changed, everything changed, one row");
+    {
+        static bool ch[320];
+        FramePush::RowSpan sp[96];
+        for (int i = 0; i < 320; i++) ch[i] = false;
+        ck("no change, no spans", FramePush::frameSpans(ch, 240, 1, sp, 96) == 0);
+        for (int i = 0; i < 240; i++) ch[i] = true;
+        int n = FramePush::frameSpans(ch, 240, 1, sp, 96);
+        ck("all changed is one span of the whole frame", n == 1 && sp[0].r0 == 0 && sp[0].r1 == 240);
+        for (int i = 0; i < 320; i++) ch[i] = false;
+        ch[7] = true;
+        n = FramePush::frameSpans(ch, 240, 2, sp, 96);
+        ck("one row, aligned to pairs, is the pair that holds it", n == 1 && sp[0].r0 == 6 && sp[0].r1 == 8);
+        ch[7] = false; ch[239] = true;
+        n = FramePush::frameSpans(ch, 240, 2, sp, 96);
+        ck("the last row, aligned, stays inside the frame", n == 1 && sp[0].r0 == 238 && sp[0].r1 == 240);
+        for (int i = 0; i < 320; i++) ch[i] = (i % 2) == 1;
+        n = FramePush::frameSpans(ch, 240, 2, sp, 96);
+        ck("alternate rows at pair alignment merge into one span", n == 1 && sp[0].r0 == 0 && sp[0].r1 == 240);
+    }
+
+    suite("Rows to send: a thousand random patterns");
+    {
+        static bool ch[320];
+        FramePush::RowSpan sp[96];
+        uint32_t seed = 12345;
+        int bad = 0;
+        for (int t = 0; t < 1000 && bad == 0; t++) {
+            const int32_t h = (t & 1) ? 320 : 240;
+            const int32_t align = (t & 2) ? 2 : 1;
+            const int maxOut = (t % 7 == 0) ? 3 : 96;     // sometimes starve it
+            seed = seed * 1664525u + 1013904223u;
+            const int density = (int)((seed >> 24) % 100);
+            for (int32_t i = 0; i < h; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                ch[i] = (int)((seed >> 16) % 100) < density;
+            }
+            const int n = FramePush::frameSpans(ch, h, align, sp, maxOut);
+            // every changed row is covered
+            for (int32_t i = 0; i < h; i++) {
+                if (!ch[i]) continue;
+                bool cov = false;
+                for (int k = 0; k < n; k++) if (i >= sp[k].r0 && i < sp[k].r1) { cov = true; break; }
+                if (!cov) bad++;
+            }
+            // spans are ordered, disjoint, aligned, in bounds, non-empty
+            for (int k = 0; k < n; k++) {
+                if (sp[k].r0 < 0 || sp[k].r1 > h || sp[k].r0 >= sp[k].r1) bad++;
+                if (sp[k].r0 % align) bad++;
+                if (sp[k].r1 % align && sp[k].r1 != h) bad++;
+                if (k > 0 && sp[k].r0 < sp[k - 1].r1) bad++;
+            }
+            if (n > maxOut) bad++;
+        }
+        ck("every changed row is inside a span, every span is sound", bad == 0);
+    }
+
     return report();
 }

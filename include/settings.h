@@ -382,6 +382,15 @@ namespace Settings {
     void        setMeshTutorSeen();
 #endif
 
+    // The mascot's pace, chosen by eye on a real board (PACE N / TEMPO P on
+    // the console) and kept. Pace: milliseconds between his steps. Tempo: a
+    // percentage on every duration of his -- moods, bubbles, idle gags, the
+    // length of a drop or a stretch -- 100 as written, 70 slower.
+    uint16_t    mascotPaceMs();
+    void        setMascotPaceMs(uint16_t ms);
+    uint8_t     mascotTempoPct();
+    void        setMascotTempoPct(uint8_t pct);
+
     uint8_t     squachySizePct();
     const char* squachySizeLabel();
     void        cycleSquachySize();

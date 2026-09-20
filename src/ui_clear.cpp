@@ -2677,6 +2677,18 @@ bool uiClearDrawVisit(TFT_eSPI& t, uint32_t now, int top, int floorY, bool advan
 }
 #endif
 
+static uint32_t s_mascotStepMs = 0;   // 0: not yet read from settings
+void     uiMascotStepSet(uint32_t ms) { Settings::setMascotPaceMs((uint16_t)ms); s_mascotStepMs = Settings::mascotPaceMs(); }
+uint32_t uiMascotStepMs()            { if (!s_mascotStepMs) s_mascotStepMs = Settings::mascotPaceMs(); return s_mascotStepMs; }
+
+bool uiMascotStep(uint32_t now, bool advance) {
+    static uint32_t s_lastStep = 0;
+    if (!advance) return false;
+    if ((uint32_t)(now - s_lastStep) < uiMascotStepMs()) return false;
+    s_lastStep = now;
+    return true;
+}
+
 void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance, bool scanMenu) {
     int w = t.width();
     int h = t.height();
@@ -2801,6 +2813,9 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::clearBackgroundFloor();
     FrameProf::lap(FrameProf::BG);
+    // Everything from here that moves by the call, not by the clock, moves
+    // on the mascot's clock. See uiMascotStep().
+    const bool step = uiMascotStep(now, advance);
 
     // Squachy: main character, reacts to events, cracks jokes when idle.
     // His available region runs all the way to countersTop (not
@@ -2879,12 +2894,12 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         const uint8_t peerCap = (uint8_t)((crowdMax > 8 ? 8 : crowdMax) - 1);
         if (crowdMax > 1) crowdN = Mesh::squadList(now, crowd, peerCap);
         if (crowdMax > 1 && crowdN >= 2) {
-            uiClearDrawCrowd(t, now, crowd, crowdN, titleBottom, squachyBottom, advance, msgFresh, 22);
+            uiClearDrawCrowd(t, now, crowd, crowdN, titleBottom, squachyBottom, step, msgFresh, 22);
         } else if (guest) {
-            drawVisit(t, now, guest, titleBottom, squachyBottom, advance, msgFresh);
+            drawVisit(t, now, guest, titleBottom, squachyBottom, step, msgFresh);
         } else
 #endif
-        Squachy::tick(t, w / 2, titleBottom, squachyBottom - titleBottom, now, advance,
+        Squachy::tick(t, w / 2, titleBottom, squachyBottom - titleBottom, now, step,
                       1.0f, false, -1, Settings::squachySizePct());
 #if SQUACH_MESH
         // Everybody in range, whether or not one of them is on screen.
@@ -2904,7 +2919,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     // mid-lesson would be more distraction than delight.
     FrameProf::lap(FrameProf::SQUACHY);
     if (!Settings::boringMode() && !Squachy::onboardingActive()) {
-        IdleEvents::tick(t, now, 0, titleBottom, w, squachyBottom, advance);
+        IdleEvents::tick(t, now, 0, titleBottom, w, squachyBottom, step);
     }
     FrameProf::lap(FrameProf::IDLE);
 

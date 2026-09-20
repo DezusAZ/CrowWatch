@@ -56,6 +56,38 @@ inline uint16_t rgb332Wire(uint8_t c) {
     return (uint16_t)(hi | (lo << 8));
 }
 
+// Which rows to send, given which rows changed. Each run of changed rows
+// becomes a span [r0, r1), widened to whole multiples of `align` rows (a
+// span has to be whole 32-pixel bursts: 320 wide any row is, 240 wide two),
+// clamped to the frame, and merged with the span before it if they touch.
+// Pure arithmetic, out here so the host test can hammer it: a span that
+// misses a row by one is a stale line on the panel that nothing else would
+// ever catch. Returns the span count; past `maxOut` the last span simply
+// runs to the end, which sends more than needed rather than less.
+struct RowSpan { int32_t r0, r1; };
+inline int frameSpans(const bool* changed, int32_t h, int32_t align, RowSpan* out, int maxOut) {
+    int n = 0;
+    for (int32_t r = 0; r < h;) {
+        if (!changed[r]) { r++; continue; }
+        int32_t r0 = r;
+        while (r < h && changed[r]) r++;
+        int32_t r1 = r;
+        r0 -= r0 % align;
+        if (r1 % align) r1 += align - (r1 % align);
+        if (r1 > h) r1 = h;
+        if (n > 0 && out[n - 1].r1 >= r0) {
+            if (r1 > out[n - 1].r1) out[n - 1].r1 = r1;
+        } else if (n >= maxOut) {
+            out[n - 1].r1 = h;
+            return n;
+        } else {
+            out[n].r0 = r0; out[n].r1 = r1; n++;
+        }
+        r = r1;
+    }
+    return n;
+}
+
 // Builds the lookup table. Once, in setup(), any time after the display is
 // up. Returns false on a board this is not built for, and push() then
 // declines every frame and the ordinary push carries on.
@@ -68,6 +100,14 @@ bool available();
 // be put back on the ordinary push over the console without reflashing.
 void setEnabled(bool on);
 bool enabled();
+
+// Forget what the panel shows, so the next push sends every row. Call it
+// after anything that could have drawn on the panel without going through
+// push(): a rotation, a fall-back to the ordinary push.
+void invalidate();
+
+// Rows actually sent by the last push, for the frame line.
+int32_t lastRows();
 
 // Ships the sprite. Returns false if it declined -- wrong board, switched
 // off, not an 8-bit sprite, no buffer (a rotate can lose it), a size that

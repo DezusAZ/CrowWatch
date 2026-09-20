@@ -671,13 +671,13 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         // heads, which is the room the extra size takes.
         const bool pair = crowdN == 1;
         const int  bubY = plateBottom - (Theme::bubbleTextH() + 6) - 2;
-        uiClearDrawCrowd(t, now, crowd, crowdN, top, feet, true, false, 0,
+        uiClearDrawCrowd(t, now, crowd, crowdN, top, feet, uiMascotStep(now, true), false, 0,
                          pair ? 1.2f : 1.0f, pair ? bubY : -1);
         Theme::drawBackgroundOverlay(t, now);
     } else
 #endif
     if (!running) {
-        Squachy::tick(t, cx, top, feet - top, now, true, 0.5f);
+        Squachy::tick(t, cx, top, feet - top, now, uiMascotStep(now, true), 0.5f);
         Theme::drawBackgroundOverlay(t, now);
     } else {
         // Still, and quiet: no idle chatter over a focus block. His own
