@@ -1,0 +1,29 @@
+{
+  "name": "SquachWatch-CYD (3.5\" BETA)",
+  "version": "0.0.0",
+  "funding_url": "https://talkingsasquach.com",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "esp32-bootloader.bin",
+          "offset": 4096
+        },
+        {
+          "path": "esp32-partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "esp32-otadata.bin",
+          "offset": 57344
+        },
+        {
+          "path": "cyd35-fast-firmware.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}

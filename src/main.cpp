@@ -5207,7 +5207,7 @@ void loop() {
             info.calA1 = (int16_t)cyd35TouchCal[screenRotation][1];
             info.calB0 = (int16_t)cyd35TouchCal[screenRotation][2];
             info.calB1 = (int16_t)cyd35TouchCal[screenRotation][3];
-            info.boardName = "cyd35";
+            info.boardName = "cyd35 BETA";
             info.usingCapTouch = false;
 #else
             {

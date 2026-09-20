@@ -167,14 +167,15 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build firmware
-        # cyd35 (3.5" board port) is also an environment in
-        # platformio.ini now but isn't public-release-ready yet (it boot
-        # loops on real hardware -- see platformio.ini) -- the rest are
-        # and get built/published together below.
+        # cyd35-fast (the 3.5" ST7796) ships from v1.16.0 as a BETA, and
+        # only at 80 MHz: the plain cyd35 at 40 MHz halves the frame rate on
+        # a board that needs every frame it can get, so there is no slow
+        # build to offer and the flasher's overclock box is disabled for it.
+        # That board's boot screen says BETA on it, every boot.
         run: |
           # rlphantom-r is the RL Phantom 2.4" (Sunton ESP32-2432S024R), the
           # resistive-touch version, confirmed on real boards.
-          pio run -e cyd -e cyd-ili9341 -e awok -e rlphantom-r -e cyd-fast -e cyd-ili9341-fast
+          pio run -e cyd -e cyd-ili9341 -e awok -e rlphantom-r -e cyd-fast -e cyd-ili9341-fast -e cyd35-fast
           # The Phantom's capacitive version has never run on a real board, so
           # it is compiled to keep its code honest but NOT published anywhere.
           pio run -e rlphantom
@@ -229,7 +230,7 @@ jobs:
           # board that looks bricked.
           for f in bootloader partitions; do
             ref="$(sha256sum ".pio/build/cyd/$f.bin" | cut -d' ' -f1)"
-            for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
+            for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
               got="$(sha256sum ".pio/build/$v/$f.bin" | cut -d' ' -f1)"
               if [ "$got" != "$ref" ]; then
                 echo "::error::$v/$f.bin differs from cyd/$f.bin."
@@ -257,7 +258,7 @@ jobs:
           # merged image for those on purpose: the merged blob is a
           # manual-recovery artifact, and recovery should land you on the
           # spec-compliant build rather than the overclocked one.
-          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
+          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
             cp ".pio/build/$v/firmware.bin" "$v-firmware.bin"
           done
 
@@ -275,7 +276,7 @@ jobs:
           fi
           umask 077
           printf '%s\n' "$OTA_SIGNING_KEY" > "$RUNNER_TEMP/ota_key.pem"
-          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
+          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
             python tools/sign_firmware.py --key "$RUNNER_TEMP/ota_key.pem" \
               --env "$v" --bin "$v-firmware.bin" --out "$v-firmware.sig"
           done
@@ -305,7 +306,8 @@ jobs:
           for p in ("web-flasher/manifest-cyd.json", "web-flasher/manifest-cyd-ili9341.json",
                     "web-flasher/manifest-awok.json", "web-flasher/manifest-cyd-fast.json",
                     "web-flasher/manifest-cyd-ili9341-fast.json",
-                    "web-flasher/manifest-rlphantom-r.json"):
+                    "web-flasher/manifest-rlphantom-r.json",
+                    "web-flasher/manifest-cyd35-fast.json"):
               m = json.load(open(p))
               m["version"] = "${{ steps.ver.outputs.version }}"
               if name: m["release_name"] = name
@@ -328,6 +330,7 @@ jobs:
           cp web-flasher/manifest-cyd-fast.json manifest-cyd-fast.json
           cp web-flasher/manifest-cyd-ili9341-fast.json manifest-cyd-ili9341-fast.json
           cp web-flasher/manifest-rlphantom-r.json manifest-rlphantom-r.json
+          cp web-flasher/manifest-cyd35-fast.json manifest-cyd35-fast.json
 
       - name: Create GitHub Release with build artifacts
         # A lab tag publishes a flashable build and nothing else. Creating a
@@ -357,6 +360,7 @@ jobs:
             rlphantom-r-firmware.bin \
             cyd-fast-firmware.bin \
             cyd-ili9341-fast-firmware.bin \
+            cyd35-fast-firmware.bin \
             firmware-cyd-merged.bin \
             firmware-cyd-ili9341-merged.bin \
             firmware-awok-merged.bin \
@@ -367,6 +371,7 @@ jobs:
             manifest-rlphantom-r.json \
             manifest-cyd-fast.json \
             manifest-cyd-ili9341-fast.json \
+            manifest-cyd35-fast.json \
             $(ls *-firmware.sig 2>/dev/null)
 
       - name: Build the browser emulator

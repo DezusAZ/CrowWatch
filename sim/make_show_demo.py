@@ -23,7 +23,7 @@ import json, os, shutil, subprocess, sys
 HERE  = os.path.dirname(os.path.abspath(__file__))
 FONT  = os.path.join(HERE, "Bangers-Regular.ttf")
 EPOCH = "1789396740"   # Mon 14 Sep 2026, 14:39 UTC -- the desk clip's moment too
-W, H  = 320, 240
+W, H  = 320, 240       # the default panel; CLIP_SIZE overrides it per clip
 ZOOM  = 2              # integer only: nearest-neighbour keeps device pixels square
 MS    = 66             # per captured frame: two 33 ms steps, about real time
 BAND  = 52             # the caption band under the screen, in output pixels
@@ -41,6 +41,14 @@ CLIPS = {
         ("settings", 10, 12, ["--scroll", "0"],        {}, 1500, "SETTINGS > BEHAVIOR > AUTO SNOOZE"),
         ("log",      20, list(range(0, 13)), [],       {}, 1300, "EVERY LIST STOPS AT THE BOTTOM NOW"),
     ],
+    # v1.16.0 "The Big Screen": the 3.5" ships, and it is the screen itself
+    # that is the news -- so the clip is shot on it.
+    "the-big-screen": [
+        ("boot",     20, 24, [],                        {}, 1200, "THE 3.5 INCH SHIPS, AS A BETA"),
+        ("clear",    60, 40, ["--bg", "5"],             {},  900, "IT STOPPED CRASHING: A WRITE 76KB PAST THE BUFFER"),
+        ("settings", 10, 14, ["--scroll", "0"],         {}, 1500, "MENUS ARE BUFFERED NOW, AND SEND NOTHING AT ALL"),
+        ("alert",    20, 20, [],                        {}, 1500, "AND EVERYTHING USES THE SCREEN IT HAS"),
+    ],
     # v1.15.0 "Blast Processing": the frame rate, and the mascot keeping his
     # pace in spite of it. The row-skipping push and the numbers are the
     # board's; the captions carry them.
@@ -51,6 +59,19 @@ CLIPS = {
         ("clear",    60, 46, ["--bg", "4"],            {},  900, "SQUACHY KEEPS HIS OWN PACE: 120 / 70"),
     ],
 }
+
+# A clip can be shot on another panel. The emulator takes --size WxH and every
+# screen composes itself for whatever it is given, so a release about the 3.5"
+# can be SHOWN on the 3.5" instead of described on a 2.8". Zoom comes down to
+# 1 there: 480x320 doubled is a 960-pixel GIF, which is more than the notes
+# embed at anyway.
+CLIP_SIZE = {
+    "the-big-screen": (480, 320, 1),
+}
+
+def clip_geom(clip):
+    w, h, z = CLIP_SIZE.get(clip, (W, H, ZOOM))
+    return w, h, z
 
 def out_dir(clip):
     return os.path.join(HERE, "out", "show-" + clip)
@@ -67,6 +88,7 @@ def run(cmd, env):
         sys.exit("render failed: " + " ".join(cmd))
 
 def render(clip):
+    cw, ch, _ = clip_geom(clip)
     sim = os.path.join(HERE, "squachsim")
     if not os.path.exists(sim):
         sys.exit("build the emulator first: make -j8 squachsim")
@@ -80,8 +102,9 @@ def render(clip):
             for k, sc in enumerate(n):
                 raw = os.path.join(out, "scene%d_%d.raw" % (i, k))
                 run([sim, screen, os.path.join(out, "x.png"), "--frames", str(warm),
-                     "--sequence", "1", "--raw", raw, "--scroll", str(sc)] + extra, env)
-                if os.path.getsize(raw) != W * H * 3:
+                     "--sequence", "1", "--raw", raw, "--scroll", str(sc),
+                     "--size", "%dx%d" % (cw, ch)] + extra, env)
+                if os.path.getsize(raw) != cw * ch * 3:
                     sys.exit("scene %d/%d: bad frame size" % (i, k))
                 last = (k == len(n) - 1)
                 man.append({"raw": os.path.basename(raw), "index": 0,
@@ -89,9 +112,10 @@ def render(clip):
             continue
         raw = os.path.join(out, "scene%d.raw" % i)
         run([sim, screen, os.path.join(out, "x.png"), "--frames", str(warm),
-             "--sequence", str(n), "--raw", raw] + extra, env)
-        if os.path.getsize(raw) != W * H * 3 * n:
-            sys.exit("scene %d: %d bytes, expected %d" % (i, os.path.getsize(raw), W * H * 3 * n))
+             "--sequence", str(n), "--raw", raw,
+             "--size", "%dx%d" % (cw, ch)] + extra, env)
+        if os.path.getsize(raw) != cw * ch * 3 * n:
+            sys.exit("scene %d: %d bytes, expected %d" % (i, os.path.getsize(raw), cw * ch * 3 * n))
         for k in range(n):
             man.append({"raw": os.path.basename(raw), "index": k,
                         "ms": MS if k < n - 1 else MS + hold, "caption": caption})
@@ -128,6 +152,7 @@ def caption_band(text, width):
 
 def encode(clip):
     from PIL import Image
+    cw, ch, zoom = clip_geom(clip)
     out = out_dir(clip)
     mp = os.path.join(out, "manifest.json")
     if not os.path.exists(mp):
@@ -139,10 +164,10 @@ def encode(clip):
         if f["raw"] not in raws:
             raws[f["raw"]] = open(os.path.join(out, f["raw"]), "rb").read()
         b = raws[f["raw"]]
-        off = f["index"] * W * H * 3
-        im = Image.frombytes("RGB", (W, H), b[off:off + W * H * 3])
-        if ZOOM > 1:
-            im = im.resize((W * ZOOM, H * ZOOM), Image.NEAREST)
+        off = f["index"] * cw * ch * 3
+        im = Image.frombytes("RGB", (cw, ch), b[off:off + cw * ch * 3])
+        if zoom > 1:
+            im = im.resize((cw * zoom, ch * zoom), Image.NEAREST)
         if f["caption"] not in bands:
             bands[f["caption"]] = caption_band(f["caption"], im.width)
         page = Image.new("RGB", (im.width, im.height + BAND), (0, 0, 0))

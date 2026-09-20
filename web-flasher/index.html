@@ -684,6 +684,7 @@
       <option value="./manifest-cyd-ili9341.json" data-cyd28="1" data-fast="./manifest-cyd-ili9341-fast.json">2.8&quot; CYD &mdash; ILI9341 (older)</option>
       <option value="./manifest-awok.json">AWOK 2.4&quot;</option>
       <option value="./manifest-rlphantom-r.json">RL Phantom 2.4&quot;</option>
+      <option value="./manifest-cyd35-fast.json" data-ocnote="The 3.5&quot; only ships at 80MHz, so there is no slower build to fall back to.">3.5&quot; &mdash; ST7796 (BETA)</option>
     </select>
     <p class="white-screen-note" id="whiteScreenNote">
       The 2.8&quot; CYD ships with one of two different display drivers depending on manufacturing
@@ -1537,7 +1538,10 @@
       if (ocRow) {
         ocRow.classList.toggle('disabled', !fast);
         if (ocChk) ocChk.disabled = !fast;
-        if (ocDesc) ocDesc.textContent = fast ? OC_DESC_ON : OC_DESC_OFF;
+        // A board may say WHY the row is off rather than take the default
+        // reason, which is about a shared touch bus and is not every board's.
+        if (ocDesc) ocDesc.textContent = fast ? OC_DESC_ON
+                                              : (opt.dataset.ocnote || OC_DESC_OFF);
       }
       var useFast = !!fast && !!(ocChk && ocChk.checked && !ocChk.disabled);
       // Board and overclock choose WHICH manifest; the version picker

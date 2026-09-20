@@ -231,9 +231,21 @@ void uiBootTick(TFT_eSPI& t, uint32_t now) {
     t.setTextSize(1);
     t.setTextColor(Theme::CYAN);
     char init[56];   // room for a full "git describe --dirty" string, not just a bare tag
+#if defined(CYD35)
+    // The 3.5" ships as a beta and says so on every boot. That board is newer
+    // than the rest of the port by years, it is the only one that draws in two
+    // bands, and it is the one most likely to still surprise somebody -- so
+    // the word goes where nobody can miss it rather than in a release note
+    // they may never have read.
+    snprintf(init, sizeof(init), "3.5in BETA   %s", FIRMWARE_VERSION);
+#else
     snprintf(init, sizeof(init), "INITIALIZING...  %s", FIRMWARE_VERSION);
+#endif
     int iw = t.textWidth(init);
     t.setCursor((w - iw) / 2, h - 16);
+#if defined(CYD35)
+    t.setTextColor(Theme::AMBER);   // not the cyan the rest of the line uses
+#endif
     t.print(init);
 
     // animated scanline sweeping top to bottom every 600 ms
