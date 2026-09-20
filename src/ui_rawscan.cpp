@@ -175,7 +175,7 @@ int uiRawScanRowAt(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
 
 void uiRawScanTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool isBle, bool done,
                     bool confirmPending, const char* confirmLabel, bool confirmWatched,
-                    bool confirmHunted) {
+                    bool confirmHunted, bool advance) {
     int w = t.width();
     int h = t.height();
 
@@ -260,7 +260,7 @@ switch (Settings::background()) {
     // this whole strip directly at its real screen position -- drawn
     // straight on top of it, same as ui_hunt.cpp/ui_watchalert.cpp's
     // mini cameos already do.
-    Squachy::tick(t, w / 2, sqTop, sqH, now, true, 0.8f, !done);
+    Squachy::tick(t, w / 2, sqTop, sqH, now, advance, 0.8f, !done);
 
     if (!done) {
         float pulse = 0.55f + 0.45f * sinf((float)(now % 2000) / 2000.0f * 6.2831853f);

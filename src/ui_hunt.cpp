@@ -115,7 +115,7 @@ static void drawGauge(TFT_eSPI& t, int cx, int cy, int r, float frac, uint16_t n
     t.fillCircle(cx, cy, 4, needleColor);
 }
 
-void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     int w = t.width(), h = t.height();
 
     Theme::drawTitleBar(t, ">> HUNT MODE <<");
@@ -129,7 +129,7 @@ void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // given a small box instead of the whole screen. scanningFx ties
     // his little "ping" animation to the hunting theme.
     const int sqH = 44;
-    Squachy::tick(t, w / 2, bodyTop, sqH, now, true, 0.6f, true);
+    Squachy::tick(t, w / 2, bodyTop, sqH, now, advance, 0.6f, true);
 
     t.setTextSize(1);
     t.setTextWrap(false);

@@ -217,12 +217,12 @@ void uiBingoInit(TFT_eSPI& t) {
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
     const Theme::ButtonBarGeom bar = Theme::computeButtonBar(w, h);
 
     Theme::Palette saved = Theme::dimPaletteForOverlay(179);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
 
     Theme::drawTitleBar(t, ">> BINGO <<");

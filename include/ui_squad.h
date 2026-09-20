@@ -29,6 +29,9 @@ const char*    uiSquadSelectedName();
 void     uiSquadInit(TFT_eSPI& t, bool roster = false);
 // The engine is read for the backdrop and for whether the board showing is
 // already the hunt target.
-void     uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void     uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 SquadHit uiSquadTouch(int x, int y, uint32_t now);
 #endif

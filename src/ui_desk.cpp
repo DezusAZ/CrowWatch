@@ -388,7 +388,7 @@ void uiDeskTapTimer(uint32_t now) {
     }
 }
 
-void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
     const Theme::ButtonBarGeom bar = Theme::computeButtonBar(w, h);
     const bool running = s_timer != Timer::IDLE;
@@ -402,7 +402,7 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
         // screen. The floor stays above them: what stands on the ground
         // still stands where it did.
         Theme::setBackgroundFloor(bar.y - 2);
-        Theme::drawActiveBackground(t, now, 0, h, eng);
+        Theme::drawActiveBackground(t, now, 0, h, eng, advance);
         Theme::clearBackgroundFloor();
     }
     // The block runs out on its own; the announcement is what the user is
@@ -677,7 +677,7 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     } else
 #endif
     if (!running) {
-        Squachy::tick(t, cx, top, feet - top, now, uiMascotStep(now, true), 0.5f);
+        Squachy::tick(t, cx, top, feet - top, now, uiMascotStep(now, advance), 0.5f);
         Theme::drawBackgroundOverlay(t, now);
     } else {
         // Still, and quiet: no idle chatter over a focus block. His own

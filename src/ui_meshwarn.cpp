@@ -53,13 +53,13 @@ void uiMeshWarnInit(TFT_eSPI& t) {
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-void uiMeshWarnTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiMeshWarnTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
 
     // Knocked back further than the menu behind it (110 against 128). This
     // screen is all small text and it has to be read, not glanced at.
     Theme::Palette saved = Theme::dimPaletteForOverlay(150);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 110);
 

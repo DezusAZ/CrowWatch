@@ -12,7 +12,10 @@
 class DetectionEngine;
 
 void uiBingoInit(TFT_eSPI& t);
-void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiBingoTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 
 // What a tap did. HANDLED means the screen dealt with it (a square opened, a
 // panel closed, NEW asked whether it really meant it); BACK means leave the

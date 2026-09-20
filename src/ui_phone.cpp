@@ -356,10 +356,10 @@ static void pinTouch(int x, int y, uint32_t now) {
 
 // The PIN pad. Its own compact layout -- dots where the readout is, a keypad
 // of bare digits, no letters, no QWERTY toggle, no message counter.
-static void drawPinPad(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+static void drawPinPad(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
     Theme::Palette saved = Theme::dimPaletteForOverlay(120);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 140);
     s_backY = backY(h);
@@ -503,9 +503,9 @@ void uiPhoneTouch(int x, int y, uint32_t now, PhoneTouch phase) {
     }
 }
 
-void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     (void)eng;
-    if (pin()) { drawPinPad(t, now, eng); return; }
+    if (pin()) { drawPinPad(t, now, eng, advance); return; }
     const int w = t.width(), h = t.height();
 
     // The window closing is what commits a letter, so it is checked every
@@ -515,7 +515,7 @@ void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
 
     // The environment, knocked back so an object can stand in front of it.
     Theme::Palette saved = Theme::dimPaletteForOverlay(120);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 110);
 

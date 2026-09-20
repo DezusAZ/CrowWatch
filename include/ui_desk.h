@@ -14,7 +14,10 @@
 #include "detection.h"
 
 void uiDeskInit(TFT_eSPI& t);
-void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes: the same
+// frame drawn again, so the background and the mascot must not step twice.
+// Every other board passes the default and draws once.
+void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 
 // The two buttons at the bottom: the timer (FOCUS / the count / BREAK) and
 // BACK. Returns true when the tap did something.

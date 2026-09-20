@@ -20,5 +20,8 @@ class DetectionEngine;
 enum class BeaconWarnHit : uint8_t { ENABLE, KEEP_OFF, NONE };
 
 void          uiBeaconWarnInit(TFT_eSPI& t);
-void          uiBeaconWarnTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void          uiBeaconWarnTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 BeaconWarnHit uiBeaconWarnHitTest(TFT_eSPI& t, int x, int y);

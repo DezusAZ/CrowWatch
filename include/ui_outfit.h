@@ -12,7 +12,10 @@ void uiOutfitInit(TFT_eSPI& t);
 // the preview -- SPECTRUM is the one background that reads live radio
 // state. Trying a costume against a flat black rectangle tells you nothing
 // about how it will actually look.
-void uiOutfitTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiOutfitTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 
 // Returns true (and applies the cycle) if the tap landed on the left
 // or right arrow. False for a tap anywhere else, so the caller's own

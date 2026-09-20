@@ -2573,6 +2573,48 @@ static inline void pushFrame(int x, int y) {
     s_pushAccumUs += micros() - t0;
 }
 
+// Draw a whole screen the way the 3.5" has to: into the half-height sprite
+// twice, once for each band, and push each band as it is finished.
+//
+// Every screen except the main one, boot and the alerts has always drawn
+// STRAIGHT AT THE PANEL on that board -- canvas points at tft there, because
+// the sprite is only half a screen -- so you watch each rectangle and each
+// line land, one at a time. That is the flicker. It also means a menu, which
+// does not change from one frame to the next, is re-sent to the panel in full
+// forever: on every other board it goes through the sprite, the row hashes
+// all match and it sends nothing at all.
+//
+// `draw` is called once per band and handed the sprite and an `advance` flag,
+// false on the second pass, for anything that steps on its own clock. A
+// screen has to be safe to draw twice with the same `now` to come through
+// here: no random(), no state that moves by the call rather than by the
+// clock. The UI screens use no random() at all, and the two things that do
+// move by the call -- the animated background and the mascot -- both already
+// take the flag, because the main screen needed exactly this.
+//
+// Everywhere else this is one call on the full-screen sprite, which is what
+// those boards already did, and loop()'s own push at the end still ships it.
+template <typename F>
+static inline void drawTwoBand(F&& draw) {
+#if defined(CYD35)
+    if (frameBufferOk) {
+        const int halfH = tft.height() / 2;
+        DrawBand::set(0, halfH);
+        frame.setViewport(0, 0, tft.width(), tft.height(), true);
+        draw((TFT_eSPI&)frame, true);
+        pushFrame(0, 0);
+        DrawBand::set(halfH, tft.height());
+        frame.setViewport(0, -halfH, tft.width(), tft.height(), true);
+        draw((TFT_eSPI&)frame, false);
+        pushFrame(0, halfH);
+        DrawBand::all();
+        frame.resetViewport();
+        return;
+    }
+#endif
+    draw(*canvas, true);
+}
+
 static inline uint32_t emaUpdate(uint32_t avg, uint32_t sample) {
     return avg ? avg + ((int32_t)sample - (int32_t)avg) / 8 : sample;
 }
@@ -2988,7 +3030,7 @@ void loop() {
             break;
         }
         case AppState::BINGO: {
-            uiBingoTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiBingoTick(t, now, engine, advance); });
             if (touchJustDown) {
                 lastTouch = now;
                 // OK leaves for the main screen or the desk, not back into
@@ -3016,7 +3058,7 @@ void loop() {
                 }
                 if (engine.watchHitPending()) { enterWatchAlert(); break; }
             }
-            uiSysPropsTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiSysPropsTick(t, now, engine, advance); });
             if (touchJustDown) {
                 switch (uiSysPropsTouch(*canvas, tp.x, tp.y)) {
                     case SysPropsHit::UPDATE_NOW:
@@ -3683,11 +3725,15 @@ void loop() {
             // confidence in general, not any one detection type.
             const char* infoTypeName = s_infoShowingPrimer ? nullptr
                                      : DetectionInfo::titleFor(s_confirmType, s_confirmVendor, s_confirmName);
-            uiLogTick(*canvas, now, engine, 0, s_confirmPending, s_confirmLabel,
-                      s_infoPending, infoTypeName, infoText,
-                      engine.isWatched(s_confirmMac, s_confirmIsBle),
-                      engine.isHunted(s_confirmMac, s_confirmIsBle));
-            Theme::drawToast(*canvas, now);
+            // Nothing on LOG moves by the call -- the note about
+            // drawActiveBackground in ui_log.cpp is a comment, not a call.
+            drawTwoBand([&](TFT_eSPI& t, bool) {
+                uiLogTick(t, now, engine, 0, s_confirmPending, s_confirmLabel,
+                          s_infoPending, infoTypeName, infoText,
+                          engine.isWatched(s_confirmMac, s_confirmIsBle),
+                          engine.isHunted(s_confirmMac, s_confirmIsBle));
+                Theme::drawToast(t, now);
+            });
 
             // Same "ignore the touch that opened this until it releases"
             // gate s_confirmArmed uses on the confirm panel, applied to
@@ -3870,10 +3916,12 @@ void loop() {
         }
         case AppState::RAWSCAN: {
             bool done = s_rawScanIsBle ? engine.rawBleScanDone() : engine.rawWifiScanDone();
-            uiRawScanTick(*canvas, now, engine, s_rawScanIsBle, done, s_confirmPending, s_confirmLabel,
-                          engine.isWatched(s_confirmMac, s_rawScanIsBle),
-                          engine.isHunted(s_confirmMac, s_rawScanIsBle));
-            Theme::drawToast(*canvas, now);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) {
+                uiRawScanTick(t, now, engine, s_rawScanIsBle, done, s_confirmPending, s_confirmLabel,
+                              engine.isWatched(s_confirmMac, s_rawScanIsBle),
+                              engine.isHunted(s_confirmMac, s_rawScanIsBle), advance);
+                Theme::drawToast(t, now);
+            });
 
             // The confirm panel is modal: while it's up, a tap only
             // ever means WATCH, HUNT, or CANCEL on it, nothing else on
@@ -4033,7 +4081,10 @@ void loop() {
             break;
         }
         case AppState::SETTINGS: {
-            uiSettingsTick(*canvas, now, engine);
+            // Nothing on this screen moves by the call -- no background, no
+            // mascot -- so both passes are the same picture and the row
+            // hashes find nothing to send once it has settled.
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiSettingsTick(t, now, engine); });
             // Row taps commit on release, not on press, and only if
             // the touch never moved past the scroll threshold -- same
             // fix as LOG/raw-scan: firing on press meant a swipe that
@@ -4256,13 +4307,13 @@ void loop() {
         }
 #if SQUACH_MESH
         case AppState::MESH_PHRASE: {
-            uiMeshPhraseTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiMeshPhraseTick(t, now, engine, advance); });
             if (touchJustDown) uiMeshPhraseTouch(tp.x, tp.y);
             if (uiMeshPhraseDone()) enterMeshMenu();
             break;
         }
         case AppState::MESH_COMPOSE: {
-            uiMeshComposeTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiMeshComposeTick(t, now, engine, advance); });
             // Sent or not, back to the main screen -- that is where the
             // bubble's dots show it going out.
             if (touchJustDown) {
@@ -4277,7 +4328,7 @@ void loop() {
             break;
         }
         case AppState::MESH_WARN: {
-            uiMeshWarnTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiMeshWarnTick(t, now, engine, advance); });
             if (touchJustDown) {
                 switch (uiMeshWarnHitTest(*canvas, tp.x, tp.y)) {
                     case MeshWarnHit::YES:
@@ -4293,7 +4344,7 @@ void loop() {
             break;
         }
         case AppState::MESH_MENU: {
-            uiMeshMenuTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiMeshMenuTick(t, now, engine, advance); });
             if (touchJustDown && Theme::pinnedBackHit(tp.x, tp.y, canvas->width(), canvas->height())) {
                 lastTouch = now;
                 enterSettings();
@@ -4340,8 +4391,18 @@ void loop() {
                 // A full repaint only when the screen changes to something
                 // else; while a download runs, just the bar and its numbers,
                 // painted over what is already there, four times a second.
+                //
+                // frameBufferOk was standing in for "the drawing is buffered",
+                // and on the 3.5" those are not the same thing: the buffer
+                // exists but every screen except the main one drew straight at
+                // the panel, so this screen took the full-repaint branch and
+                // repainted the glass itself, whole, every frame. That is the
+                // flicker and the diagonal tear -- the panel was scanning out
+                // rows while they were still being drawn. Through the bands it
+                // is buffered like everything else, and a screen that is not
+                // changing sends no rows at all.
                 if (frameBufferOk) {
-                    uiUpdateTick(*canvas, now);
+                    drawTwoBand([&](TFT_eSPI& t, bool) { uiUpdateTick(t, now); });
                 } else {
                     static uint32_t lastKey = 0xFFFFFFFFUL, lastLive = 0;
                     const uint32_t key = ((uint32_t)OtaWifi::state() << 24) | ((uint32_t)OtaBle::state() << 20) |
@@ -4435,7 +4496,7 @@ void loop() {
             lastTouch = now;
             // The board redraws only what changed, so it is the same with the
             // frame buffer and without it (given up for a download).
-            uiWifiPassTick(*canvas, now);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiWifiPassTick(t, now); });
             if (touchJustDown)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::DOWN);
             else if (tp.valid)    uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::MOVE);
             else if (touchJustUp) uiWifiPassTouch(tp.x, tp.y, now, WifiPassTouch::UP);
@@ -4462,7 +4523,7 @@ void loop() {
             break;
         }
         case AppState::WIFI_NETS: {
-            uiWifiNetsTick(*canvas, now);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiWifiNetsTick(t, now); });
             if (touchJustDown) {
                 int row = -1;
                 switch (uiWifiNetsHit(*canvas, tp.x, tp.y, &row)) {
@@ -4497,7 +4558,7 @@ void loop() {
             break;
         }
         case AppState::WIFI_ADD: {
-            uiWifiAddTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiWifiAddTick(t, now, engine); });
             if (touchJustDown) {
                 int row = -1;
                 switch (uiWifiAddHit(*canvas, tp.x, tp.y, engine, &row)) {
@@ -4528,7 +4589,7 @@ void loop() {
             break;
         }
         case AppState::NUDGE: {
-            uiNudgeTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiNudgeTick(t, now, engine); });
             lastTouch = now;     // no dimming, no auto-lock, mid-count
             NudgeHit hit = NudgeHit::NONE;
             if (touchJustDown) hit = uiNudgeHit(*canvas, tp.x, tp.y);
@@ -4537,7 +4598,7 @@ void loop() {
             break;
         }
         case AppState::SQUAD_UPDATE: {
-            uiSquadUpdateTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiSquadUpdateTick(t, now, engine); });
             if (touchJustDown) {
                 switch (uiSquadUpdateHit(*canvas, tp.x, tp.y)) {
                     case SquadUpdateHit::SHARE: uiSquadUpdateToggleShare(); break;
@@ -4565,7 +4626,7 @@ void loop() {
             break;
         }
         case AppState::INVITE: {
-            uiInviteTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiInviteTick(t, now, engine); });
             lastTouch = now;
             // A confirmed finish -- YOU'RE IN on one board, ADDED on the
             // other -- shows for a few seconds and then gets out of the
@@ -4609,7 +4670,7 @@ void loop() {
             break;
         }
         case AppState::SQUAD: {
-            uiSquadTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiSquadTick(t, now, engine, advance); });
             if (touchJustDown && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
                 lastTouch = now;
                 switch (uiSquadTouch(tp.x, tp.y, now)) {
@@ -4642,7 +4703,7 @@ void loop() {
             break;
         }
         case AppState::PHONE: {
-            uiPhoneTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiPhoneTick(t, now, engine, advance); });
             // All three edges of a touch, not just the press. The payphone
             // keypad still acts on the press and ignores the rest; the
             // QWERTY board previews on the press, follows the finger, and
@@ -4672,7 +4733,7 @@ void loop() {
         }
 #endif
         case AppState::IGNORE_LIST: {
-            uiIgnoreListTick(*canvas, now);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiIgnoreListTick(t, now); });
             // Same drag-to-scroll / act-on-release gesture the detection
             // filter uses: committing on press would make a swipe that
             // starts on a REMOVE button fire it before the drag is
@@ -4720,7 +4781,7 @@ void loop() {
             break;
         }
         case AppState::DETECTION_FILTER: {
-            uiDetFilterTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiDetFilterTick(t, now, engine); });
             // Same drag-to-scroll / tap-on-release-to-toggle gesture
             // the Settings screen above uses, and for the same reason:
             // committing on press would make a swipe that starts on a
@@ -4764,7 +4825,7 @@ void loop() {
             break;
         }
         case AppState::BEACON_WARN: {
-            uiBeaconWarnTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiBeaconWarnTick(t, now, engine, advance); });
             if (touchJustDown) {
                 switch (uiBeaconWarnHitTest(*canvas, tp.x, tp.y)) {
                     case BeaconWarnHit::ENABLE:
@@ -4779,8 +4840,10 @@ void loop() {
             break;
         }
         case AppState::SECURITY: {
-            uiSecurityTick(*canvas, now, engine);
-            Theme::drawToast(*canvas, now);
+            drawTwoBand([&](TFT_eSPI& t, bool) {
+                uiSecurityTick(t, now, engine);
+                Theme::drawToast(t, now);
+            });
             // The same drag-to-scroll, act-on-release gesture as POWER SAVER.
             static bool gestureActive = false, gestureMoved = false;
             static int  gestureStartX = 0, gestureStartY = 0, lastY = -1;
@@ -4833,7 +4896,7 @@ void loop() {
             break;
         }
         case AppState::PIN_ENTRY: {
-            uiPhoneTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiPhoneTick(t, now, engine, advance); });
             if (touchJustDown) uiPhoneTouch(tp.x, tp.y, now, PhoneTouch::DOWN);
             if (!uiPhoneDone()) break;
             if (!uiPhonePinReady()) { memset(s_pinFirst, 0, sizeof s_pinFirst); enterSecurity(); break; }   // BACK
@@ -4920,7 +4983,7 @@ void loop() {
 #if SQUACH_MESH
             uiPhonePinPrompt(MeshTalk::inbox().unread ? "LOCKED - NEW MESSAGE" : "LOCKED");
 #endif
-            uiPhoneTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiPhoneTick(t, now, engine, advance); });
             if (touchJustDown) uiPhoneTouch(tp.x, tp.y, now, PhoneTouch::DOWN);
             if (uiPhonePinForgot()) {
                 // A forgotten PIN: every secret goes, and the PIN with it, and
@@ -4943,7 +5006,7 @@ void loop() {
             break;
         }
         case AppState::POWER_SAVER: {
-            uiPowerTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiPowerTick(t, now, engine); });
             // Same drag-to-scroll, commit-on-release gesture the Settings and
             // type-filter lists use, and for the same reason: committing on
             // press turns a swipe that happens to start on a row into a
@@ -5007,7 +5070,7 @@ void loop() {
             break;
         }
         case AppState::STATUS_LIGHT: {
-            uiLightTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiLightTick(t, now, engine); });
             static bool gestureActive = false;
             static bool gestureMoved  = false;
             static int  gestureStartX = 0, gestureStartY = 0;
@@ -5073,8 +5136,13 @@ void loop() {
                                      latest->hits, latest->rssi, latest->conf);
                 }
             }
-            uiDeskTick(*canvas, now, engine);
-            Theme::drawToast(*canvas, now);
+            // The toast goes inside: anything drawn after the bands are
+            // pushed would land straight on the panel again, over the top of
+            // what was just sent, and flicker on its own.
+            drawTwoBand([&](TFT_eSPI& t, bool advance) {
+                uiDeskTick(t, now, engine, advance);
+                Theme::drawToast(t, now);
+            });
             // A fresh press only. A finger still down from the screen before
             // -- LATER on the update window opens the desk under it -- used to
             // land on BACK or the timer the moment the debounce ran out.
@@ -5182,7 +5250,7 @@ void loop() {
             info.bbCrashes = BlackBox::crashesKept();
             info.bbHaveLast = BlackBox::lastCrash(info.bbLast);
 
-            uiDiagnosticsTick(*canvas, now, engine, info);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiDiagnosticsTick(t, now, engine, info); });
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS &&
                 uiDiagnosticsHitBack(tp.x, tp.y, tft.width(), tft.height())) {
                 lastTouch = now;
@@ -5191,7 +5259,7 @@ void loop() {
             break;
         }
         case AppState::HUNT: {
-            uiHuntTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiHuntTick(t, now, engine, advance); });
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
                 if (uiHuntHitStop(tp.x, tp.y, tft.width(), tft.height())) {
                     lastTouch = now;
@@ -5206,7 +5274,7 @@ void loop() {
             break;
         }
         case AppState::COLOR_CHECK: {
-            uiColorCheckTick(*canvas, now);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiColorCheckTick(t, now); });
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
                 ColorCheckTap ctap = uiColorCheckHitTest(tp.x, tp.y, tft.width(), tft.height());
                 if (ctap == ColorCheckTap::INVERT) {
@@ -5229,7 +5297,7 @@ void loop() {
             break;
         }
         case AppState::DIARY: {
-            uiDiaryTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiDiaryTick(t, now, engine); });
             // Simple read-only info panel — any tap takes you back,
             // no button bar or scroll needed.
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
@@ -5239,7 +5307,7 @@ void loop() {
             break;
         }
         case AppState::OUTFIT: {
-            uiOutfitTick(*canvas, now, engine);
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiOutfitTick(t, now, engine, advance); });
             // Arrow taps cycle the equipped outfit (already persisted
             // live, no separate "confirm" step needed); a tap anywhere
             // else jumps straight back to the main screen, same "tap to

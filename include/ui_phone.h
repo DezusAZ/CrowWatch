@@ -14,7 +14,10 @@
 void uiPhoneInit(TFT_eSPI& t);
 // A message, starting from `text` (nullptr or "" for a blank one).
 void uiPhoneInitMessage(TFT_eSPI& t, const char* text);
-void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiPhoneTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 
 // All three edges of a touch, because the QWERTY board types on the release:
 // the press previews a key, a slide follows the finger, and the release types

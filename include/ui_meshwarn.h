@@ -28,6 +28,9 @@ enum class MeshWarnHit : uint8_t { YES, NO, NONE };
 void uiMeshWarnInit(TFT_eSPI& t);
 // Takes the engine for the backdrop, same as the menu behind it -- see
 // ui_meshmenu.h for why a screen without one silently gets digital rain.
-void uiMeshWarnTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiMeshWarnTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 MeshWarnHit uiMeshWarnHitTest(TFT_eSPI& t, int x, int y);
 #endif

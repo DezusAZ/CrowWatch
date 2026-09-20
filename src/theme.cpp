@@ -8891,6 +8891,20 @@ void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, ui
     if (kind == 0 || w <= 0 || h <= 0) return;
     // Clipped, with coordinates left absolute: nothing drawn here can reach
     // past the plate, whatever it is doing at the edges.
+    //
+    // setViewport() REPLACES, it does not nest, and with vpDatum false it puts
+    // the datum back to zero. On the 3.5" the caller has a band viewport set
+    // with a datum of (0, -halfH) for the second pass, so replacing it blind
+    // made this backdrop draw at raw panel rows -- and the second band came
+    // out as a copy of the first, one on top of the other. Carry the datum in
+    // by hand instead: adding it to x and y puts this function's absolute
+    // coordinates into the sprite's own space, which is what the replacement
+    // viewport clips in, and the outer viewport goes back on the way out.
+    // Everywhere else the datum is zero and none of this moves anything.
+    const int32_t vx = t.getViewportX(),     vy = t.getViewportY();
+    const int32_t vw = t.getViewportWidth(), vh = t.getViewportHeight();
+    const bool    vd = t.getViewportDatum();
+    x += vx; y += vy;
     t.setViewport(x, y, w, h, false);
     if (kind == 1) {
         // Digital rain: the same glyphs and the same depth colours as the
@@ -8960,7 +8974,7 @@ void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, ui
         if (!s_cfHeat || cols != s_cfCols || rows != s_cfRows) {
             releaseClockBackdrop();
             s_cfHeat = (uint8_t*)calloc((size_t)cols * (size_t)rows, 1);
-            if (!s_cfHeat) { t.resetViewport(); return; }
+            if (!s_cfHeat) { t.setViewport(vx, vy, vw, vh, vd); return; }
             s_cfCols = cols; s_cfRows = rows;
             s_cfStep = now;
         }
@@ -9057,7 +9071,7 @@ void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, ui
             t.drawPixel(ix, iy, core);
         }
     }
-    t.resetViewport();
+    t.setViewport(vx, vy, vw, vh, vd);
 }
 
 void drawBangersText(TFT_eSPI& t, int x, int y, const char* s, uint16_t color, BangersSize size) {

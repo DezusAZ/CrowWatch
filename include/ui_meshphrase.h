@@ -17,7 +17,10 @@
 class DetectionEngine;
 
 void uiMeshPhraseInit(TFT_eSPI& t);
-void uiMeshPhraseTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiMeshPhraseTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 void uiMeshPhraseTouch(int x, int y);
 // True once BACK is pressed on the first page.
 bool uiMeshPhraseDone();

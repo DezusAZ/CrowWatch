@@ -386,13 +386,13 @@ void uiMeshComposeSetTyped(const char* text) {
 
 const char* uiMeshComposeTyped() { return s_typed; }
 
-void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiMeshComposeTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
     const bool port = h > w;
     const bool tut = MeshTutor::active();
 
     Theme::Palette saved = Theme::dimPaletteForOverlay(150);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 110);
 

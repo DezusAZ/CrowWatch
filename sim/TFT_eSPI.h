@@ -133,6 +133,14 @@ public:
     // the sprite is what every screen draws into.
     virtual void setViewport(int32_t, int32_t, int32_t, int32_t, bool = true) {}
     virtual void resetViewport() {}
+    // Read back what is set, so code that saves a viewport, replaces it and
+    // puts the original back round-trips here the way it does on the device
+    // (drawClockBackdrop does exactly that).
+    virtual int32_t getViewportX()      { return 0; }
+    virtual int32_t getViewportY()      { return 0; }
+    virtual int32_t getViewportWidth()  { return width(); }
+    virtual int32_t getViewportHeight() { return height(); }
+    virtual bool    getViewportDatum()  { return false; }
     virtual void begin_nin_write() {}
     virtual void end_nin_write() {}
 
@@ -536,6 +544,11 @@ public:
         _vpX = x; _vpY = y; _vpW = w; _vpH = h; _vpActive = true; _vpDatum = datum;
     }
     void resetViewport() override { _vpActive = false; }
+    int32_t getViewportX()      override { return _vpActive && _vpDatum ? _vpX : 0; }
+    int32_t getViewportY()      override { return _vpActive && _vpDatum ? _vpY : 0; }
+    int32_t getViewportWidth()  override { return _vpActive ? _vpW : width(); }
+    int32_t getViewportHeight() override { return _vpActive ? _vpH : height(); }
+    bool    getViewportDatum()  override { return _vpActive && _vpDatum; }
 
     void setPivot(int16_t, int16_t) {}
 

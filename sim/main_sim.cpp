@@ -171,6 +171,7 @@ static void usage() {
         "usage: squachsim <screen> [out.png] [options]\n"
         "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn bingo\n"
         "  --portrait        render 240x320 instead of 320x240\n"
+        "  --size WxH        render at another panel size, e.g. 480x320 for the 3.5in\n"
         "  --qwerty          phone screen: the QWERTY board, not the keypad\n"
         "  --msgs            messages on, with a phrase set\n"
         "  --inbox N         ...and canned line N just arrived from the visitor\n"
@@ -207,6 +208,7 @@ int main(int argc, char** argv) {
     // delivers canned line N from the visitor, through the real receive path.
     bool msgs = false;
     int inboxLine = -1, phraseMode = -1;
+    std::string sizeArg;   // --size WxH: render at another panel size
     int confirmRow = -1;   // settings screen: put a confirm panel up
     int scrollBy = 0;      // settings screen: scroll down N rows first
     int bg = -1, themeIdx = -1, frames = 90, sequence = 1, outfitIdx = -1, poseIdx = -1, petIdx = -1;
@@ -290,11 +292,21 @@ int main(int argc, char** argv) {
             if (sscanf(argv[++i], "%d:%d:%d", &tf, &tx, &ty) == 3) taps[tapN++] = { tf, tx, ty };
             else fprintf(stderr, "--tap wants frame:x:y" "\n");
         }
+        else if (a == "--size" && i + 1 < argc) sizeArg = argv[++i];
     }
     if (sequence < 1) sequence = 1;
 
-    const int W = portrait ? 240 : 320;
-    const int H = portrait ? 320 : 240;
+    // --size WxH renders at another panel's dimensions. Every screen already
+    // composes itself against t.width()/t.height(), so this shows the 3.5"'s
+    // 480x320 here -- and catches text running off the end of a row -- without
+    // flashing a board and squinting at it.
+    int W = portrait ? 240 : 320;
+    int H = portrait ? 320 : 240;
+    if (!sizeArg.empty()) {
+        int sw = 0, sh = 0;
+        if (sscanf(sizeArg.c_str(), "%dx%d", &sw, &sh) == 2 && sw > 63 && sh > 63) { W = sw; H = sh; }
+        else { fprintf(stderr, "--size wants WxH, e.g. 480x320" "\n"); return 2; }
+    }
 
     TFT_eSPI tft(W, H);
     tft.init();

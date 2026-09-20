@@ -295,13 +295,13 @@ void uiSysPropsInit(TFT_eSPI& t) {
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-void uiSysPropsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiSysPropsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
 
     // The room carries on behind it, dimmed: the window is in front of the
     // board, not instead of it.
     Theme::Palette saved = Theme::dimPaletteForOverlay(150);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 130);
 

@@ -16,7 +16,7 @@ void uiOutfitInit(TFT_eSPI& t) {
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-void uiOutfitTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiOutfitTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     int w = t.width();
     int h = t.height();
 
@@ -39,13 +39,13 @@ void uiOutfitTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // Only the BACKGROUND moves. Everything else on this screen still
     // begins where it did, so no content shifts.
     const int bgTop = 0;
-    Theme::drawActiveBackground(t, now, bgTop, footerTop, eng);
+    Theme::drawActiveBackground(t, now, bgTop, footerTop, eng, advance);
     Theme::clearBackgroundFloor();
 
     // Live preview -- same call the CLEAR screen makes, just with no
     // background animation and a footer reserved for the name/arrows
     // instead of the counter row.
-    Squachy::tick(t, w / 2, titleBottom, footerTop - titleBottom, now, true);
+    Squachy::tick(t, w / 2, titleBottom, footerTop - titleBottom, now, advance);
 
     // Title bar drawn after him, not before: a big bounce can push his
     // dirty-rect clear a few px above titleBottom into the title bar's

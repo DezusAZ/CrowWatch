@@ -24,5 +24,8 @@ enum class SysPropsHit : uint8_t {
 };
 
 void        uiSysPropsInit(TFT_eSPI& t);
-void        uiSysPropsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void        uiSysPropsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 SysPropsHit uiSysPropsTouch(TFT_eSPI& t, int x, int y);

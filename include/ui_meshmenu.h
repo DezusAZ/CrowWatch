@@ -31,6 +31,9 @@ void uiMeshMenuInit(TFT_eSPI& t);
 // live per-channel activity, so it cannot be drawn without one. A screen
 // that quietly served digital rain instead because it had no engine is a
 // mistake this codebase has already made once.
-void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 MeshMenuRow uiMeshMenuHitTest(TFT_eSPI& t, int x, int y, int screenW, int screenH);
 #endif

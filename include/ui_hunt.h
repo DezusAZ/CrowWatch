@@ -10,7 +10,10 @@
 #include "detection.h"
 
 void uiHuntInit(TFT_eSPI& t);
-void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng);
+// `advance` is false on the second of the 3.5"'s two band passes -- the
+// same frame drawn again -- so anything that steps by the call rather
+// than by the clock must sit still for it. Other boards draw once.
+void uiHuntTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance = true);
 bool uiHuntHitBack(int x, int y, int screenW, int screenH);
 // STOP: ends the hunt outright (DetectionEngine::clearHunt) and returns to
 // CLEAR. BACK leaves the target set, so the two are not the same exit.

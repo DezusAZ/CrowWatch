@@ -106,7 +106,7 @@ void uiSquadInit(TFT_eSPI& t, bool roster) {
     MeshTalk::markRead();
 }
 
-void uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
     const bool port = h > w;
 
@@ -123,7 +123,7 @@ void uiSquadTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     }
 
     Theme::Palette saved = Theme::dimPaletteForOverlay(150);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 110);
 

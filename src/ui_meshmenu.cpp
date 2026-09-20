@@ -50,13 +50,13 @@ void uiMeshMenuInit(TFT_eSPI& t) {
     t.fillRect(0, 0, t.width(), t.height(), Theme::BG);
 }
 
-void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
+void uiMeshMenuTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool advance) {
     const int w = t.width(), h = t.height();
 
     // Same knocked-back backdrop the other sub-screens use, so this reads as
     // part of the device rather than as a dialog bolted on.
     Theme::Palette saved = Theme::dimPaletteForOverlay(150);
-    Theme::drawActiveBackground(t, now, 0, h, eng);
+    Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::restorePalette(saved);
     Theme::dimRegion(t, 0, 0, w, h, 128);
 
