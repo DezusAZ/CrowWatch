@@ -41,6 +41,15 @@ CLIPS = {
         ("settings", 10, 12, ["--scroll", "0"],        {}, 1500, "SETTINGS > BEHAVIOR > AUTO SNOOZE"),
         ("log",      20, list(range(0, 13)), [],       {}, 1300, "EVERY LIST STOPS AT THE BOTTOM NOW"),
     ],
+    # v1.15.0 "Blast Processing": the frame rate, and the mascot keeping his
+    # pace in spite of it. The row-skipping push and the numbers are the
+    # board's; the captions carry them.
+    "blast-processing": [
+        ("clear",    60, 40, ["--bg", "10"],           {},  900, "THIRTY FRAMES A SECOND ON THE 2.8 INCH"),
+        ("clear",    60, 40, ["--bg", "3"],            {},  900, "ROWS THAT DID NOT CHANGE ARE NOT SENT"),
+        ("settings", 10, 10, ["--scroll", "0"],        {}, 1500, "A MENU SENDS NOTHING AT ALL"),
+        ("clear",    60, 46, ["--bg", "4"],            {},  900, "SQUACHY KEEPS HIS OWN PACE: 120 / 70"),
+    ],
 }
 
 def out_dir(clip):
