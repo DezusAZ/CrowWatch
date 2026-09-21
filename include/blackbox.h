@@ -89,6 +89,11 @@ void forEachDetection(bool (*fn)(const DetRecord& r, void* ctx), void* ctx);
 // returns how many it filled. What the LOG screen scrolls through once it
 // runs off the end of the rows held in RAM.
 uint16_t readDetections(uint16_t from, uint16_t max, DetRecord* out);
+// The records at these newest-first positions, which must be ascending, in
+// one walk. Returns how many it found (fewer if some are gone). The LOG's
+// de-duplicated rows are not contiguous in flash, so a page of them is read
+// this way.
+uint16_t readDetectionsAt(const uint16_t* at, uint16_t n, DetRecord* out);
 void forEachBoot(bool (*fn)(const BootRecord& r, void* ctx), void* ctx);
 
 uint16_t detectionsKept();              // since the last CLR

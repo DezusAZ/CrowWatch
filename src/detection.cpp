@@ -1128,6 +1128,32 @@ void DetectionEngine::processDeauthQ() {
             // or camera.
             d.hits   = _deauthWinCount;
             d.active = true;
+            // A second flood from the same source is the same attacker, so
+            // it lands on the row the first one made -- it used to push a
+            // fresh row per burst, and a noisy neighbour filled the LOG with
+            // copies of one MAC. It counts and alerts again, like any device
+            // that went quiet and came back.
+            for (uint8_t i = 0; i < _logCount; i++) {
+                const uint8_t slot = (_logHead + LOG_CAP - 1 - i) % LOG_CAP;
+                Detection& row = _log[slot];
+                if (row.type != DetectionType::DEAUTH || memcmp(row.mac, e.mac, 6) != 0) continue;
+                row.prevRssi  = row.rssi;
+                row.rssi      = e.rssi;
+                row.channel   = e.channel;
+                row.hits      = _deauthWinCount;
+                row.lastSeen  = now;
+                row.firstSeen = now;
+                row.restored  = 0;
+                if (!row.active) {
+                    row.active = true;
+                    _typeCounts[(uint8_t)DetectionType::DEAUTH]++;
+                }
+                Bingo::note(DetectionType::DEAUTH);
+                _latest = &row;
+                _latestChangeMs = now;
+                queueBlackBox(row, true);
+                return;
+            }
             pushLog(d);
         }
     }
@@ -1213,9 +1239,11 @@ void DetectionEngine::postBle(Detection d) {
     pushLog(d);
 }
 
+// Nothing calls this today (the Classic inquiry was never switched on), but
+// if something does, it gets the same MAC+type merge as BLE rather than a
+// new row per sighting.
 void DetectionEngine::postBtClassic(Detection d) {
-    if (!Settings::typeEnabled(d.type)) return;
-    pushLog(d);
+    postBle(d);
 }
 
 void DetectionEngine::postRawBle(RawBleResult r) {

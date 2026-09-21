@@ -353,6 +353,17 @@ uint16_t readDetections(uint16_t from, uint16_t max, DetRecord* out) {
     return w.got;
 }
 
+uint16_t readDetectionsAt(const uint16_t* at, uint16_t n, DetRecord* out) {
+    if (!n) return 0;
+    struct W { const uint16_t* at; uint16_t n, seen, got; DetRecord* out; } w = { at, n, 0, 0, out };
+    forEachDetection([](const DetRecord& r, void* c) {
+        W& w = *(W*)c;
+        if (w.seen++ == w.at[w.got]) w.out[w.got++] = r;
+        return w.got < w.n;
+    }, &w);
+    return w.got;
+}
+
 void forEachBoot(bool (*fn)(const BootRecord&, void*), void* ctx) {
     if (!s_ready) return;
     struct W { bool (*fn)(const BootRecord&, void*); void* ctx; } w = { fn, ctx };

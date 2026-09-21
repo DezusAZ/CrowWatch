@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "blackbox.h"
 #include "detection.h"
+#include "log_index.h"
 #include <Arduino.h>
 #include <ctype.h>
 #include <string.h>
@@ -30,8 +31,48 @@ static bool     s_pageOk   = false;
 
 static void invalidatePage() { s_pageOk = false; }
 
+// ---- one row per device -----------------------------------------------------
+// The flash keeps a record every time a device is first seen or comes back,
+// today's included, so the same device used to appear as its live row AND a
+// grey KEPT copy, and once more per visit on other days. LogIndex keeps the
+// newest of each (MAC + type) that the ring does not already show; see
+// log_index.h. Rebuilt when the LOG opens and when the ring changes -- a
+// device from yesterday seen again today moves to the live rows, and its grey
+// copy has to go -- but at most once a second, since a rebuild reads the
+// whole flash history and a busy room adds rows several times a second.
+static bool     s_indexWanted = true;
+static uint8_t  s_sigCount    = 0xFF;
+static uint32_t s_sigNewest   = 0;
+static uint16_t s_sigKept     = 0;
+static uint32_t s_indexAt     = 0;
+
+static void ensureIndex(const DetectionEngine& eng) {
+    const uint8_t n = eng.logCount() > 64 ? 64 : eng.logCount();
+    const Detection* newest = n ? eng.logAt(0) : nullptr;
+    const uint32_t newestKey = newest ? LogIndex::key(newest->mac, (uint8_t)newest->type) : 0;
+    const uint16_t kept = BlackBox::detectionsKept();
+    const bool cleared = kept < s_sigKept;   // a CLR: positions mean nothing now
+    const bool changed = n != s_sigCount || newestKey != s_sigNewest;
+    if (!s_indexWanted && !cleared && !changed) return;
+    if (!s_indexWanted && !cleared && millis() - s_indexAt < 1000) return;
+
+    uint32_t keys[64];   // the ring's LOG_CAP; logCount() never exceeds it
+    for (uint8_t i = 0; i < n; i++) {
+        const Detection* d = eng.logAt(i);
+        keys[i] = d ? LogIndex::key(d->mac, (uint8_t)d->type) : 0;
+    }
+    LogIndex::rebuild(keys, n);
+    s_indexWanted = false;
+    s_sigCount = n;
+    s_sigNewest = newestKey;
+    s_sigKept = kept;
+    s_indexAt = millis();
+    invalidatePage();
+}
+
 uint16_t uiLogRowCount(const DetectionEngine& eng) {
-    return (uint16_t)(eng.logCount() + BlackBox::detectionsKept());
+    ensureIndex(eng);
+    return (uint16_t)(eng.logCount() + LogIndex::count());
 }
 
 const Detection* uiLogRow(const DetectionEngine& eng, int idx) {
@@ -39,13 +80,23 @@ const Detection* uiLogRow(const DetectionEngine& eng, int idx) {
     if (idx < (int)eng.logCount()) return eng.logAt((uint8_t)idx);
 
     const uint16_t want = (uint16_t)(idx - eng.logCount());
-    if (want >= BlackBox::detectionsKept()) return nullptr;
+    if (want >= LogIndex::count()) return nullptr;
     if (!s_pageOk || want < s_pageFrom || want >= (uint16_t)(s_pageFrom + s_pageGot)) {
+        uint16_t at[PAGE];
+        uint8_t n = 0;
+        for (uint16_t r = want; r < LogIndex::count() && n < PAGE; r++) {
+            uint16_t p;
+            if (!LogIndex::position(r, p)) break;
+            at[n++] = p;
+        }
         s_pageFrom = want;
-        s_pageGot  = (uint8_t)BlackBox::readDetections(want, PAGE, s_page);
+        s_pageGot  = (uint8_t)BlackBox::readDetectionsAt(at, n, s_page);
+        // Short only if records were worn away mid-list; anything past
+        // them would land on the wrong row, so the page ends there.
         s_pageOk   = s_pageGot > 0;
         if (!s_pageOk) return nullptr;
     }
+    if (want >= (uint16_t)(s_pageFrom + s_pageGot)) return nullptr;
     const BlackBox::DetRecord& r = s_page[want - s_pageFrom];
 
     // Built into one row of its own, because everything downstream -- the
@@ -75,6 +126,7 @@ const Detection* uiLogRow(const DetectionEngine& eng, int idx) {
 void uiLogInit(TFT_eSPI& t) {
     g_scroll = 0;
     invalidatePage();
+    s_indexWanted = true;
     // fillScreen() relies on TFT_eSPI's base-class width/height, which
     // TFT_eSprite::createSprite() never updates — it leaves stale
     // remnants of whatever screen was drawn before when t is a sprite.
