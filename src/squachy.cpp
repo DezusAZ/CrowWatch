@@ -713,6 +713,12 @@ static int   s_lastCx = -10000, s_lastHeadTopY = 0;
 // the UN-animated base: a tap target that bobbed would move under a finger
 // mid-press. Anything standing ON him needs the opposite.
 static int   s_lastCrownY = 0;
+// Set while drawBody() is drawing somebody who is NOT our Squachy: a visiting
+// peer, the alert screen's cameo, the boot splash's wave. They all go through
+// the same body code, and drawBody() publishes the live crown -- so the last
+// one drawn won. On a SquachMesh visit the guest is drawn after the host, so
+// the pet stood on the GUEST's head and rode the GUEST's bounce.
+static bool  s_cameo = false;
 // Top of the region the caller gave us. Costume detail that reaches ABOVE
 // the head needs this: hy is not a fixed distance from the top of the
 // drawing area -- he sits lower with a speech bubble up and rides higher
@@ -4713,7 +4719,8 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // effect. The outfit comes along because a hat that stayed put
     // while the head moved would read as detached.
     const int hh = hy + s_headDrop + actHead;
-    s_lastCrownY = hh;          // see the declaration: the live one, not the base
+    // Only our own Squachy says where his head is -- see s_cameo.
+    if (!s_cameo) s_lastCrownY = hh;
 
     // PARKA recolours his fur orange so the coat's sleeves and legs need no
     // repainting -- but that recolour must stop at his neck. His HEAD is his
@@ -5143,6 +5150,7 @@ void drawWaving(TFT_eSPI& t, int cx, int baseY, uint32_t now, float scale, const
                 bool listening, bool bubbleTail, VisitPose pose) {
     // This cameo is placed by callers that have already reserved room, so
     // there is no region to clamp against.
+    s_cameo = true;
     s_topLimit = -10000;
     // The cameo has no mood machine driving the pose channels, so clear
     // them rather than letting whatever CLEAR left behind leak into the
@@ -5257,6 +5265,7 @@ void drawWaving(TFT_eSPI& t, int cx, int baseY, uint32_t now, float scale, const
     // visibly his.
     if (line) drawBubble(t, cx, headTopY - bubbleGap, line, now, false,
                          bubbleTail ? bodyCx : NO_TAIL);
+    s_cameo = false;
 }
 
 // Small filled heart, used by the tap-to-pet flourish.
