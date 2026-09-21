@@ -41,6 +41,13 @@ CLIPS = {
         ("settings", 10, 12, ["--scroll", "0"],        {}, 1500, "SETTINGS > BEHAVIOR > AUTO SNOOZE"),
         ("log",      20, list(range(0, 13)), [],       {}, 1300, "EVERY LIST STOPS AT THE BOTTOM NOW"),
     ],
+    # v1.16.1 "Good Company": the pet was standing on the wrong Squachy, and
+    # the 3.5" reached the flasher's picker without reaching its files.
+    "good-company": [
+        ("clear", 400, 44, ["--peer", "2", "--peername", "GUEST", "--pet", "1"], {},  900, "A VISITOR, AND THE PET THAT FOLLOWED THE WRONG ONE"),
+        ("clear", 460, 44, ["--peer", "2", "--peername", "GUEST", "--pet", "1"], {},  900, "IT RIDES ITS OWN SQUACHY'S BOUNCE AGAIN"),
+        ("boot",   20, 22, [],                 {}, 1500, "AND THE 3.5 INCH IS ON THE FLASHER FOR REAL"),
+    ],
     # v1.16.0 "The Big Screen": the 3.5" ships, and it is the screen itself
     # that is the news -- so the clip is shot on it.
     "the-big-screen": [
@@ -67,6 +74,7 @@ CLIPS = {
 # embed at anyway.
 CLIP_SIZE = {
     "the-big-screen": (480, 320, 1),
+    "good-company":   (480, 320, 1),
 }
 
 def clip_geom(clip):
