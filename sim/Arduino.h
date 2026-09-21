@@ -29,6 +29,10 @@
 namespace SimClock {
     inline bool     virtualTime = false;
     inline uint32_t nowMs       = 0;
+    // Called after every delay() in virtual time. The touch-calibration
+    // render uses it to film the screens that sit on a delay() -- a notice
+    // held for a second reads no touch, so nothing else would see it.
+    inline void   (*onDelay)()  = nullptr;
 }
 
 inline uint32_t millis() {
@@ -47,7 +51,10 @@ inline uint32_t micros() { return millis() * 1000; }
 // terminate, and it means the whole 4s startup passes in microseconds
 // instead of being waited out.
 inline void delay(uint32_t ms) {
-    if (SimClock::virtualTime) SimClock::nowMs += ms;
+    if (SimClock::virtualTime) {
+        SimClock::nowMs += ms;
+        if (SimClock::onDelay) SimClock::onDelay();
+    }
 }
 inline void yield() {}
 

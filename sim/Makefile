@@ -122,7 +122,9 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/fast_sprite.cpp \
             $(SIM_DIR)/ota_sim.cpp
 
-SIM_SRCS := $(SIM_DIR)/main_sim.cpp $(SIM_DIR)/detection_sim.cpp
+# touch_cal.cpp for the touchcal screen, which runs the real calibration flow
+# with a scripted finger. Only here: the live and web builds already compile it.
+SIM_SRCS := $(SIM_DIR)/main_sim.cpp $(SIM_DIR)/detection_sim.cpp $(SRC)/touch_cal.cpp
 
 # The interactive target additionally compiles the firmware's real
 # main.cpp -- its actual setup()/loop(), state machine, gesture handling

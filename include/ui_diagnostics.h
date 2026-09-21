@@ -51,10 +51,8 @@ struct DiagnosticsInfo {
     CrashReport crash;
 
     // Live touch, straight from the touch chip -- not run through
-    // calibration. hasRaw is false on boards whose touch path only
-    // ever hands back already-calibrated coordinates (AWOK/cyd35's
-    // native TFT_eSPI touch), since there's no separate raw reading to
-    // show there.
+    // calibration. Every board has a raw reading since the five-target
+    // calibration; hasRaw stays for the emulator, which has no chip.
     bool    hasRaw;
     bool    rawTouching;
     int16_t rawA, rawB;
@@ -64,8 +62,10 @@ struct DiagnosticsInfo {
     bool touchValid;
     int  mappedX, mappedY;
 
-    // Calibration source/values currently in effect.
+    // Calibration source/values currently in effect. calSource names it;
+    // when null, usingSavedCal picks between "saved" and the default.
     bool    usingSavedCal;
+    const char* calSource = nullptr;
     int16_t calA0, calA1, calB0, calB1;
 
     // Frame timing, exponentially smoothed in main.cpp. pushUs is the

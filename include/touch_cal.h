@@ -1,67 +1,61 @@
 // SquachWatch-CYD — persistent touch calibration
-// Touch-type-agnostic: works for either the resistive XPT2046 or the
-// capacitive CST816/820, since both reduce to the same shape of
-// problem -- two raw axes, each with a min (one screen edge) and max
-// (the opposite edge) value. The caller supplies a raw-sample reader
-// and interprets the returned Cal according to its own known raw-axis
-// layout (see main.cpp for how each touch type maps aTop/aBottom/
-// bLeft/bRight onto its existing map() calls).
+// Touch-type-agnostic: works for the resistive XPT2046 (on its own bus or
+// the display's) and the capacitive CST816/820 alike, since all of them
+// reduce to two raw numbers per touch. The caller supplies a raw-sample
+// reader; the mapping from those numbers to the screen is a TouchFit::Fit
+// (see touch_fit.h), the same on every board and good for every rotation.
 #pragma once
 #include <TFT_eSPI.h>
 #include <stdint.h>
+#include "touch_fit.h"
 
 namespace TouchCal {
+    // True and fills a/b with a fresh raw sample if a finger is
+    // currently down, false otherwise.
+    typedef bool (*RawReader)(int16_t& a, int16_t& b);
+
+    // ---- The calibration every board uses now ----
+
+    // Loads the saved Fit. False (leaving `out` untouched) if there is
+    // none, or what is saved does not look like a real one.
+    bool loadFit(TouchFit::Fit& out);
+    void saveFit(const TouchFit::Fit& fit);
+
+    enum class Outcome : uint8_t {
+        SAVED,      // a new Fit passed every check and is in `out`
+        SKIPPED,    // the owner chose SKIP / CANCEL; nothing changed
+        NO_TOUCH,   // nobody touched the screen; nothing changed
+        FAILED,     // the taps did not add up twice running; nothing changed
+    };
+
+    // The interactive five-target calibration, drawn straight onto `t` in
+    // rotation `rot`. Blocking: it has the owner's full attention by
+    // definition. Does not save -- the caller does, on SAVED.
+    //
+    // `current` is the mapping in force now. When given, the first screen
+    // offers SKIP, which is hit-tested through it; when null, a tap anywhere
+    // starts. minSpread is the raw distance the diagonal targets must at
+    // least be apart (capacitive and resistive chips have very different
+    // ranges -- see main.cpp's constants).
+    Outcome runInteractive(TFT_eSPI& t, RawReader readRaw, uint8_t rot,
+                           const TouchFit::Fit* current, int16_t minSpread,
+                           uint16_t bg, uint16_t fg, uint16_t accent,
+                           TouchFit::Fit& out);
+
+    // Erases every saved calibration, old and new -- the recovery path for
+    // a bad one that makes touch too inaccurate to reach a button. main.cpp
+    // offers it as a hold-anywhere gesture right after boot.
+    void reset();
+
+    // ---- Calibrations saved by older firmware ----
+    // Read once, to build a Fit for owners who SKIP, so they keep exactly
+    // the touch they had. Never written any more.
     struct Cal {
         int16_t aTop, aBottom;   // raw "a" axis at the top row vs. bottom row
         int16_t bLeft, bRight;   // raw "b" axis at the left column vs. right column
     };
-
-    // True and fills a/b with a fresh raw sample if a finger is
-    // currently down, false otherwise -- same shape as each project's
-    // own touch poll, just reduced to the two raw axis values.
-    typedef bool (*RawReader)(int16_t& a, int16_t& b);
-
-    // minSpread (load/runInteractive below): the minimum acceptable
-    // |a1-a2| / |b1-b2| raw-unit spread for a calibration to count as
-    // valid. This has to come from the caller rather than being a
-    // fixed constant in here -- capacitive and resistive touch have
-    // very different legitimate raw ranges (capacitive: often only a
-    // few hundred units end to end; resistive: up to a 12-bit ADC's
-    // 4095), so one universal threshold can only ever be tuned for the
-    // smaller of the two. Confirmed on real hardware: a resistive
-    // calibration with a spread of ~180-190 (nowhere near a real
-    // full-range calibration) still passed a threshold loose enough
-    // not to break capacitive -- pass a much stricter value for
-    // resistive (main.cpp keeps board-appropriate constants for this).
-
-    // Loads a previously-saved calibration into `out`. Returns false
-    // (leaving `out` untouched) if none has been saved, or if what's
-    // saved doesn't pass the spread check -- caller should keep its
-    // compiled-in defaults in that case.
+    // False (leaving `out` untouched) if none is saved, or it fails the
+    // spread check: minSpread is the smallest |a1-a2| / |b1-b2| a real
+    // calibration can have.
     bool load(Cal& out, int16_t minSpread);
-
-    // Saves a calibration so it survives reboots.
-    void save(const Cal& cal);
-
-    // Erases a saved calibration — the recovery path for a bad one
-    // that makes touch too inaccurate to reliably hit a calibrate
-    // button. Caller should offer this as a boot-time gesture (hold
-    // touch anywhere for ~1s right after boot) that needs no
-    // precision, since precision is exactly what's missing when this
-    // is needed.
-    void reset();
-
-    // Runs the interactive 4-corner calibration flow: draws a
-    // crosshair near each screen corner in turn, waits for a tap-and-
-    // hold on each (averaging a few samples for stability), and
-    // computes the resulting Cal. Blocking -- this has the user's full
-    // attention by definition, so a simple synchronous loop is simpler
-    // than threading it through the caller's normal state machine.
-    // Returns false (leaving `out` untouched, and saving nothing) if
-    // the result doesn't pass the spread check -- caller should keep
-    // whatever calibration it already had rather than apply or persist
-    // known-bad data; the user can just long-press to try again.
-    bool runInteractive(TFT_eSPI& t, RawReader readRaw,
-                        uint16_t bg, uint16_t fg, uint16_t accent,
-                        Cal& out, int16_t minSpread);
 }

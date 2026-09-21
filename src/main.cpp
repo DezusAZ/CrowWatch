@@ -364,20 +364,14 @@ static void drawCrashCard(TFT_eSPI& t) {
 //     XPT2046 again, CS=33 sharing the *display's* SPI bus (SCK/MOSI/
 //     MISO = 14/13/12) instead of getting a dedicated peripheral —
 //     this board has no capacitive-touch chip at all, so the I2C probe
-//     below is skipped entirely rather than just failing. Driven
-//     through TFT_eSPI's own calibrateTouch/setTouch/getTouch path,
-//     same as AWOK below, not the standalone XPT2046_Touchscreen
-//     library — a separate SPIClass on the same physical bus as
-//     TFT_eSPI produced constant garbage reads and a free-running IRQ
-//     when that was tried. Unlike AWOK this board keeps its rotate
-//     button, so it keeps a 4-slot (one per rotation) calibration
-//     cache instead of AWOK's single blob — see the CYD35 branches in
-//     setup()/pollTouch() and cyd35EnsureCal()'s comment.
+//     below is skipped entirely rather than just failing. Raw reads go
+//     through TFT_eSPI's own touch accessors, same as AWOK below, not
+//     the standalone XPT2046_Touchscreen library — a separate SPIClass
+//     on the same physical bus as TFT_eSPI produced constant garbage
+//     reads and a free-running IRQ when that was tried.
 //   - AWOK 2.4" (Marauder V6.1, built separately as env:awok): resistive
-//     XPT2046 sharing the display's VSPI bus like cyd35, but driven
-//     entirely through TFT_eSPI's own calibrateTouch/setTouch/getTouch
-//     path rather than the XPT2046_Touchscreen library — see the AWOK
-//     branches in setup()/pollTouch(). The constructor still gets
+//     XPT2046 sharing the display's VSPI bus like cyd35, read the same
+//     way. The constructor still gets
 //     built below regardless of board (it costs nothing unused), but
 //     neither AWOK nor cyd35 ever calls touch.begin() or
 //     touchSPI.begin() on it.
@@ -386,19 +380,15 @@ static void drawCrashCard(TFT_eSPI& t) {
 // thing this avoids: the XPT2046_Touchscreen library is never begin()'d on
 // any of them, and raw reads go through TFT_eSPI's own accessors.
 //
-// They then split on what to do with those raw values:
+// Every board's raw values then go through the same TouchFit mapping (see
+// pollTouch()). The two names below survive for what still differs:
 //
-//   TOUCH_ON_DISPLAY_BUS  -- AWOK. Hand the whole job to TFT_eSPI
-//     (calibrateTouch/setTouch/getTouch), which returns finished screen
-//     coordinates. Simple, but the calibration blob bakes the axis
-//     swap/invert in at calibration time, so it is only correct for the
-//     rotation it was taken at. Fine on AWOK, which has no rotate button.
+//   TOUCH_ON_DISPLAY_BUS  -- AWOK. Reads through the same filter TFT_eSPI's
+//     getTouch() applied (rawReadFiltered()), as the 3.5" does, and may have
+//     an old TFT_eSPI calibration blob to convert for SKIP.
 //
-//   TOUCH_RAW_SHARED_BUS  -- the RL Phantom's resistive variant. Read RAW
-//     values off the same bus, then run the 2.8" board's own rotation maths
-//     (the landscape/flipped block in pollTouch). The Phantom is a bare board
-//     with the rotate icon live, so touch has to follow the screen round --
-//     and this way it uses the ordinary TouchCal flow and defaults too.
+//   TOUCH_RAW_SHARED_BUS  -- the RL Phantom's resistive variant. A plain
+//     pressure-gated raw read, and the 2.8"-style old calibration.
 #if defined(AWOK)
     #define TOUCH_ON_DISPLAY_BUS 1
 #endif
@@ -689,389 +679,131 @@ static uint16_t RAW_Y_MIN = 200, RAW_Y_MAX = 3800;
 static const int16_t CAP_TOUCH_MIN_SPREAD = 50;
 static const int16_t RESISTIVE_MIN_SPREAD = 800;
 
-// TFT_eSPI::setTouch()'s own calibration format: parameters[0..3] are
-// raw x0/x1/y0/y1 ADC readings, parameters[4] is a bitflag byte where
-// only bits 0-2 (rotate/invert_x/invert_y) are ever meaningful -- see
-// Touch.cpp. Used by both AWOK and cyd35's load functions below (each
-// only ever compiles its own board's block, hence this living outside
-// either #if) to reject obviously-corrupted stored bytes instead of
-// silently trusting them -- an interrupted NVS write is the confirmed
-// real-world cause, not a hypothetical. Same reasoning as
-// TouchCal::plausible() (touch_cal.cpp) for the other calibration
-// path's key-based (not raw-blob) storage.
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+// TFT_eSPI::setTouch()'s own calibration format, as older firmware saved it
+// on AWOK and the 3.5": [0] and [2] are the raw readings at the low edge of
+// each axis, [1] and [3] the SPANS from there (calibrateTouch() subtracts
+// before it exports), and [4] a bitflag byte where only bits 0-2
+// (swap/invert_x/invert_y) mean anything -- see Touch.cpp. Checked before it
+// is trusted, since an interrupted NVS write is a confirmed real-world way
+// to get garbage here. Both boards are resistive, so the resistive floor.
 static bool touchCalPlausible(const uint16_t* p) {
     if (p[4] > 7) return false;
-    // AWOK and cyd35 are both resistive XPT2046 (no capacitive variant
-    // on either), so this always uses the stricter resistive floor --
-    // see RESISTIVE_MIN_SPREAD's comment above.
-    auto ok = [](uint16_t a, uint16_t b) {
-        return a >= 1 && b >= 1 && a <= 4095 && b <= 4095 &&
-               (a > b ? a - b : b - a) >= RESISTIVE_MIN_SPREAD;
+    auto ok = [](uint16_t lo, uint16_t span) {
+        return lo >= 1 && lo <= 4095 && span >= RESISTIVE_MIN_SPREAD && lo + span <= 4200;
     };
     return ok(p[0], p[1]) && ok(p[2], p[3]);
 }
+#endif
 
-#if defined(TOUCH_ON_DISPLAY_BUS)
-// ---- TFT_eSPI-native touch calibration (shared display bus) ----
-// Named awok* because AWOK was the first board to need it; the RL Phantom's
-// resistive variant sits on the same kind of bus and reuses it unchanged.
-// AWOK's XPT2046 sits on the display's own shared VSPI bus, so it goes
-// through TFT_eSPI's own calibrateTouch()/setTouch()/getTouch() path
-// instead of the raw-ADC + map() approach the other two boards use --
-// AWOK's XPT2046's raw axes don't align the same way the CYD's do, so
-// the CYD's rotation math doesn't carry over here.
-//
-// This board has no rotate button at all (confirmed on real hardware:
-// the case only holds the panel in one orientation, portrait, so
-// rotation was pure unused complexity) -- screenRotation is fixed at
-// AWOK_ROTATION for the life of the program, never changed by a tap,
-// so there's only ever one calibration to keep, not one per rotation
-// the way an earlier version of this did.
-static uint16_t awokTouchCal[5];
-static bool     awokTouchCalibrated = false;
+// ---- The mapping in force: raw touch -> screen, every board ----
+// A TouchFit::Fit (touch_fit.h) from the five-target calibration, or, until
+// a board has one, whatever it used before -- see initTouchFit() below.
+// Rotation is applied after the Fit, so one calibration serves all four.
+static TouchFit::Fit s_touchFit = TouchFit::fromRanges(RAW_X_MIN, RAW_X_MAX, RAW_Y_MIN, RAW_Y_MAX, 240, 320);
 
-static const char* AWOK_TOUCH_NS  = "awoktouch";
-static const char* AWOK_TOUCH_KEY = "cal5";
+// Where s_touchFit came from, for the diagnostics screen and for deciding
+// whether boot has to ask for a calibration.
+enum class CalSource : uint8_t { BUILT_IN, OLD_SAVED, SAVED };
+static CalSource s_calSource = CalSource::BUILT_IN;
 
-static bool awokLoadTouchCal() {
-    Preferences p;
-    p.begin(AWOK_TOUCH_NS, true);
-    bool has = p.isKey(AWOK_TOUCH_KEY);
-    if (has) {
-        p.getBytes(AWOK_TOUCH_KEY, awokTouchCal, sizeof(awokTouchCal));
-        has = touchCalPlausible(awokTouchCal);
-        awokTouchCalibrated = has;
-    }
-    p.end();
-    return has;
-}
-
-static void awokSaveTouchCal() {
-    Preferences p;
-    p.begin(AWOK_TOUCH_NS, false);
-    p.putBytes(AWOK_TOUCH_KEY, awokTouchCal, sizeof(awokTouchCal));
-    p.end();
-}
-
-// The recovery path for a bad calibration — mirrors TouchCal::reset()
-// for the other boards' NVS namespace, but this board's blob lives in
-// a separate one ("awoktouch") that TouchCal::reset() never touches,
-// so it needs its own clear here or the boot-time "hold to reset"
-// gesture would be a silent no-op on this board.
-static void awokResetTouchCal() {
-    Preferences p;
-    p.begin(AWOK_TOUCH_NS, false);
-    p.clear();
-    p.end();
-    awokTouchCalibrated = false;
-}
-
-// Runs TFT_eSPI's own interactive 4-corner calibration and persists
-// the result — called from the same two places the other boards call
-// TouchCal::runInteractive() (the title-bar long-press and Settings >
-// CALIBRATE TOUCH), plus automatically on first boot if nothing's
-// saved yet (see awokEnsureCal() below).
-static void awokRunCalibration() {
-    tft.fillScreen(Theme::BG);
-    tft.calibrateTouch(awokTouchCal, Theme::VAPOR_PINK, Theme::BG, 15);
-    tft.setTouch(awokTouchCal);
-    awokTouchCalibrated = true;
-    awokSaveTouchCal();
-}
-
-// Called once at boot: re-arms the saved calibration if one exists, or
-// runs the interactive calibration once if this is a fresh board.
-static void awokEnsureCal() {
-    if (awokLoadTouchCal()) {
-        tft.setTouch(awokTouchCal);
-        Serial.println("Loaded AWOK touch cal from NVS.");
-        return;
-    }
-    Serial.println("AWOK: no saved cal, running interactive calibration.");
-    awokRunCalibration();
-}
-#endif  // AWOK
-
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+// ---- Calibrations older firmware saved through TFT_eSPI ----
+// AWOK and the 3.5" used to hand touch to TFT_eSPI's calibrateTouch() /
+// getTouch(). Its blob is only read now, once, so an owner who SKIPs the
+// new calibration keeps the touch they had: fromTftEspi() turns it into a
+// Fit. The 3.5" kept one per rotation, because the blob bakes in the
+// rotation it was taken at; any one of them is enough for a Fit, which
+// does not.
 #if defined(CYD35)
-// ---- cyd35: TFT_eSPI-native touch calibration, per rotation ----
-// A prior pass here used a hand-rolled raw-SPI reader (bypassing
-// TFT_eSPI's own touch code entirely) after the native path looked
-// completely dead in the real app. Root-cause turned out to be
-// unrelated to the touch code at all: sd_log.cpp's SD.begin() was
-// silently re-attaching the shared VSPI bus to the wrong GPIO pins
-// (see its comment) -- once that was fixed, the native path was never
-// re-tested. An independently-verified working config for this exact
-// panel (a friend's QDtech E32R35T port) confirms TFT_eSPI's native
-// calibrateTouch()/setTouch()/getTouch() is in fact the right approach
-// here, same as AWOK -- so back to that, now that the real bug is
-// fixed underneath it.
-//
-// Unlike AWOK, this board keeps its rotate button, and TFT_eSPI's
-// calibration blob is baked relative to whichever rotation was active
-// when calibrateTouch() ran (the raw axis-swap/invert decision is
-// fixed at calibration time, only the current width/height scale
-// afterward), so one blob does not carry over correctly to a different
-// rotation. Four independent blobs, one per rotation, calibrated on
-// first use of each.
-static uint16_t cyd35TouchCal[4][5];
-static bool     cyd35TouchCalibrated[4] = { false, false, false, false };
+static const char* TFT_ESPI_TOUCH_NS = "cyd35touch";
+#else
+static const char* TFT_ESPI_TOUCH_NS = "awoktouch";
+#endif
 
-static const char* CYD35_TOUCH_NS = "cyd35touch";
-
-static bool cyd35LoadTouchCal(uint8_t rot) {
+static bool loadTftEspiBlob(const char* key, uint16_t* out) {
     Preferences p;
-    p.begin(CYD35_TOUCH_NS, true);
-    char key[8];
-    snprintf(key, sizeof(key), "cal5_%u", rot);
-    bool has = p.isKey(key);
-    if (has) {
-        p.getBytes(key, cyd35TouchCal[rot], sizeof(cyd35TouchCal[rot]));
-        has = touchCalPlausible(cyd35TouchCal[rot]);
-        cyd35TouchCalibrated[rot] = has;
-    }
+    p.begin(TFT_ESPI_TOUCH_NS, true);
+    bool has = p.isKey(key) && p.getBytes(key, out, 5 * sizeof(uint16_t)) == 5 * sizeof(uint16_t);
     p.end();
-    return has;
+    return has && touchCalPlausible(out);
 }
 
-static void cyd35SaveTouchCal(uint8_t rot) {
+// The hold-at-boot reset clears these too, or SKIP would bring back the
+// very calibration the owner was trying to get rid of.
+static void clearTftEspiBlobs() {
     Preferences p;
-    p.begin(CYD35_TOUCH_NS, false);
-    char key[8];
-    snprintf(key, sizeof(key), "cal5_%u", rot);
-    p.putBytes(key, cyd35TouchCal[rot], sizeof(cyd35TouchCal[rot]));
-    p.end();
-}
-
-// The recovery path for a bad calibration -- same reasoning as
-// awokResetTouchCal(): this board's blobs live in their own NVS
-// namespace that TouchCal::reset() never touches.
-static void cyd35ResetTouchCal() {
-    Preferences p;
-    p.begin(CYD35_TOUCH_NS, false);
+    p.begin(TFT_ESPI_TOUCH_NS, false);
     p.clear();
     p.end();
-    for (uint8_t i = 0; i < 4; i++) cyd35TouchCalibrated[i] = false;
 }
 
-// Runs TFT_eSPI's own interactive 4-corner calibration for whichever
-// rotation is currently active and persists it under that rotation's
-// own key -- called from the title-bar long-press, Settings >
-// CALIBRATE TOUCH, and automatically the first time a given rotation
-// is used (see cyd35EnsureCal()).
-static void cyd35RunCalibration() {
-    uint8_t rot = screenRotation;
-    tft.fillScreen(Theme::BG);
-    tft.calibrateTouch(cyd35TouchCal[rot], Theme::VAPOR_PINK, Theme::BG, 15);
-    tft.setTouch(cyd35TouchCal[rot]);
-    cyd35TouchCalibrated[rot] = true;
-    cyd35SaveTouchCal(rot);
-}
-
-// Called at boot and every time the rotate button changes
-// screenRotation: re-arms that rotation's saved calibration if one
-// exists, or runs the interactive calibration once if this is the
-// first time this particular rotation has ever been used.
-static void cyd35EnsureCal(uint8_t rot) {
-    if (cyd35TouchCalibrated[rot]) {
-        tft.setTouch(cyd35TouchCal[rot]);
-        return;
+// Blob -> Fit. True if a usable blob was found.
+static bool fitFromTftEspiBlobs(TouchFit::Fit& out) {
+    // The screen size rotation `r` has, from the one we are in now.
+    const int w = tft.width(), h = tft.height();
+    auto dims = [&](uint8_t r, int& rw, int& rh) {
+        const bool same = (r & 1) == (screenRotation & 1);
+        rw = same ? w : h;
+        rh = same ? h : w;
+    };
+    uint16_t blob[5];
+#if defined(CYD35)
+    for (uint8_t i = 0; i < 4; i++) {
+        const uint8_t r = (uint8_t)((screenRotation + i) & 3);   // this rotation's first
+        char key[8];
+        snprintf(key, sizeof(key), "cal5_%u", r);
+        if (!loadTftEspiBlob(key, blob)) continue;
+        int rw, rh;
+        dims(r, rw, rh);
+        if (TouchFit::fromTftEspi(blob, r, rw, rh, out)) return true;
     }
-    if (cyd35LoadTouchCal(rot)) {
-        tft.setTouch(cyd35TouchCal[rot]);
-        Serial.printf("Loaded cyd35 touch cal for rotation %u from NVS.\n", rot);
-        return;
-    }
-    Serial.printf("cyd35: no saved cal for rotation %u, running interactive calibration.\n", rot);
-    cyd35RunCalibration();
+    return false;
+#else
+    // AWOK has no rotate button, so its one blob was taken in the rotation
+    // it is in now.
+    if (!loadTftEspiBlob("cal5", blob)) return false;
+    int rw, rh;
+    dims(screenRotation, rw, rh);
+    return TouchFit::fromTftEspi(blob, screenRotation, rw, rh, out);
+#endif
 }
-#endif  // CYD35
+#endif  // TOUCH_ON_DISPLAY_BUS || CYD35
 
+static bool readTouchRaw(int16_t& a, int16_t& b);
+
+// Raw touch -> screen, the same way on every board: the Fit gives a point
+// in the panel's native (rotation 0) frame, and the rotation step turns it
+// into this rotation's coordinates. No board has its own maths any more.
 static TouchPoint pollTouch() {
     TouchPoint tp = { false, 0, 0 };
-    int w = tft.width(), h = tft.height();
-    bool landscape = (screenRotation % 2) == 1;
-    bool flipped   = screenRotation >= 2;
-
-    if (usingCapTouch) {
-        uint16_t nx, ny;
-        if (!CapTouch::read(nx, ny)) return tp;
-        // Same "native portrait frame, rotate per TFT_eSPI rotation"
-        // structure as the XPT2046 path below — nx/ny stand in for
-        // the XPT2046's raw p.x/p.y, just with the CST816's own
-        // measured range instead of raw ADC counts. Only rotation 1
-        // (landscape) is confirmed against real taps on this unit;
-        // 0/2/3 are derived by the same symmetry that held for
-        // XPT2046 and are worth spot-checking in portrait.
-        if (!landscape) {
-            tp.x = flipped ? map(nx, CAP_NX_MIN, CAP_NX_MAX, w, 0) : map(nx, CAP_NX_MIN, CAP_NX_MAX, 0, w);
-            tp.y = flipped ? map(ny, CAP_NY_MIN, CAP_NY_MAX, h, 0) : map(ny, CAP_NY_MIN, CAP_NY_MAX, 0, h);
-        } else {
-            tp.x = flipped ? map(ny, CAP_NY_MIN, CAP_NY_MAX, w, 0) : map(ny, CAP_NY_MIN, CAP_NY_MAX, 0, w);
-            tp.y = flipped ? map(nx, CAP_NX_MIN, CAP_NX_MAX, 0, h) : map(nx, CAP_NX_MIN, CAP_NX_MAX, h, 0);
-        }
-        // Clamp into bounds instead of invalidating -- map() linearly
-        // extrapolates, it doesn't clip, so a touch landing just past a
-        // calibrated edge (completely normal: fingers don't land
-        // exactly on the pixel a calibration corner sampled) used to
-        // read as "no touch at all" here rather than "slightly
-        // imprecise at the edge". That distinction matters a lot in
-        // practice -- confirmed on real hardware that even a
-        // technically-valid calibration (correct spread, in-range
-        // values) could leave EVERY touch just outside bounds and the
-        // whole screen unresponsive, since a rejected touch and no
-        // touch look identical downstream. A hard sanity cap (2x the
-        // screen dimension either direction) still rejects genuinely
-        // wild readings/noise rather than clamping literally anything.
-        bool sane = tp.x > -w && tp.x < 2 * w && tp.y > -h && tp.y < 2 * h;
-        if (sane) {
-            if (tp.x < 0) tp.x = 0; else if (tp.x >= w) tp.x = w - 1;
-            if (tp.y < 0) tp.y = 0; else if (tp.y >= h) tp.y = h - 1;
-        }
-        tp.valid = sane;
-        return tp;
+    int16_t a, b;
+    if (!readTouchRaw(a, b)) return tp;
+    const int w = tft.width(), h = tft.height();
+    float sx, sy;
+    TouchFit::toScreen(s_touchFit, a, b, screenRotation, sx, sy);
+    // Truncated, as the map() calls this replaced were.
+    tp.x = (int)sx;
+    tp.y = (int)sy;
+    // Clamp into bounds instead of invalidating -- the map extrapolates, it
+    // doesn't clip, so a touch landing just past a calibrated edge
+    // (completely normal: fingers don't land exactly on the pixel a
+    // calibration sampled) used to read as "no touch at all" rather than
+    // "slightly imprecise at the edge". Confirmed on real hardware that even
+    // a technically-valid calibration could leave EVERY touch just outside
+    // bounds and the whole screen unresponsive, since a rejected touch and
+    // no touch look identical downstream. A hard sanity cap (2x the screen
+    // dimension either direction) still rejects genuinely wild readings.
+    bool sane = tp.x > -w && tp.x < 2 * w && tp.y > -h && tp.y < 2 * h;
+    if (sane) {
+        if (tp.x < 0) tp.x = 0; else if (tp.x >= w) tp.x = w - 1;
+        if (tp.y < 0) tp.y = 0; else if (tp.y >= h) tp.y = h - 1;
     }
-
-#if defined(CYD35)
-    // TFT_eSPI-native touch path, same shape as AWOK's below -- see
-    // cyd35EnsureCal()'s comment for why this needs the per-rotation
-    // cache instead of one shared blob. Nothing to read until the
-    // current rotation's calibration has run at least once.
-    if (!cyd35TouchCalibrated[screenRotation]) return tp;
-    {
-        uint16_t sx, sy;
-        // A cheap pressure read FIRST. TFT_eSPI's getTouch() opens with a
-        // debounce loop -- "wait until pressure stops increasing", one
-        // delay(1) per turn -- and only checks the pressure threshold after
-        // it. So an untouched screen pays the whole loop, every frame, and
-        // on the 3.5" that measured 12.9 ms of a 106 ms frame: more than a
-        // tenth of the device's time asking a screen nobody was touching.
-        // getTouchRawZ() is two SPI reads and no delay at all. Same
-        // threshold the library uses, so a touch it would have seen is a
-        // touch this sees.
-        if (tft.getTouchRawZ() <= 600) return tp;
-        if (!tft.getTouch(&sx, &sy)) return tp;
-        tp.x = (int)sx;
-        tp.y = (int)sy;
-        // Clamp into bounds instead of invalidating -- map() linearly
-        // extrapolates, it doesn't clip, so a touch landing just past a
-        // calibrated edge (completely normal: fingers don't land
-        // exactly on the pixel a calibration corner sampled) used to
-        // read as "no touch at all" here rather than "slightly
-        // imprecise at the edge". That distinction matters a lot in
-        // practice -- confirmed on real hardware that even a
-        // technically-valid calibration (correct spread, in-range
-        // values) could leave EVERY touch just outside bounds and the
-        // whole screen unresponsive, since a rejected touch and no
-        // touch look identical downstream. A hard sanity cap (2x the
-        // screen dimension either direction) still rejects genuinely
-        // wild readings/noise rather than clamping literally anything.
-        bool sane = tp.x > -w && tp.x < 2 * w && tp.y > -h && tp.y < 2 * h;
-        if (sane) {
-            if (tp.x < 0) tp.x = 0; else if (tp.x >= w) tp.x = w - 1;
-            if (tp.y < 0) tp.y = 0; else if (tp.y >= h) tp.y = h - 1;
-        }
-        tp.valid = sane;
-    }
-    return tp;
-#elif defined(TOUCH_ON_DISPLAY_BUS)
-    // TFT_eSPI-native touch path. getTouch() returns already-
-    // calibrated, already-rotated screen coordinates directly -- no
-    // map()/raw-ADC axis math needed, unlike the other two boards.
-    // Nothing to read until calibration has run once (see
-    // awokEnsureCal(), called from setup() -- there's no rotate
-    // button on this board, so this only ever needs to happen once).
-    if (!awokTouchCalibrated) return tp;
-    {
-        uint16_t sx, sy;
-        // A cheap pressure read FIRST. TFT_eSPI's getTouch() opens with a
-        // debounce loop -- "wait until pressure stops increasing", one
-        // delay(1) per turn -- and only checks the pressure threshold after
-        // it. So an untouched screen pays the whole loop, every frame, and
-        // on the 3.5" that measured 12.9 ms of a 106 ms frame: more than a
-        // tenth of the device's time asking a screen nobody was touching.
-        // getTouchRawZ() is two SPI reads and no delay at all. Same
-        // threshold the library uses, so a touch it would have seen is a
-        // touch this sees.
-        if (tft.getTouchRawZ() <= 600) return tp;
-        if (!tft.getTouch(&sx, &sy)) return tp;
-        tp.x = (int)sx;
-        tp.y = (int)sy;
-        // Clamp into bounds instead of invalidating -- map() linearly
-        // extrapolates, it doesn't clip, so a touch landing just past a
-        // calibrated edge (completely normal: fingers don't land
-        // exactly on the pixel a calibration corner sampled) used to
-        // read as "no touch at all" here rather than "slightly
-        // imprecise at the edge". That distinction matters a lot in
-        // practice -- confirmed on real hardware that even a
-        // technically-valid calibration (correct spread, in-range
-        // values) could leave EVERY touch just outside bounds and the
-        // whole screen unresponsive, since a rejected touch and no
-        // touch look identical downstream. A hard sanity cap (2x the
-        // screen dimension either direction) still rejects genuinely
-        // wild readings/noise rather than clamping literally anything.
-        bool sane = tp.x > -w && tp.x < 2 * w && tp.y > -h && tp.y < 2 * h;
-        if (sane) {
-            if (tp.x < 0) tp.x = 0; else if (tp.x >= w) tp.x = w - 1;
-            if (tp.y < 0) tp.y = 0; else if (tp.y >= h) tp.y = h - 1;
-        }
-        tp.valid = sane;
-    }
-    return tp;
-#endif
-
-    // Resistive XPT2046 path (original jczn_2432s028r board) —
-    // unchanged from the earlier single-board firmware, except that the
-    // Phantom reads its raw values off the shared display bus instead of a
-    // dedicated peripheral. Everything below this point -- the rotation
-    // maths, the clamp, the calibration constants -- is identical for both,
-    // which is the whole point of doing it this way.
-#if defined(TOUCH_RAW_SHARED_BUS)
-    // No touch IRQ pin wired on this board, so pressure is the "finger down"
-    // gate, same as rawReadResistive() uses.
-    TS_Point p(0, 0, 0);
-    {
-        int16_t ra, rb;
-        if (!rawReadResistive(ra, rb)) return tp;
-        p.x = ra;
-        p.y = rb;
-    }
-    {
-#else
-    if (!touch.tirqTouched()) return tp;
-    if (touch.touched()) {
-        TS_Point p = touch.getPoint();
-#endif
-        if (!landscape) {
-            tp.x = flipped ? map(p.x, RAW_X_MIN, RAW_X_MAX, w, 0) : map(p.x, RAW_X_MIN, RAW_X_MAX, 0, w);
-            tp.y = flipped ? map(p.y, RAW_Y_MIN, RAW_Y_MAX, h, 0) : map(p.y, RAW_Y_MIN, RAW_Y_MAX, 0, h);
-        } else {
-            tp.x = flipped ? map(p.y, RAW_Y_MIN, RAW_Y_MAX, w, 0) : map(p.y, RAW_Y_MIN, RAW_Y_MAX, 0, w);
-            tp.y = flipped ? map(p.x, RAW_X_MIN, RAW_X_MAX, 0, h) : map(p.x, RAW_X_MIN, RAW_X_MAX, h, 0);
-        }
-        // Clamp into bounds instead of invalidating -- map() linearly
-        // extrapolates, it doesn't clip, so a touch landing just past a
-        // calibrated edge (completely normal: fingers don't land
-        // exactly on the pixel a calibration corner sampled) used to
-        // read as "no touch at all" here rather than "slightly
-        // imprecise at the edge". That distinction matters a lot in
-        // practice -- confirmed on real hardware that even a
-        // technically-valid calibration (correct spread, in-range
-        // values) could leave EVERY touch just outside bounds and the
-        // whole screen unresponsive, since a rejected touch and no
-        // touch look identical downstream. A hard sanity cap (2x the
-        // screen dimension either direction) still rejects genuinely
-        // wild readings/noise rather than clamping literally anything.
-        bool sane = tp.x > -w && tp.x < 2 * w && tp.y > -h && tp.y < 2 * h;
-        if (sane) {
-            if (tp.x < 0) tp.x = 0; else if (tp.x >= w) tp.x = w - 1;
-            if (tp.y < 0) tp.y = 0; else if (tp.y >= h) tp.y = h - 1;
-        }
-        tp.valid = sane;
-    }
+    tp.valid = sane;
     return tp;
 }
 
-// ---- Calibration ----
+// ---- Raw readers ----
 static bool rawReadCap(int16_t& a, int16_t& b) {
     uint16_t nx, ny;
     if (!CapTouch::read(nx, ny)) return false;
@@ -1082,15 +814,11 @@ static bool rawReadCap(int16_t& a, int16_t& b) {
 
 static bool rawReadResistive(int16_t& a, int16_t& b) {
 #if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35)
-    // Neither board's `touch` (XPT2046_Touchscreen) object is ever
-    // begin()'d — both drive touch natively through TFT_eSPI instead
-    // (see their setup() branches) — so this goes through TFT_eSPI's
-    // own raw-touch accessors instead. Only used by the boot-time
-    // "hold to reset calibration" window; each board's own calibration
-    // flow (awokRunCalibration()/cyd35RunCalibration()) doesn't route
-    // through this at all.
-    // getTouchRaw() alone always returns true in TFT_eSPI 2.5.43, so
-    // the actual "is a finger down" gate is the pressure threshold.
+    // None of these boards' `touch` (XPT2046_Touchscreen) object is ever
+    // begin()'d -- a second SPI driver on the display's own bus produced
+    // garbage -- so this goes through TFT_eSPI's raw-touch accessors.
+    // getTouchRaw() alone always returns true in TFT_eSPI 2.5.43, so the
+    // actual "is a finger down" gate is the pressure threshold.
     if (tft.getTouchRawZ() < 350) return false;
     uint16_t rx, ry;
     tft.getTouchRaw(&rx, &ry);
@@ -1106,11 +834,47 @@ static bool rawReadResistive(int16_t& a, int16_t& b) {
 #endif
 }
 
-// See touch_cal.h: aTop/aBottom/bLeft/bRight are generic (whatever the
-// RawReader's two raw axes are, sampled at the top/bottom row and
-// left/right column respectively) — map them onto whichever named
-// constants pollTouch() actually uses, matching the same top/bottom/
-// left/right relationship already derived for each touch type above.
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+// AWOK and the 3.5" used TFT_eSPI's getTouch(), whose filtering is part of
+// how their touch feels. It is private to the library (validTouch()), so it
+// is repeated here step for step: wait for the pressure to stop rising,
+// then two reads that must agree within _RAWERR (20).
+//
+// A cheap pressure read comes FIRST. The debounce loop pays a delay(1) per
+// turn even when nobody is touching, and on the 3.5" that measured 12.9 ms
+// of a 106 ms frame -- more than a tenth of the device's time asking a
+// screen nobody was touching. Same 600 threshold the library uses, so a
+// touch it would have seen is a touch this sees.
+static bool rawReadFiltered(int16_t& a, int16_t& b) {
+    const uint16_t THRESHOLD = 600, RAWERR = 20;
+    if (tft.getTouchRawZ() <= THRESHOLD) return false;
+    uint16_t z1 = 1, z2 = 0;
+    while (z1 > z2) { z2 = z1; z1 = tft.getTouchRawZ(); delay(1); }
+    if (z1 <= THRESHOLD) return false;
+    uint16_t x1, y1, x2, y2;
+    tft.getTouchRaw(&x1, &y1);
+    delay(1);
+    if (tft.getTouchRawZ() <= THRESHOLD) return false;
+    delay(2);
+    tft.getTouchRaw(&x2, &y2);
+    if (abs((int)x1 - (int)x2) > RAWERR || abs((int)y1 - (int)y2) > RAWERR) return false;
+    a = (int16_t)x1;
+    b = (int16_t)y1;
+    return true;
+}
+#endif
+
+// The one reader pollTouch(), the calibration and the diagnostics screen all
+// use, so what the calibration measures is exactly what touch then reads.
+static bool readTouchRaw(int16_t& a, int16_t& b) {
+    if (usingCapTouch) return rawReadCap(a, b);
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+    return rawReadFiltered(a, b);
+#else
+    return rawReadResistive(a, b);
+#endif
+}
+
 // Set by the power-saver timer in loop(). Kept out of Settings on purpose:
 // it is a live state, not a preference, and it must never be persisted --
 // coming back from a reboot into a dimmed screen with no memory of why would
@@ -1138,24 +902,56 @@ static void applyCpuClock() {
     s_cpuMhzApplied = want;
 }
 
-// Set once at boot when a saved calibration passes TouchCal::load()'s
-// plausibility check -- surfaced on the diagnostics screen so it's
-// obvious at a glance whether touch is running on a real saved
-// calibration or the compiled-in fallback range.
-static bool s_usingSavedCal = false;
+static int16_t minSpread() {
+    return usingCapTouch ? CAP_TOUCH_MIN_SPREAD : RESISTIVE_MIN_SPREAD;
+}
 
-static void applyCal(const TouchCal::Cal& cal) {
-    if (usingCapTouch) {
-        CAP_NX_MAX = (uint16_t)cal.aTop;
-        CAP_NX_MIN = (uint16_t)cal.aBottom;
-        CAP_NY_MIN = (uint16_t)cal.bLeft;
-        CAP_NY_MAX = (uint16_t)cal.bRight;
-    } else {
-        RAW_X_MAX = (uint16_t)cal.aTop;
-        RAW_X_MIN = (uint16_t)cal.aBottom;
-        RAW_Y_MIN = (uint16_t)cal.bLeft;
-        RAW_Y_MAX = (uint16_t)cal.bRight;
+// Loads the saved Fit, or builds the mapping this board used before the
+// five-target calibration existed, so a board that has not calibrated yet
+// (or skips it) behaves exactly as it did.
+//   - 2.8" boards and the Phantom: their old min/max calibration if one is
+//     saved, else the compiled-in ranges. The old pollTouch() maths was
+//     exactly fromRanges() plus rotation; test/touchfit_test.cpp checks it.
+//   - AWOK and 3.5": their old TFT_eSPI blob, converted.
+static void initTouchFit() {
+    const bool portrait = (screenRotation & 1) == 0;
+    const int w0 = portrait ? tft.width() : tft.height();
+    const int h0 = portrait ? tft.height() : tft.width();
+
+    TouchFit::Fit saved;
+    if (TouchCal::loadFit(saved) && saved.w0 == w0 && saved.h0 == h0) {
+        s_touchFit = saved;
+        s_calSource = CalSource::SAVED;
+        Serial.println("Loaded saved touch calibration.");
+        return;
     }
+
+    s_calSource = CalSource::BUILT_IN;
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+    TouchFit::Fit old;
+    if (fitFromTftEspiBlobs(old)) {
+        s_touchFit = old;
+        s_calSource = CalSource::OLD_SAVED;
+        Serial.println("Touch: using the calibration older firmware saved.");
+        return;
+    }
+#endif
+    TouchCal::Cal cal;
+    if (TouchCal::load(cal, minSpread())) {
+        // How older firmware's applyCal() read the four numbers.
+        if (usingCapTouch) {
+            CAP_NX_MAX = (uint16_t)cal.aTop;  CAP_NX_MIN = (uint16_t)cal.aBottom;
+            CAP_NY_MIN = (uint16_t)cal.bLeft; CAP_NY_MAX = (uint16_t)cal.bRight;
+        } else {
+            RAW_X_MAX = (uint16_t)cal.aTop;   RAW_X_MIN = (uint16_t)cal.aBottom;
+            RAW_Y_MIN = (uint16_t)cal.bLeft;  RAW_Y_MAX = (uint16_t)cal.bRight;
+        }
+        s_calSource = CalSource::OLD_SAVED;
+        Serial.println("Touch: using the calibration older firmware saved.");
+    }
+    s_touchFit = usingCapTouch
+        ? TouchFit::fromRanges(CAP_NX_MIN, CAP_NX_MAX, CAP_NY_MIN, CAP_NY_MAX, w0, h0)
+        : TouchFit::fromRanges(RAW_X_MIN, RAW_X_MAX, RAW_Y_MIN, RAW_Y_MAX, w0, h0);
 }
 
 // esp_reset_reason() as a short, human-readable string -- the
@@ -1277,44 +1073,42 @@ static bool          s_infoArmed         = false;
 // flips true is ever allowed to register a WATCH/HUNT/CANCEL tap.
 static bool    s_confirmArmed = false;
 
-// Every way into touch calibration goes through here: the title-bar
-// long-press, Settings > CALIBRATE TOUCH, and the confirm panel that now sits
-// in front of that row. Callers decide where to go afterwards, which is the
-// only thing that ever differed between them.
-static void runTouchCalibration() {
-#if defined(TOUCH_ON_DISPLAY_BUS)
-    awokRunCalibration();
-#elif defined(TOUCH_RAW_SHARED_BUS)
-    // The ordinary TouchCal flow -- the same one the 2.8" boards use, which
-    // records the raw extremes rather than a rotation-baked blob.
-    {
-        TouchCal::Cal newCal;
-        if (TouchCal::runInteractive(tft, rawReadResistive, Theme::BG, Theme::WHITE,
-                                     Theme::CYAN, newCal, RESISTIVE_MIN_SPREAD)) {
-            TouchCal::save(newCal);
-            applyCal(newCal);
-            s_usingSavedCal = true;
-        }
-    }
-#elif defined(CYD35)
-    cyd35RunCalibration();
+// Every way into touch calibration goes through here: first boot, the
+// title-bar long-press, and Settings > CALIBRATE TOUCH. Callers decide where
+// to go afterwards, which is the only thing that ever differed between them.
+//
+// Drawn straight onto tft, not *canvas -- canvas is an offscreen sprite on
+// most boards and nothing in the flow pushes it. The frame push remembers
+// what it last sent, so it is told the panel changed under it.
+//
+// SKIP (offered whenever there is a mapping to fall back on) keeps the
+// current one, and saves it as the calibration so first boot never asks
+// again; from SETTINGS it is simply a cancel.
+// The compiled-in ranges are a 2.8" board's. Anywhere else -- the digitisers
+// on the display's own bus -- they put taps nowhere near the finger, so a
+// board with nothing better has no SKIP to offer.
+#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35)
+static const bool DEFAULT_TOUCH_USABLE = false;
 #else
-    TouchCal::RawReader reader = usingCapTouch ? rawReadCap : rawReadResistive;
-    TouchCal::Cal newCal;
-    // tft directly, not *canvas -- canvas points at `frame` (an offscreen
-    // sprite) on this board, and nothing in TouchCal::runInteractive() ever
-    // calls pushSprite() to actually display what it draws. It was rendering
-    // the entire calibration UI into invisible memory, which was the real
-    // cause of "the calibration screen never shows up" rather than any touch
-    // hardware fault. runInteractive() draws occasional targeted crosshairs,
-    // not a per-frame animation loop, so there is no flicker concern in
-    // going straight to the panel here.
-    if (TouchCal::runInteractive(tft, reader, Theme::BG, Theme::WHITE, Theme::CYAN, newCal,
-                                 usingCapTouch ? CAP_TOUCH_MIN_SPREAD : RESISTIVE_MIN_SPREAD)) {
-        applyCal(newCal);
-        s_usingSavedCal = true;
-    }
+static const bool DEFAULT_TOUCH_USABLE = true;
 #endif
+
+static void runTouchCalibration() {
+    TouchFit::Fit fit;
+    const bool canSkip = s_calSource != CalSource::BUILT_IN || DEFAULT_TOUCH_USABLE;
+    const TouchCal::Outcome r =
+        TouchCal::runInteractive(tft, readTouchRaw, screenRotation,
+                                 canSkip ? &s_touchFit : nullptr, minSpread(),
+                                 Theme::BG, Theme::WHITE, Theme::CYAN, fit);
+    if (r == TouchCal::Outcome::SAVED) {
+        TouchCal::saveFit(fit);
+        s_touchFit = fit;
+        s_calSource = CalSource::SAVED;
+    } else if (r == TouchCal::Outcome::SKIPPED && s_calSource != CalSource::SAVED) {
+        TouchCal::saveFit(s_touchFit);
+        s_calSource = CalSource::SAVED;
+    }
+    FramePush::invalidate();
 }
 
 static void enterBoot() {
@@ -2326,17 +2120,12 @@ void setup() {
                 if (holdStart == 0) holdStart = millis();
                 else if (millis() - holdStart > 800) {
                     TouchCal::reset();
-#if defined(TOUCH_ON_DISPLAY_BUS)
-                    // TouchCal::reset() only clears the "touchcal"
-                    // namespace the other boards use -- AWOK's blob
-                    // lives in a separate one and would otherwise
-                    // silently reload on the next boot, making this
-                    // gesture a no-op here.
-                    awokResetTouchCal();
-#elif defined(CYD35)
-                    // Same reasoning as AWOK above -- cyd35's four
-                    // per-rotation blobs live in their own namespace.
-                    cyd35ResetTouchCal();
+#if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
+                    // TouchCal::reset() clears the Fit and the 2.8"-style
+                    // calibration; these boards' old TFT_eSPI blobs live in
+                    // a namespace of their own, and SKIP would bring them
+                    // straight back.
+                    clearTftEspiBlobs();
 #endif
                     tft.fillScreen(Theme::BG);
                     tft.setTextColor(Theme::AMBER, Theme::BG);
@@ -2355,52 +2144,24 @@ void setup() {
     }
     tft.fillScreen(Theme::BG);
 
-#if defined(TOUCH_ON_DISPLAY_BUS)
-    // The compiled-in defaults for the CYD 2.8" board's XPT2046
-    // (RAW_X_MIN=200..RAW_X_MAX=3800) don't match the shared-bus
-    // XPT2046 on this board, so an uncalibrated first boot leaves
-    // ghost taps landing all over the screen. Force the 4-corner
-    // interactive cal right here on first boot if nothing's saved yet
-    // (awokEnsureCal() does that automatically when awokLoadTouchCal()
-    // finds nothing saved).
-    awokEnsureCal();
-#elif defined(TOUCH_RAW_SHARED_BUS)
-    // RL Phantom, resistive. The same trap AWOK's comment above describes: the
-    // 2.8" board's 200..3800 defaults do not describe a shared-bus digitiser,
-    // so an EMPTY board would boot with touch landing in the wrong places --
-    // and the very first screen, the colour check, needs taps to get past.
-    // That would strand a new owner with no way forward except a hold-at-boot
-    // gesture nobody would guess.
+    // Touch calibration. Every board gets the five-target calibration once:
+    // at first boot, and once more after updating from a firmware that used
+    // the old corner calibrations, which were wrong in portrait on the 2.8"
+    // and sat under the lip of a case on AWOK. A board with a mapping worth
+    // keeping is offered SKIP, which keeps it and stops asking.
     //
-    // So: use a saved calibration if one exists, otherwise run the four
-    // corners right now, before anything on screen needs a tap. The result is
-    // an ordinary TouchCal, which is rotation-aware -- unlike AWOK's blob.
-    {
-        TouchCal::Cal savedCal;
-        if (TouchCal::load(savedCal, RESISTIVE_MIN_SPREAD)) {
-            applyCal(savedCal);
-            s_usingSavedCal = true;
-            Serial.println("Loaded saved touch calibration.");
-        } else {
-            Serial.println("RL Phantom: no saved touch calibration -- running it now.");
-            runTouchCalibration();
-        }
-    }
-#elif defined(CYD35)
-    // Same reasoning as AWOK above, but keyed to the current rotation
-    // -- see cyd35EnsureCal()'s comment for why one blob per rotation
-    // is needed here where AWOK only ever needs one.
-    cyd35EnsureCal(screenRotation);
-#else
-    // Apply a saved touch calibration if one exists (long-press the
-    // title bar on the CLEAR/LOG screen to (re)calibrate — see
-    // checkCalibrationTrigger()); otherwise keep the compiled-in
-    // defaults above.
-    TouchCal::Cal savedCal;
-    if (TouchCal::load(savedCal, usingCapTouch ? CAP_TOUCH_MIN_SPREAD : RESISTIVE_MIN_SPREAD)) {
-        applyCal(savedCal);
-        s_usingSavedCal = true;
-        Serial.println("Loaded saved touch calibration.");
+    // Nobody touching the screen (a board on a desk, powered from USB) is
+    // not an answer: the flow times out, boot carries on with the old
+    // mapping, and it asks again next boot.
+    //
+    // Hardware only. The emulators build this file too, and their taps are
+    // injected against the compiled-in ranges -- a calibration screen would
+    // just sit there waiting for a finger.
+    initTouchFit();
+#if defined(ESP32)
+    if (s_calSource != CalSource::SAVED) {
+        Serial.println("Touch: no five-target calibration yet -- running it now.");
+        runTouchCalibration();
     }
 #endif
 
@@ -2843,13 +2604,6 @@ void loop() {
         // dependent, so it has to be reissued alongside every
         // setRotation() call, not just at boot.
         applyColorOrder();
-#if defined(CYD35)
-        // Arms this rotation's own calibration blob (running the
-        // interactive calibration on the spot if this rotation has
-        // never been used before) -- see cyd35EnsureCal()'s comment
-        // for why one blob per rotation is needed on this board.
-        cyd35EnsureCal(screenRotation);
-#endif
         // Landscape and portrait need differently-*shaped* buffers, but
         // not differently-*sized* ones -- a rectangular panel has the
         // same total pixel count either way (320x240 and 240x320 are
@@ -5189,45 +4943,31 @@ void loop() {
         }
         case AppState::DIAGNOSTICS: {
             DiagnosticsInfo info;
-#if defined(TOUCH_ON_DISPLAY_BUS)
-            info.hasRaw = false;
-            info.rawTouching = false;
-            info.rawA = info.rawB = 0;
-            info.usingSavedCal = awokTouchCalibrated;
-            info.calA0 = (int16_t)awokTouchCal[0]; info.calA1 = (int16_t)awokTouchCal[1];
-            info.calB0 = (int16_t)awokTouchCal[2]; info.calB1 = (int16_t)awokTouchCal[3];
-            info.boardName = "AWOK";
-            info.usingCapTouch = false;
-#elif defined(CYD35)
-            info.hasRaw = false;
-            info.rawTouching = false;
-            info.rawA = info.rawB = 0;
-            info.usingSavedCal = cyd35TouchCalibrated[screenRotation];
-            info.calA0 = (int16_t)cyd35TouchCal[screenRotation][0];
-            info.calA1 = (int16_t)cyd35TouchCal[screenRotation][1];
-            info.calB0 = (int16_t)cyd35TouchCal[screenRotation][2];
-            info.calB1 = (int16_t)cyd35TouchCal[screenRotation][3];
-            info.boardName = "cyd35 BETA";
-            info.usingCapTouch = false;
-#else
             {
                 int16_t a = 0, b = 0;
-                TouchCal::RawReader reader = usingCapTouch ? rawReadCap : rawReadResistive;
                 info.hasRaw = true;
-                info.rawTouching = reader(a, b);
+                info.rawTouching = readTouchRaw(a, b);
                 info.rawA = a;
                 info.rawB = b;
-                info.usingSavedCal = s_usingSavedCal;
-                if (usingCapTouch) {
-                    info.calA0 = CAP_NX_MIN; info.calA1 = CAP_NX_MAX;
-                    info.calB0 = CAP_NY_MIN; info.calB1 = CAP_NY_MAX;
-                } else {
-                    info.calA0 = RAW_X_MIN; info.calA1 = RAW_X_MAX;
-                    info.calB0 = RAW_Y_MIN; info.calB1 = RAW_Y_MAX;
-                }
+                info.usingSavedCal = s_calSource == CalSource::SAVED;
+                info.calSource = s_calSource == CalSource::SAVED     ? "saved"
+                               : s_calSource == CalSource::OLD_SAVED ? "older firmware's"
+                                                                     : "compiled-in default";
+                // What the panel's top-left and bottom-right corners read
+                // as, raw -- the old min/max pairs, for a Fit.
+                float a0 = 0, b0 = 0, a1 = 0, b1 = 0;
+                TouchFit::toRaw(s_touchFit, 0, 0, a0, b0);
+                TouchFit::toRaw(s_touchFit, s_touchFit.w0, s_touchFit.h0, a1, b1);
+                info.calA0 = (int16_t)lroundf(a0); info.calA1 = (int16_t)lroundf(a1);
+                info.calB0 = (int16_t)lroundf(b0); info.calB1 = (int16_t)lroundf(b1);
             }
-            info.boardName = "cyd";
             info.usingCapTouch = usingCapTouch;
+#if defined(TOUCH_ON_DISPLAY_BUS)
+            info.boardName = "AWOK";
+#elif defined(CYD35)
+            info.boardName = "cyd35 BETA";
+#else
+            info.boardName = "cyd";
 #endif
             info.touchValid = tp.valid;
             info.mappedX = tp.x;

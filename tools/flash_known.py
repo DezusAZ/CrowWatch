@@ -26,7 +26,9 @@ BOARDS = {
     # goes back on hold, comment it out again rather than leaving a board here
     # that nobody means to flash.
     "a4:f0:0f:8e:3a:88": ("cyd35-fast", "3.5in, 80MHz, two-band drawing"),
-    # 88:57:21:2e:e6:e0 runs SquachEmit, not this firmware
+    # 88:57:21:2e:e6:e0 runs SquachEmit, not this firmware. It is the only
+    # CAPACITIVE 2.8in; to test capacitive touch, list it here as cyd-fast
+    # for the test and comment it out again after (done 2026-09-21).
     # d4:d4:da:88:62:b8 is something else entirely (HoloCube?): never
 }
 NEVER_PORTS = {"COM10", "COM13"}

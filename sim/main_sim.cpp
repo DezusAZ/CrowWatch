@@ -68,6 +68,7 @@
 #include "ota_core.h"
 #include "ui_wifinets.h"
 #include "png_writer.h"
+#include "touch_cal.h"
 
 // A few plausible log entries so screens have something real to draw --
 // counters, LOG rows, an ALERT target. Seeded through the engine's own
@@ -166,10 +167,109 @@ static std::vector<uint8_t> toRgb888(const std::vector<uint16_t>& src) {
     return out;
 }
 
+// ---- touchcal: the real calibration flow, with a scripted finger ----
+// TouchCal::runInteractive() is blocking and reads touch through a
+// RawReader, so this hands it one that plays a finger: tap to start, hold
+// each of the five targets for a second and a bit, tap the dot a few pixels
+// off. The finger's raw numbers come from the compiled-in 2.8" mapping, run
+// backwards, so the flow is solving for a map it can actually find.
+//
+// Frames are filmed on virtual time, one every 66 ms, from inside the reader
+// and after every delay() -- the two things the flow ever waits on.
+namespace SimCal {
+    TFT_eSPI*     t = nullptr;
+    int           W = 0, H = 0;
+    uint8_t       rot = 1;
+    TouchFit::Fit fit;
+    FILE*         raw = nullptr;
+    int           skip = 0, want = 1, got = 0;
+    uint32_t      nextSnap = 0;
+    std::vector<uint8_t> lastRgb;
+    int           tap = 0;
+    bool          down = false;
+    uint32_t      phaseStart = 0;
+
+    void snap() {
+        while (SimClock::nowMs >= nextSnap && got < skip + want) {
+            if (got >= skip) {
+                lastRgb = toRgb888(t->pixelsRGB565());
+                if (raw) fwrite(lastRgb.data(), 1, lastRgb.size(), raw);
+            }
+            got++;
+            nextSnap += 66;
+        }
+    }
+
+    // Where tap N lands, on screen: 0 starts, 1-5 are the targets (a pixel
+    // or so off, as a finger is), 6 is the check dot, a little off too.
+    void tapPos(int n, float& sx, float& sy) {
+        if (n == 0) { sx = W * 0.5f; sy = H * 0.4f; return; }
+        if (n <= TouchFit::TARGETS) {
+            float fx, fy;
+            TouchFit::targetFrac(n - 1, fx, fy);
+            sx = fx * W + ((n & 1) ? 1.5f : -1.0f);
+            sy = fy * H + ((n & 2) ? -1.0f : 1.5f);
+            return;
+        }
+        sx = 0.62f * W + 3; sy = 0.32f * H - 2;
+    }
+
+    bool reader(int16_t& a, int16_t& b) {
+        snap();
+        const uint32_t now = SimClock::nowMs;
+        const uint32_t pause = tap == 0 ? 900 : 550;
+        const uint32_t hold  = tap == 0 ? 150 : tap > TouchFit::TARGETS ? 350 : 1150;
+        if (!down && tap <= TouchFit::TARGETS + 1 && now - phaseStart >= pause) { down = true; phaseStart = now; }
+        else if (down && now - phaseStart >= hold) { down = false; phaseStart = now; tap++; }
+        if (!down) return false;
+        const int w0 = (rot & 1) ? H : W, h0 = (rot & 1) ? W : H;
+        float sx, sy, nx, ny, ra = 0, rb = 0;
+        tapPos(tap, sx, sy);
+        TouchFit::screenToNative(sx, sy, rot, w0, h0, nx, ny);
+        TouchFit::toRaw(fit, nx, ny, ra, rb);
+        a = (int16_t)lroundf(ra);
+        b = (int16_t)lroundf(rb);
+        return true;
+    }
+}
+
+static int renderTouchCal(TFT_eSPI& tft, int W, int H, int skip, int want,
+                          const std::string& rawPath, const std::string& outPath) {
+    using namespace SimCal;
+    SimClock::virtualTime = true;
+    SimClock::nowMs = 0;
+    t = &tft; SimCal::W = W; SimCal::H = H;
+    rot = W > H ? 1 : 0;
+    const int w0 = (rot & 1) ? H : W, h0 = (rot & 1) ? W : H;
+    fit = TouchFit::fromRanges(200, 3800, 200, 3800, w0, h0);
+    SimCal::skip = skip; SimCal::want = want;
+    if (!rawPath.empty()) {
+        raw = fopen(rawPath.c_str(), "wb");
+        if (!raw) { fprintf(stderr, "failed to open %s\n", rawPath.c_str()); return 1; }
+    }
+    SimClock::onDelay = snap;
+    tft.fillScreen(Theme::BG);
+    TouchFit::Fit out;
+    // SKIP is offered, as it is to every board updating from older firmware.
+    TouchCal::runInteractive(tft, reader, rot, &fit, 800, Theme::BG, Theme::WHITE, Theme::CYAN, out);
+    while (got < skip + want) { SimClock::nowMs += 66; snap(); }
+    SimClock::onDelay = nullptr;
+    if (raw) {
+        fclose(raw);
+        printf("raw %dx%d rgb888 frames=%d -> %s\n", W, H, want, rawPath.c_str());
+        return 0;
+    }
+    if (!PngWriter::write(outPath.c_str(), W, H, lastRgb.data())) return 1;
+    printf("rendered 'touchcal' -> %s (%dx%d)\n", outPath.c_str(), W, H);
+    return 0;
+}
+
 static void usage() {
     fprintf(stderr,
         "usage: squachsim <screen> [out.png] [options]\n"
-        "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn bingo\n"
+        "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn bingo touchcal\n"
+        "  touchcal          the touch calibration, played by a scripted finger:\n"
+        "                    --frames skips that many 66 ms frames, --sequence films\n"
         "  --portrait        render 240x320 instead of 320x240\n"
         "  --size WxH        render at another panel size, e.g. 480x320 for the 3.5in\n"
         "  --qwerty          phone screen: the QWERTY board, not the keypad\n"
@@ -311,6 +411,8 @@ int main(int argc, char** argv) {
     TFT_eSPI tft(W, H);
     tft.init();
     tft.setRotation(portrait ? 0 : 1);
+
+    if (screen == "touchcal") return renderTouchCal(tft, W, H, frames, sequence, rawPath, outPath);
 
     TFT_eSprite frame(&tft);
     // The firmware calls setColorDepth(8) before createSprite; match it

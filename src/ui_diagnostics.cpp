@@ -137,7 +137,8 @@ void uiDiagnosticsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, co
     y += 4;
 
     y = drawLine(t, y, Theme::VAPOR_PINK, "CAL SOURCE:", "%s",
-                 info.usingSavedCal ? "saved" : "compiled-in default");
+                 info.calSource ? info.calSource
+                                : info.usingSavedCal ? "saved" : "compiled-in default");
     y = drawLine(t, y, Theme::VAPOR_PINK, "CAL RANGE:", "A[%d,%d] B[%d,%d]",
                  info.calA0, info.calA1, info.calB0, info.calB1);
     y += 4;

@@ -32,6 +32,16 @@ CYAN  = (0, 214, 214)
 # ---- the clips ----
 
 CLIPS = {
+    # v1.17.0 "Hold Still": touch calibration, done over. The touchcal screen
+    # is the real flow played by a scripted finger (see main_sim.cpp), and
+    # --frames there skips into it rather than warming an animation up.
+    "hold-still": [
+        ("touchcal",   0, 16, [],            {},  900, "SQUACHY WANTS TO KNOW WHERE YOUR FINGER IS"),
+        ("touchcal",  16, 62, [],            {},  500, "FIVE TARGETS. NONE HIDING UNDER YOUR CASE"),
+        ("touchcal", 104, 44, [],            {},  500, "HOLD ONE SECOND. NOT FOREVER. ONE."),
+        ("touchcal", 150, 38, [],            {}, 1200, "THEN IT GRADES ITS OWN HOMEWORK"),
+        ("clear",     60, 40, ["--bg", "4"], {}, 1400, "PORTRAIT TOUCH: FINALLY NOT HAUNTED"),
+    ],
     # v1.14.0 "Stoop Kid": what changed, in the order it matters to a viewer.
     "stoop-kid": [
         ("clear",    60, 36, ["--bg", "4"],            {},  700, "TEXT DRAWS SIX TIMES FASTER"),
