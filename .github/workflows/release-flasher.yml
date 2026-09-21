@@ -429,6 +429,7 @@ jobs:
           cp web-flasher/manifest-cyd-fast.json _site/manifest-cyd-fast.json
           cp web-flasher/manifest-cyd-ili9341-fast.json _site/manifest-cyd-ili9341-fast.json
           cp web-flasher/manifest-rlphantom-r.json _site/manifest-rlphantom-r.json
+          cp web-flasher/manifest-cyd35-fast.json _site/manifest-cyd35-fast.json
           # A LAB RUN MUST NOT CHANGE WHAT THE PUBLIC PAGE SERVES.
           #
           # A Pages deploy is wholesale -- there is no partial update -- so a
@@ -484,7 +485,11 @@ jobs:
             cp esp32-bootloader.bin _site/esp32-bootloader.bin
             cp esp32-partitions.bin _site/esp32-partitions.bin
             cp esp32-otadata.bin    _site/esp32-otadata.bin
-            for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast; do
+            # Every board in the picker needs BOTH its manifest above and its
+            # firmware here: v1.16.0 shipped cyd35-fast to the release and into
+            # index.html's <option> list but neither into _site, so the 3.5"
+            # appeared in the picker and 404'd when chosen.
+            for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
               cp "$board-firmware.bin" "_site/$board-firmware.bin"
               # The Bluetooth update page fetches the image and its signature
               # side by side from the site root.
