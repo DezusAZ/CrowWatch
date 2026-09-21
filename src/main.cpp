@@ -35,6 +35,8 @@
 #include "blackbox.h"
 #include "ui_bingo.h"
 #include "bingo.h"
+#include "dex.h"
+#include "ui_dex.h"
 #include "theme.h"            // the crash card on the splash
 #include "clock.h"            // ...and the ten-minute IGNORE on it
 
@@ -561,6 +563,12 @@ Confidence          lastAlertConf = Confidence::HIGH_CONF;
 uint32_t            lastAlertHits = 1; // times this exact MAC+type has ever matched — see Squachy's "seen before" reaction
 int8_t              lastAlertRssi = 0; // signal strength of that hit — scales how hard Squachy reacts to it
 const uint16_t      TOUCH_DEBOUNCE_MS = 200;
+// The longest a touch can last and still be a tap on a list. A thumb that
+// rests on a row for longer was reaching in to scroll, not choosing -- people
+// kept opening rows they were only scrolling past -- so a long touch that
+// never moved is spent, not acted on. Long presses that mean something (a
+// LOG row's WATCH/HUNT) are timed separately and unaffected.
+static const uint32_t TAP_MAX_MS = 500;
 
 // Hidden "unlock every Squachy outfit" gesture: hold the third button (DESK)
 // for CLR_UNLOCK_HOLD_MS on the CLEAR screen (see the CLEAR case's touch
@@ -1355,6 +1363,12 @@ static void enterBingo() {
     state = AppState::BINGO;
     transitionStart = millis();
     uiBingoInit(*canvas);
+}
+
+static void enterDex() {
+    state = AppState::DEX;
+    transitionStart = millis();
+    uiDexInit(*canvas);
 }
 
 static void enterSquadUpdate() {
@@ -2213,6 +2227,7 @@ void setup() {
     // After the engine: the card leans on the lifetime counts to pick which
     // type sits out, and those are read in init().
     Bingo::begin(engine);
+    Dex::begin();
 #if SQUACH_MESH
     // After the radio is up and before anything can ask whether messages are
     // ready: this is where the crypto self-test runs, on the real cipher,
@@ -2434,6 +2449,7 @@ void loop() {
     if (g_benchPrimNow) { g_benchPrimNow = false; runPrimBench(); }
 #endif
     Bingo::tick(now);
+    Dex::tick(now);
     {
         DetectionType bt = DetectionType::UNKNOWN;
         char sub[40];
@@ -2791,6 +2807,15 @@ void loop() {
                 // the settings menu: somebody who opened the card to look at
                 // it wants the board back, not another list.
                 if (uiBingoHitTest(*canvas, tp.x, tp.y, tft.width(), tft.height()) == BingoTap::BACK)
+                    goHome();
+            }
+            break;
+        }
+        case AppState::DEX: {
+            drawTwoBand([&](TFT_eSPI& t, bool advance) { uiDexTick(t, now, engine, advance); });
+            if (touchJustDown) {
+                lastTouch = now;
+                if (uiDexHitTest(*canvas, tp.x, tp.y, tft.width(), tft.height()) == DexTap::BACK)
                     goHome();
             }
             break;
@@ -3592,12 +3617,14 @@ void loop() {
             static bool gestureMoved  = false;
             static int  gestureStartX = 0, gestureStartY = 0;
             static int  lastY = -1;
+            static uint32_t gestureDownMs = 0;
             if (touchJustDown) {
                 gestureActive = true;
                 gestureMoved  = false;
                 gestureStartX = tp.x;
                 gestureStartY = tp.y;
                 lastY = tp.y;
+                gestureDownMs = now;
             }
             if (tp.valid && gestureActive) {
                 int dy = tp.y - lastY;
@@ -3608,7 +3635,7 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
-                if (!gestureMoved) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS) {
                     lastTouch = now;
                     ButtonId b = Theme::hitTestButtonBar(gestureStartX, gestureStartY, tft.width(), tft.height());
                     if (b == ButtonId::SCAN) { enterClear(); }
@@ -3848,6 +3875,12 @@ void loop() {
             static bool gestureMoved  = false;
             static int  gestureStartX = 0, gestureStartY = 0;
             static int  lastY = -1;
+            // A tap is short. A thumb that rests on a row for half a second
+            // was reaching for the list to scroll it, not choosing the row --
+            // people kept opening things they were only scrolling past -- so
+            // a long touch that never moved is spent, not acted on. Buttons
+            // that need a hold (nothing on this screen) are unaffected.
+            static uint32_t gestureDownMs = 0;
             // While a confirm panel is up it owns the screen: it answers the
             // tap, and the list underneath neither scrolls nor acts. Handled
             // before the gesture machinery rather than inside it so a drag
@@ -3871,6 +3904,7 @@ void loop() {
                             enterSettings();
                         } else if (pending == SettingsRow::RESET_STATS) {
                             engine.resetLifetime();
+                            Dex::reset();
                         } else if (pending == SettingsRow::BORING_MODE) {
                             Settings::toggleBoringMode();
                         } else if (pending == SettingsRow::REPLAY_INTRO) {
@@ -3890,6 +3924,7 @@ void loop() {
                 gestureStartX = tp.x;
                 gestureStartY = tp.y;
                 lastY = tp.y;
+                gestureDownMs = now;
             }
             if (tp.valid && gestureActive) {
                 int dy = tp.y - lastY;
@@ -3900,6 +3935,10 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
+                if (!gestureMoved && now - gestureDownMs > TAP_MAX_MS) {
+                    gestureActive = false;
+                    break;
+                }
                 if (!gestureMoved) {
                     lastTouch = now;
                     // The pinned strip along the bottom: up a level from a
@@ -4044,6 +4083,7 @@ void loop() {
                         case SettingsRow::BANTER:       Settings::cycleBanter(); break;
                         case SettingsRow::VIEW_DIARY:   enterDiary(); break;
                         case SettingsRow::BINGO:        enterBingo(); break;
+                        case SettingsRow::DEX:          enterDex(); break;
                         case SettingsRow::APPEARANCE:  uiSettingsOpenAppearance(true); break;
                         case SettingsRow::TOP_HAT:     Settings::toggleTopHat(); break;
                         // From a sub-page, back to the main list; from the
@@ -4544,12 +4584,14 @@ void loop() {
             static bool gestureMoved  = false;
             static int  gestureStartX = 0, gestureStartY = 0;
             static int  lastY = -1;
+            static uint32_t gestureDownMs = 0;
             if (touchJustDown) {
                 gestureActive = true;
                 gestureMoved  = false;
                 gestureStartX = tp.x;
                 gestureStartY = tp.y;
                 lastY = tp.y;
+                gestureDownMs = now;
             }
             if (tp.valid && gestureActive) {
                 int dy = tp.y - lastY;
@@ -4560,13 +4602,13 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
-                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
                     gestureActive = false;
                     lastTouch = now;
                     enterSettings();
                     break;
                 }
-                if (!gestureMoved) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS) {
                     lastTouch = now;
                     DetectionType hit = uiDetFilterHitTest(*canvas, gestureStartX, gestureStartY, tft.width(), tft.height());
                     // iBeacons ask first, on the way ON only: see
@@ -4601,9 +4643,10 @@ void loop() {
             // The same drag-to-scroll, act-on-release gesture as POWER SAVER.
             static bool gestureActive = false, gestureMoved = false;
             static int  gestureStartX = 0, gestureStartY = 0, lastY = -1;
+            static uint32_t gestureDownMs = 0;
             if (touchJustDown) {
                 gestureActive = true; gestureMoved = false;
-                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y;
+                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y; gestureDownMs = now;
             }
             if (tp.valid && gestureActive) {
                 int dy = tp.y - lastY;
@@ -4611,12 +4654,12 @@ void loop() {
             }
             if (touchJustUp && gestureActive) {
                 gestureActive = false;
-                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
                     lastTouch = now;
                     enterSettings();
                     break;
                 }
-                if (!gestureMoved) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS) {
                     lastTouch = now;
                     const bool on = Security::enabled();
                     // Everything below PIN LOCK is inert until a PIN exists,
@@ -4769,9 +4812,10 @@ void loop() {
             static bool gestureMoved  = false;
             static int  gestureStartX = 0, gestureStartY = 0;
             static int  lastY = -1;
+            static uint32_t gestureDownMs = 0;
             if (touchJustDown) {
                 gestureActive = true; gestureMoved = false;
-                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y;
+                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y; gestureDownMs = now;
             }
             if (tp.valid && gestureActive) {
                 int dy = tp.y - lastY;
@@ -4782,13 +4826,13 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
-                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
                     gestureActive = false;
                     lastTouch = now;
                     enterSettings();
                     break;
                 }
-                if (!gestureMoved) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS) {
                     lastTouch = now;
                     PowerRow hit = uiPowerHitTest(*canvas, gestureStartX, gestureStartY,
                                                   tft.width(), tft.height());
@@ -4829,9 +4873,10 @@ void loop() {
             static bool gestureMoved  = false;
             static int  gestureStartX = 0, gestureStartY = 0;
             static int  lastY = -1;
+            static uint32_t gestureDownMs = 0;
             if (touchJustDown) {
                 gestureActive = true; gestureMoved = false;
-                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y;
+                gestureStartX = tp.x; gestureStartY = tp.y; lastY = tp.y; gestureDownMs = now;
             }
             if (tp.valid && gestureActive) {
                 int dy = tp.y - lastY;
@@ -4842,14 +4887,14 @@ void loop() {
                 }
             }
             if (touchJustUp && gestureActive) {
-                if (!gestureMoved && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS && Theme::pinnedBackHit(gestureStartX, gestureStartY, tft.width(), tft.height())) {
                     gestureActive = false;
                     lastTouch = now;
                     enterSettings();
                     uiSettingsOpenAppearance(true);
                     break;
                 }
-                if (!gestureMoved) {
+                if (!gestureMoved && now - gestureDownMs <= TAP_MAX_MS) {
                     lastTouch = now;
                     LightRow hit = uiLightHitTest(*canvas, gestureStartX, gestureStartY,
                                                   tft.width(), tft.height());
