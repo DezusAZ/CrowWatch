@@ -82,7 +82,10 @@ void DetectionEngine::pushLog(const Detection& d) {
     _latest = &_log[_logHead];
     _logHead = (uint8_t)((_logHead + 1) % LOG_CAP);
     if (_logCount < LOG_CAP) _logCount++;
-    if ((uint8_t)d.type < (uint8_t)DetectionType::COUNT) _typeCounts[(uint8_t)d.type]++;
+    if ((uint8_t)d.type < (uint8_t)DetectionType::COUNT) {
+        _typeCounts[(uint8_t)d.type]++;
+        _lifetimeByType[(uint8_t)d.type]++;   // the DEX and the outfits read this
+    }
     _lifetimeTotal++;
 }
 

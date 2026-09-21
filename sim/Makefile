@@ -86,6 +86,8 @@ UI_SRCS  := $(SRC)/theme.cpp \
             $(SRC)/log_index.cpp \
             $(SRC)/bingo.cpp \
             $(SRC)/ui_bingo.cpp \
+            $(SRC)/dex.cpp \
+            $(SRC)/ui_dex.cpp \
             $(SRC)/detection_info.cpp \
             $(SRC)/device_info.cpp \
             $(SRC)/idle_events.cpp \

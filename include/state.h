@@ -185,8 +185,9 @@ enum class AppState : uint8_t {
                             // frame after the intro. See ui_sysprops.h.
     // 36 was CROWD, a page holding one setting; the SquachMesh menu's CROWD
     // row steps it in place now.
-    BINGO            = 36  // the detection bingo card, from Settings' BINGO
+    BINGO            = 36, // the detection bingo card, from Settings' BINGO
                             // row. See ui_bingo.h.
+    DEX              = 37  // the SQUACHY-DEX, from Settings' row. See ui_dex.h.
 };
 
 enum class ButtonId : uint8_t {

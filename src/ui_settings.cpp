@@ -8,6 +8,8 @@
 #include "ignore_list.h"
 #include "squachy.h"
 #include "bingo.h"
+#include "dex.h"
+#include "ui_dex.h"
 #include <Arduino.h>
 
 // Was 16, which put the first row's top edge 4px ABOVE the bottom of the
@@ -39,6 +41,8 @@ static bool s_folded[6] = { false, false, false, false, false, false };
 // hit test as well as the draw. Same pattern ui_clear.cpp uses for its crowd.
 static bool s_hasWatch = false, s_hasHunt = false;
 static char s_watchLabel[24] = "", s_huntLabel[24] = "";
+// The DEX row's count, for the same reason.
+static uint8_t s_dexCaught = 0;
 
 // Fixed display order, grouped so a colored section header can sit
 // above each cluster (see groupFor()/RowGroupId below) -- CALIBRATE/
@@ -67,7 +71,7 @@ static const SettingsRow ALL_ROWS[] = {
     // -- see APPEARANCE_ROWS. Everything about how he LOOKS is on one page;
     // what stays here is what he DOES.
     SettingsRow::REPLAY_INTRO, SettingsRow::SHOW_OFF, SettingsRow::VIEW_DIARY,
-    SettingsRow::BINGO, SettingsRow::DESK_MODE,
+    SettingsRow::BINGO, SettingsRow::DEX, SettingsRow::DESK_MODE,
     SettingsRow::POWER_SAVER,
     SettingsRow::SECURITY,
     // CALIBRATE, CHECK COLORS, DIAGNOSTICS and RESET STATS moved behind the
@@ -201,6 +205,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::REPLAY_INTRO:
         case SettingsRow::VIEW_DIARY:
         case SettingsRow::BINGO:
+        case SettingsRow::DEX:
         case SettingsRow::DESK_MODE:
         case SettingsRow::SHOW_OFF:
             return RowGroupId::SQUACHY;
@@ -889,6 +894,13 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             value = bingoVal;
             break;
         }
+        case SettingsRow::DEX: {
+            label = "SQUACHY-DEX";
+            static char dexVal[12];
+            snprintf(dexVal, sizeof dexVal, "%u/%u >", (unsigned)s_dexCaught, (unsigned)Dex::ENTRIES);
+            value = dexVal;
+            break;
+        }
         case SettingsRow::DESK_MODE:
             label = "DESK MODE";
             value = ">";
@@ -922,6 +934,7 @@ void uiSettingsTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng) {
     // uses for the crowd's tap targets.
     s_hasWatch = eng.watchKind() != DetectionEngine::WatchKind::NONE;
     s_hasHunt  = eng.huntKind()  != DetectionEngine::WatchKind::NONE;
+    s_dexCaught = uiDexCaught(eng);
     if (s_hasWatch) { strncpy(s_watchLabel, eng.watchLabel(), sizeof(s_watchLabel) - 1); s_watchLabel[sizeof(s_watchLabel) - 1] = 0; }
     if (s_hasHunt)  { strncpy(s_huntLabel,  eng.huntLabel(),  sizeof(s_huntLabel)  - 1); s_huntLabel[sizeof(s_huntLabel)  - 1] = 0; }
 

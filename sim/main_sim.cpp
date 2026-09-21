@@ -37,6 +37,8 @@
 #include "qwerty.h"
 #include "ui_meshmenu.h"
 #include "ui_bingo.h"
+#include "ui_dex.h"
+#include "dex.h"
 #include "bingo.h"
 #include "blackbox.h"
 #include "ui_meshwarn.h"
@@ -267,7 +269,8 @@ static int renderTouchCal(TFT_eSPI& tft, int W, int H, int skip, int want,
 static void usage() {
     fprintf(stderr,
         "usage: squachsim <screen> [out.png] [options]\n"
-        "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn bingo touchcal\n"
+        "  screens: clear log alert settings detfilter power diary hunt rawscan watchalert colorcheck boot phone meshmenu meshwarn bingo dex touchcal icons\n"
+        "  dex               --pose N opens entry N\'s card (1-17); 0 is the index\n"
         "  touchcal          the touch calibration, played by a scripted finger:\n"
         "                    --frames skips that many 66 ms frames, --sequence films\n"
         "  --portrait        render 240x320 instead of 320x240\n"
@@ -608,6 +611,7 @@ int main(int argc, char** argv) {
         else if (screen == "rawscan")  uiRawScanTick(frame, t, engine, true, true, false, "", false, false);
         else if (screen == "phone")    uiPhoneTick(frame, t, engine);
         else if (screen == "bingo")    uiBingoTick(frame, t, engine);
+        else if (screen == "dex")      uiDexTick(frame, t, engine);
         else if (screen == "meshmenu") uiMeshMenuTick(frame, t, engine);
         else if (screen == "roster")   uiSquadTick(frame, t, engine);
         else if (screen == "meshwarn") uiMeshWarnTick(frame, t, engine);
@@ -615,6 +619,18 @@ int main(int argc, char** argv) {
         else if (screen == "compose")  uiMeshComposeTick(frame, t, engine);
         else if (screen == "watchalert") uiWatchAlertTick(frame, t, engine, true);
         else if (screen == "colorcheck") uiColorCheckTick(frame, t);
+        else if (screen == "icons") {
+            // Every detection type's icon, large, on a black ground: an icon
+            // sheet for mockups and docs. 6 across; --size sets the cell.
+            frame.fillRect(0, 0, frame.width(), frame.height(), 0x0000);
+            const int cols = 6, cw = frame.width() / cols, ch = frame.height() / 3;
+            // A third, not a half: several icons draw wider than 2s.
+            const int s = (cw < ch ? cw : ch) / 3;
+            for (int i = 1; i < (int)DetectionType::COUNT; i++) {
+                const int k = i - 1;
+                Theme::drawTypeIcon(frame, (DetectionType)i, (k % cols) * cw + cw / 2, (k / cols) * ch + ch / 2, s);
+            }
+        }
         else if (screen == "diagnostics") {
             // main.cpp fills this from board-specific globals the sim
             // has no equivalent for, so these are plausible stand-ins.
@@ -735,6 +751,7 @@ int main(int argc, char** argv) {
     else if (screen == "watchalert") uiWatchAlertInit(frame);
     else if (screen == "diagnostics") uiDiagnosticsInit(frame);
     else if (screen == "colorcheck") uiColorCheckInit(frame);
+    else if (screen == "icons")      {}
     else if (screen == "boot")       uiBootInit(frame);
     else if (screen == "update")     uiUpdateInit(frame);
     else if (screen == "nudge")      { const uint8_t v[3] = { 1, 7, 6 }; uiNudgeInit(frame, "BIGFOOT", v, 30, 0); }
@@ -779,6 +796,34 @@ int main(int argc, char** argv) {
     }
     else if (screen == "wifinets")   uiWifiNetsInit(frame);
     else if (screen == "wifiadd")    uiWifiAddInit(frame);
+    else if (screen == "dex") {
+        // Eleven of the seventeen caught, through the engine's own door, with
+        // a record for each so the cards have something to say. --pose N
+        // opens straight on entry N (1-based); --pose 0 shows the index.
+        Dex::begin();
+        static const DetectionType got[] = {
+            DetectionType::FLOCK, DetectionType::AXON, DetectionType::META, DetectionType::AIRTAG,
+            DetectionType::DRONE, DetectionType::ALPR, DetectionType::CAMERA, DetectionType::SAMSUNG_TAG,
+            DetectionType::TILE, DetectionType::RING, DetectionType::IBEACON };
+        uint16_t serial = 900;
+        for (DetectionType ty : got) {
+            const int n = ty == DetectionType::AIRTAG ? 38 : ty == DetectionType::AXON ? 2 : 5;
+            for (int k = 0; k < n; k++) {
+                Detection d{};
+                d.mac[0] = 0x02; d.mac[4] = (uint8_t)k; d.mac[5] = (uint8_t)serial++;
+                d.type = ty;
+                d.conf = confidenceFor(ty);
+                d.rssi = (int8_t)(-70 + (k % 30));
+                d.firstSeen = d.lastSeen = now;
+                d.hits = 1;
+                d.active = true;
+                engine.postBle(d);
+                Dex::note(ty, d.rssi);
+            }
+        }
+        uiDexInit(frame);
+        if (poseIdx > 0) uiDexOpenCard((uint8_t)(poseIdx - 1));
+    }
     else if (screen == "bingo") {
         // A card part-way through, so the marked, the lined and the
         // still-missing all show at once.

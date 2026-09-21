@@ -44,6 +44,7 @@ enum class SettingsRow : uint8_t {
     BANTER,          // on the APPEARANCE page: how much he talks when nothing is happening
     TIME_ZONE,       // on the DESK MODE page: which zone the real clock shows
     BINGO,           // opens the bingo card
+    DEX,             // opens the SQUACHY-DEX
     DESK_MODE,       // opens the DESK MODE page
     DESK_OPEN,       // on the DESK MODE page: go to the desk
     DESK_BACKGROUND, // on the DESK MODE page: the desk's own scene

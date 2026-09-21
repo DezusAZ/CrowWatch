@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "blackbox.h"
 #include "bingo.h"
+#include "dex.h"
 #include "clock.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -1149,6 +1150,7 @@ void DetectionEngine::processDeauthQ() {
                     _typeCounts[(uint8_t)DetectionType::DEAUTH]++;
                 }
                 Bingo::note(DetectionType::DEAUTH);
+                Dex::note(DetectionType::DEAUTH, e.rssi);
                 _latest = &row;
                 _latestChangeMs = now;
                 queueBlackBox(row, true);
@@ -1223,6 +1225,7 @@ void DetectionEngine::postBle(Detection d) {
             _log[slot].rssi = d.rssi;
             _log[slot].lastSeen = millis();
             Bingo::note(d.type);
+            Dex::note(d.type, d.rssi);
             if (reactivating) {
                 _log[slot].hits++;
                 _log[slot].active = true;
@@ -1651,6 +1654,7 @@ void DetectionEngine::processWiFiQ() {
                 _log[slot].type == t) {
                 bool reactivating = !_log[slot].active;
                 Bingo::note(t);
+                Dex::note(t, e.rssi);
                 _log[slot].hits++;
                 {
                     const uint8_t nowAt = (uint8_t)(millis() >> 11);
@@ -1731,6 +1735,7 @@ void DetectionEngine::pushLog(const Detection& d) {
     // a bench flood of new trackers back the radio up until the heap went.
     _lifetimeDirty = true;
     Bingo::note(d.type);
+    Dex::note(d.type, d.rssi);
     const uint8_t next = (uint8_t)((_sdQHead + 1) % SD_Q_CAP);
     if (next != _sdQTail) { _sdQ[_sdQHead] = d; _sdQHead = next; }
     queueBlackBox(d, false);
