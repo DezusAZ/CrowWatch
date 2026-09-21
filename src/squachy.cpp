@@ -87,7 +87,9 @@ enum class Mood : uint8_t { IDLE, WAVE, SHOCKED, BOUNCE, SLEEPY, WALK, DANCE, WI
                             JUGGLE,    // showing off recent catches, needs activity heat
                             HIGHFIVE,  // one arm across -- see s_reachDir and s_reachLevel
                             PUMP,      // a fist pumping, for rock-paper-scissors
-                            ACT };     // an emote's pose -- see s_actPose
+                            ACT,       // an emote's pose -- see s_actPose
+                            LEAN,      // leaning toward an edge, listening -- see s_leanStart
+                            TRIP };    // a stumble over nothing, then a look around
 
 // Which way a HIGHFIVE reaches: +1 right, -1 left. Set by whoever draws the
 // body just before it does -- the host always reaches right, the guest always
@@ -660,7 +662,7 @@ static uint8_t s_walkBeat = 0;
 // which sweep he is on and cannot be asked for directly.
 static const uint32_t SHOW_STEP_MS_BASE = 2200;
 static uint32_t       SHOW_STEP_MS = 2200;
-static const uint8_t  SHOW_N       = 16;
+static const uint8_t  SHOW_N       = 22;
 static bool     s_showOff   = false;
 static uint32_t s_showStart = 0;
 static uint8_t  s_showIdx   = 0xFF;
@@ -706,6 +708,29 @@ static int      s_dropX = 0, s_dropY = 0;
 // hook for every object they draw, every frame.
 static uint32_t s_duckUntil    = 0;
 static uint32_t s_duckCooldown = 0;
+
+// ---- the idle-life pack ---------------------------------------------
+// Lean and peek: slides toward one edge to listen, holds, snaps back.
+static uint32_t s_leanStart = 0;
+static int8_t   s_leanDir   = 1;
+static const uint32_t LEAN_MS = 2600;
+// Shake it off: a quick shudder after a deauth, an evil twin or a hacker
+// tool, once the double-take has finished with him.
+static uint32_t s_shakeStart = 0;
+static const uint32_t SHAKE_MS = 650;
+// Backing away: the same kind of thing, seen again and closer, moves him a
+// step further from centre each time. Steps fade once things go quiet.
+static int8_t        s_backSteps  = 0;
+static uint32_t      s_backAt     = 0;
+static int8_t        s_prevRssi   = 0;
+static DetectionType s_prevType   = DetectionType::UNKNOWN;
+static uint32_t      s_prevAt     = 0;
+// Flick: a fast swipe sends him sliding into that side's wall.
+static uint32_t s_flickStart = 0;
+static int8_t   s_flickDir   = 1;
+static const uint32_t FLICK_OUT_MS = 380, FLICK_HOLD_MS = 420, FLICK_BACK_MS = 1100;
+// Where the last tap landed: 0 nowhere, 1 head, 2 belly, 3 feet.
+static uint8_t s_tapZone = 0;
 
 static int   s_lastCx = -10000, s_lastHeadTopY = 0;
 // The head's top for THIS frame, bob and squash included. Deliberately
@@ -785,6 +810,57 @@ static const char* const GUM_LINES[] = {
     "Been saving this one.",
     "Perfectly good stakeout snack.",
 };
+static const char* const LEAN_LINES[] = {
+    "Did you hear that?",
+    "Hold on. Something's out there.",
+    "Shh. Listening.",
+    "That was a noise. That was definitely a noise.",
+};
+static const char* const TRIP_LINES[] = {
+    "Who put that there?",
+    "I meant to do that.",
+    "Nobody saw that. Good.",
+    "The floor moved. I'm sure of it.",
+};
+static const char* const SHAKE_LINES[] = {
+    "Ugh. Get it off me.",
+    "That one felt slimy.",
+    "Bad radio. BAD.",
+};
+static const char* const BACK_LINES[] = {
+    "It's getting closer.",
+    "Okay. Personal space. Please.",
+    "Closer. Closer. I don't like closer.",
+    "I'll just be... over here.",
+};
+static const char* const SIT_LINES[] = {
+    "Taking a knee.",
+    "Nothing's happening. I'm sitting.",
+    "Wake me if the cameras move.",
+    "Five minute break. Union rules.",
+};
+static const char* const TICKLE_HEAD_LINES[] = {
+    "Head pats. Acceptable.",
+    "Right there. Yes.",
+    "The fur is soft. I know.",
+};
+static const char* const TICKLE_BELLY_LINES[] = {
+    "Hehe. Stop. Don't stop.",
+    "That tickles! That TICKLES!",
+    "Belly is off limits. Mostly.",
+};
+static const char* const TICKLE_FEET_LINES[] = {
+    "Not the feet!",
+    "HEY. Feet are private.",
+    "I will kick. I have kicked before.",
+};
+static const char* const FLICK_LINES[] = {
+    "HEY!",
+    "Rude.",
+    "I'm walking back. Slowly. To make a point.",
+    "Ow. My dignity.",
+};
+
 static const char* const DUCK_LINES[] = {
     "Damn toaster nearly got me!",
     "That one had my name on it.",
@@ -1205,6 +1281,22 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
                 s_recoilK = k;
             }
             s_reactType = dt;
+            // Attacks get a shudder once the double-take has run its course.
+            if (dt == DetectionType::DEAUTH || dt == DetectionType::EVILTWIN || dt == DetectionType::HACKER)
+                s_shakeStart = now + DT_TOTAL_MS;
+            // The same kind of thing, back within half a minute and at least
+            // six dB closer: he takes a step back. Three steps is as far as he
+            // goes, and the steps fade once it has been quiet a while.
+            if (rssi != 0) {
+                if (dt == s_prevType && now - s_prevAt < 30000u && rssi >= s_prevRssi + 6) {
+                    if (s_backSteps < 3) s_backSteps++;
+                    s_backAt = now;
+                    say(pick(BACK_LINES, 4), MIN_BUBBLE_MS);
+                }
+                s_prevRssi = rssi;
+                s_prevType = dt;
+                s_prevAt   = now;
+            }
             // Newest-first ring of three, for the juggle. Shifted rather
             // than indexed so the oldest simply falls off the end.
             s_recentTypes[2] = s_recentTypes[1];
@@ -1332,9 +1424,24 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
                 snprintf(s_milestoneBuf, sizeof(s_milestoneBuf),
                          "Pet #%lu! We're basically friends now.", (unsigned long)hit);
                 say(s_milestoneBuf, 5500);
+            } else if (s_tapZone == 1 && random(0, 2) == 0) {
+                // A head pat: he leans into it rather than hopping.
+                mood = Mood::IDLE;
+                s_leanStart = now;
+                s_leanDir   = 0;
+                say(pick(TICKLE_HEAD_LINES, 3), MIN_BUBBLE_MS);
+            } else if (s_tapZone == 2 && random(0, 2) == 0) {
+                // The belly: a giggle, which is a faster, smaller bounce.
+                moodUntil = now + tempo(1600);
+                say(pick(TICKLE_BELLY_LINES, 3), MIN_BUBBLE_MS);
+            } else if (s_tapZone == 3 && random(0, 2) == 0) {
+                // The feet: one big hop, and an objection.
+                moodUntil = now + tempo(700);
+                say(pick(TICKLE_FEET_LINES, 3), MIN_BUBBLE_MS);
             } else {
                 say(pick(PET_LINES, 20), MIN_BUBBLE_MS);
             }
+            s_tapZone = 0;
             break;
         }
         case Event::HELD: {
@@ -1390,12 +1497,15 @@ bool lastFootprint(int& cx, int& halfW, int& top, int& bot) {
     return true;
 }
 
+static uint32_t s_grabAt = 0;   // the last time a finger said where he is
+
 void grabTo(int x, int y) {
     s_grabbed   = true;
     s_dropStart = 0;
     s_grabX = x;
     s_grabY = y;
-    lastInteraction = millis();
+    s_grabAt = millis();
+    lastInteraction = s_grabAt;
 }
 
 void release() {
@@ -1462,6 +1572,9 @@ void stopShowOff() {
     s_dropStart = 0;
     s_binoc     = false;
     s_duckUntil = 0;
+    s_backSteps = 0;
+    s_flickStart = 0;
+    s_shakeStart = 0;
     mood        = Mood::IDLE;
     bubbleUntil = 0;
 }
@@ -1478,6 +1591,29 @@ bool hitTest(int x, int y) {
     int top   = s_lastHeadTopY - (int)(20 * s_lastScale);
     int bot   = footBottom();
     return x >= s_lastCx - halfW && x <= s_lastCx + halfW && y >= top && y <= bot;
+}
+
+void noteTapAt(int x, int y) {
+    (void)x;
+    s_tapZone = 0;
+    if (s_lastCx < -5000) return;
+    const int top = s_lastHeadTopY - (int)(20 * s_lastScale);
+    const int bot = footBottom();
+    if (y < top || y > bot) return;
+    const int span = bot - top;
+    if (span <= 0) return;
+    const int k = (y - top) * 3 / span;
+    s_tapZone = k <= 0 ? 1 : (k == 1 ? 2 : 3);
+}
+
+void flick(int8_t dir) {
+    if (s_grabbed || s_onboardActive) return;
+    s_flickStart = millis();
+    s_flickDir   = dir >= 0 ? 1 : -1;
+    lastInteraction = s_flickStart;
+    mood = Mood::IDLE;
+    moodUntil = 0;
+    say(pick(FLICK_LINES, 4), MIN_BUBBLE_MS);
 }
 
 // ---- Drawing ----
@@ -5397,6 +5533,19 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
                              s_duckUntil = now + 900u;
                              say("TOASTER DUCK", SHOW_STEP_MS); break;
                     case 14: mood = Mood::IDLE; say("PICK UP + DROP", SHOW_STEP_MS); break;
+                    case 15: mood = Mood::LEAN; s_leanStart = now; s_leanDir = 1;
+                             say("LEAN + LISTEN", SHOW_STEP_MS); break;
+                    case 16: mood = Mood::TRIP; s_dtStart = now; s_recoilK = 0.8f;
+                             say("TRIP", SHOW_STEP_MS); break;
+                    case 17: mood = Mood::IDLE; s_shakeStart = now + 200u;
+                             say("SHAKE IT OFF", SHOW_STEP_MS); break;
+                    case 18: mood = Mood::IDLE; s_backSteps = 3; s_backAt = now;
+                             say("BACKING AWAY", SHOW_STEP_MS); break;
+                    case 19: mood = Mood::ACT; s_hostAct = (uint8_t)VisitPose::CROUCH;
+                             s_hostActUntil = now + SHOW_STEP_MS + 300u; s_backSteps = 0;
+                             say("SIT DOWN", SHOW_STEP_MS); break;
+                    case 20: mood = Mood::IDLE; s_flickStart = now; s_flickDir = 1;
+                             say("FLICK", SHOW_STEP_MS); break;
                     default: mood = Mood::SLEEPY; say("NAP", SHOW_STEP_MS); break;
                 }
             }
@@ -5559,6 +5708,33 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             s_stretchStart = now;
             moodUntil = now + STRETCH_MS;
             nextIdleAt = now + tempo(12000) + random(0, 16000);
+        } else if (longIdle && random(0, 5) == 0) {
+            // Nothing for a minute and a half: he sits down. His crouch pose,
+            // held, with his hands on his knees; a catch stands him up.
+            say(pick(SIT_LINES, 4), MIN_BUBBLE_MS);
+            mood = Mood::ACT;
+            s_hostAct = (uint8_t)VisitPose::CROUCH;
+            moodUntil = now + tempo(9000);
+            s_hostActUntil = moodUntil;
+            nextIdleAt = now + tempo(9000) + 8000 + random(0, 12000);
+        } else if (random(0, 9) == 0) {
+            // He heard something. Leans toward one side to listen, then
+            // comes back -- see the LEAN block in the body maths.
+            say(pick(LEAN_LINES, 4), MIN_BUBBLE_MS);
+            mood = Mood::LEAN;
+            s_leanStart = now;
+            s_leanDir   = random(0, 2) ? 1 : -1;
+            moodUntil = now + tempo(LEAN_MS);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
+        } else if (random(0, 30) == 0) {
+            // Trips over nothing. The double-take's stumble, with no cause and
+            // no shades slip, and a look around afterwards.
+            say(pick(TRIP_LINES, 4), MIN_BUBBLE_MS);
+            mood = Mood::TRIP;
+            s_dtStart = now;
+            s_recoilK = 0.8f;
+            moodUntil = now + tempo(1600);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
         } else if (random(0, 8) == 0) {
             // A little dance break -- see drawBody()'s DANCE arm case.
             say(pick(DANCE_LINES, 4), 3200);
@@ -5858,7 +6034,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     } else {
         s_walkBeat = 0;
     }
-    if (mood == Mood::SHOCKED && s_dtStart != 0 && now - s_dtStart < DT_TOTAL_MS) {
+    if ((mood == Mood::SHOCKED || mood == Mood::TRIP) && s_dtStart != 0 && now - s_dtStart < DT_TOTAL_MS) {
         // Double-take. The head snaps the WRONG way first, holds a
         // beat, then whips back and settles -- the classic "wait, what
         // was that" read, and a much better fit for a detector than
@@ -5894,7 +6070,7 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         // Only a strong hit knocks the shades down his nose. On a weak
         // one they stay put, which is most of what separates the two
         // reactions at a glance.
-        s_shadeDrop = (e > 380u && s_recoilK > 0.45f) ? (uint8_t)(2.0f * scale) : 0;
+        s_shadeDrop = (mood == Mood::SHOCKED && e > 380u && s_recoilK > 0.45f) ? (uint8_t)(2.0f * scale) : 0;
     } else if (mood == Mood::SHOCKED && wanderRangePx >= 0) {
         s_shadeDrop = 0;
         // Panicked dart, opted into by a caller via wanderRangePx (see
@@ -5906,6 +6082,66 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
         // grew from a small corner dart to nearly the full screen.
         float jT = (float)(now % WALK_CYCLE_MS) / (float)WALK_CYCLE_MS * 6.2831853f;
         bodyCx = cx + (int)(sinf(jT) * wanderRangePx);
+    }
+
+    // ---- the idle-life pack: lean, shake, back away, flick, trip ----
+    // Lean: out to one side over 300 ms, held listening, back in over the
+    // last 400. s_leanDir 0 is the head-pat version: no slide, just the
+    // lean-in (head drop) below.
+    if (mood == Mood::LEAN || (s_leanDir == 0 && s_leanStart && now - s_leanStart < 900u)) {
+        const uint32_t le = now - s_leanStart;
+        const uint32_t total = mood == Mood::LEAN ? tempo(LEAN_MS) : 900u;
+        float k;
+        if (le < 300u)               k = (float)le / 300.0f;
+        else if (le + 400u < total)  k = 1.0f;
+        else if (le < total)         k = (float)(total - le) / 400.0f;
+        else                         k = 0.0f;
+        k = k * k * (3.0f - 2.0f * k);   // ease
+        if (s_leanDir != 0) {
+            bodyCx += (int)(k * 14.0f * scale * (float)s_leanDir);
+            s_headDrop -= (int)(k * 2.0f * scale);           // up on his toes
+        } else {
+            s_headDrop += (int)(k * 3.0f * scale);           // leaning into the hand
+        }
+    }
+    // Trip: a small dip as he catches himself, on top of the stumble curve.
+    if (mood == Mood::TRIP && s_dtStart != 0) {
+        const uint32_t te = now - s_dtStart;
+        if (te > 380u && te < 700u) s_headDrop += (int)(5.0f * scale * sinf((float)(te - 380u) / 320.0f * 3.14159f));
+    }
+    // Shake it off: a quick side-to-side shudder that dies out.
+    if (s_shakeStart && now >= s_shakeStart && now - s_shakeStart < SHAKE_MS) {
+        const float k = 1.0f - (float)(now - s_shakeStart) / (float)SHAKE_MS;
+        bodyCx += (int)(sinf((float)(now - s_shakeStart) / 28.0f) * 4.0f * scale * k);
+        s_headDrop += (int)(k * 2.0f * scale);
+    } else if (s_shakeStart && now - s_shakeStart >= SHAKE_MS) {
+        if (advance) { s_shakeStart = 0; say(pick(SHAKE_LINES, 3), MIN_BUBBLE_MS); }
+    }
+    // Backing away: each step is a few pixels further from centre, away from
+    // whichever side he was reaching toward. Steps fade after 20 s of quiet.
+    if (s_backSteps > 0) {
+        if (now - s_backAt > 20000u) { if (advance) s_backSteps--; s_backAt = now; }
+        bodyCx -= (int)(s_backSteps * 9.0f * scale);
+    }
+    // Flick: out to the wall (ease-out), a bump and a wobble, then back over a
+    // second so it reads as a walk rather than a rubber band.
+    if (s_flickStart) {
+        const uint32_t fe = now - s_flickStart;
+        const int wall = s_flickDir > 0 ? t.width() - cx - (int)(22.0f * scale) : -(cx - (int)(22.0f * scale));
+        if (fe < FLICK_OUT_MS) {
+            const float k = (float)fe / (float)FLICK_OUT_MS;
+            bodyCx += (int)((float)wall * (1.0f - (1.0f - k) * (1.0f - k)));
+        } else if (fe < FLICK_OUT_MS + FLICK_HOLD_MS) {
+            const float k = (float)(fe - FLICK_OUT_MS) / (float)FLICK_HOLD_MS;
+            bodyCx += wall;
+            s_headDrop += (int)(6.0f * scale * (1.0f - k));                       // the bump
+            bodyCx -= (int)(sinf(k * 12.0f) * 3.0f * scale * (1.0f - k) * (float)s_flickDir);   // the wobble
+        } else if (fe < FLICK_OUT_MS + FLICK_HOLD_MS + FLICK_BACK_MS) {
+            const float k = (float)(fe - FLICK_OUT_MS - FLICK_HOLD_MS) / (float)FLICK_BACK_MS;
+            bodyCx += (int)((float)wall * (1.0f - k));
+        } else if (advance) {
+            s_flickStart = 0;
+        }
     }
 
     // Idle bob runs noticeably quicker than a resting breathing rate —
@@ -5966,6 +6202,10 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
     // A finger holding him overrides every other position: the mood
     // machine keeps running underneath (he can be shocked while being
     // held) but where he actually is comes from the touch.
+    // A finger that stops reporting is a finger that has gone: a carry whose
+    // release was never delivered (a touch lost at the panel's edge, a screen
+    // change under the gesture) used to leave him hanging in a corner forever.
+    if (s_grabbed && advance && now - s_grabAt > 500u) release();
     if (s_grabbed) {
         const int loY = topY + bubbleRowH;
         const int hiY = topY + availHeight - (int)(46.0f * scale);

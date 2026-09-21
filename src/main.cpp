@@ -2603,7 +2603,10 @@ void loop() {
     // drawTitleBar) and this handler is skipped — so there is no control
     // on screen that looks live and does nothing.
 #if !defined(AWOK)
-    if (tp.valid && !Settings::rotationLocked() &&
+    // Neither corner button answers a finger that is carrying Squachy: dragged
+    // into a corner, he used to open Settings or rotate the screen mid-carry,
+    // and the release that would have dropped him never came.
+    if (tp.valid && !Settings::rotationLocked() && !Squachy::isHeld() &&
         (state == AppState::CLEAR || state == AppState::LOG ||
                       state == AppState::SETTINGS || state == AppState::OUTFIT ||
                       state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
@@ -2668,7 +2671,8 @@ void loop() {
     // it was entered from — this is the only way back out of either
     // screen, since OUTFIT's own taps are all claimed by the arrows and
     // DETECTION_FILTER's are all claimed by row toggles.
-    if (tp.valid && (state == AppState::CLEAR || state == AppState::LOG ||
+    if (tp.valid && !Squachy::isHeld() &&
+        (state == AppState::CLEAR || state == AppState::LOG ||
                       state == AppState::SETTINGS || state == AppState::OUTFIT ||
                       state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
                       state == AppState::IGNORE_LIST || state == AppState::POWER_SAVER ||
@@ -3054,6 +3058,7 @@ void loop() {
             static bool     sqPetting = false;
             static uint32_t sqStartMs = 0;
             static int      sqStartX = 0, sqStartY = 0;
+            static int32_t  sqLastDx = 0;   // the stroke's reach so far, for the flick
             constexpr uint32_t SQ_HOLD_MS = 600;
             constexpr int32_t  SQ_MOVE_PX = 12;
             constexpr int32_t  SQ_MOVE_PX_SQ = SQ_MOVE_PX * SQ_MOVE_PX;
@@ -3096,6 +3101,7 @@ void loop() {
                 sqStartMs = now;
                 sqStartX = tp.x;
                 sqStartY = tp.y;
+                sqLastDx = 0;
                 clrHoldActive = !s_scanPickerOpen && barBtn == ButtonId::CLR;
                 clrHoldFired  = false;
                 clrHoldStart  = now;
@@ -3231,6 +3237,7 @@ void loop() {
                 // straight back into petting, and he could never be
                 // picked up at all.
                 if (!sqHeld && (dx * dx + dy * dy) > SQ_MOVE_PX_SQ) sqPetting = true;
+                sqLastDx = dx;
                 if (sqHeld) {
                     Squachy::grabTo(tp.x, tp.y);
                 } else if (sqPetting) {
@@ -3273,7 +3280,12 @@ void loop() {
                 if (sqHeld) {
                     Squachy::release();     // drop him wherever he ended up
                 } else if (!sqPetting) {
+                    Squachy::noteTapAt(sqStartX, sqStartY);
                     Squachy::trigger(Squachy::Event::PETTED);
+                } else if ((now - sqStartMs) < 320 && (sqLastDx > 48 || sqLastDx < -48)) {
+                    // A stroke that covered fifty pixels in under a third of a
+                    // second is a flick, not a pet.
+                    Squachy::flick(sqLastDx > 0 ? 1 : -1);
                 }
                 sqActive = false;
             }

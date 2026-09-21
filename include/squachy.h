@@ -67,6 +67,12 @@ namespace Squachy {
     // through to any other touch handling on the CLEAR screen, so a
     // tap on him pets him instead of doing nothing.
     bool hitTest(int x, int y);
+    // Where a tap landed on him, before PETTED: his head, his belly or his
+    // feet each get their own reaction. Zone 0 is "not on him".
+    void noteTapAt(int x, int y);
+    // A fast swipe across him: he slides into the wall on that side, wobbles,
+    // and walks back. dir is +1 for right, -1 for left.
+    void flick(int8_t dir);
 
     // Where he was drawn last frame, and how wide, so a background can
     // react to him standing in it. Returns false before he has ever been
