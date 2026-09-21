@@ -32,6 +32,15 @@ CYAN  = (0, 214, 214)
 # ---- the clips ----
 
 CLIPS = {
+    # v1.18.0 "Field Guide": the SQUACHY-DEX, the LOG showing each device once,
+    # and the tap that has to be quick.
+    "field-guide": [
+        ("dex",      20, 30, ["--pose", "0", "--bg", "4"], {}, 1300, "SEVENTEEN CRYPTIDS. SQUACHY HAS A BINDER."),
+        ("dex",      20, 30, ["--pose", "6", "--bg", "4"], {}, 1600, "EVERY CATCH GETS A CARD. LORE INCLUDED."),
+        ("dex",      20, 30, ["--pose", "5", "--bg", "4"], {}, 1500, "NOT CAUGHT? YOU GET A HINT AND A SILHOUETTE"),
+        ("log",      20, 30, [],                            {}, 1300, "THE LOG SHOWS EACH DEVICE ONCE. FINALLY."),
+        ("settings", 10, 24, ["--scroll", "0"],             {}, 1300, "AND A SLOW THUMB IS NOT A TAP ANY MORE"),
+    ],
     # v1.17.0 "Hold Still": touch calibration, done over. The touchcal screen
     # is the real flow played by a scripted finger (see main_sim.cpp), and
     # --frames there skips into it rather than warming an animation up.
