@@ -17,6 +17,7 @@
 static uint8_t s_tempoPct = 70;   // until settings are read; the same default
 static inline uint32_t tempo(uint32_t ms) { return ms * s_tempoPct / 100; }
 #include "clock.h"
+#include "dex.h"
 #include "void_eye.h"
 #if SQUACH_MESH
 #include "emote_script.h"   // spokenName, for the banter
@@ -220,6 +221,61 @@ static const char* SEEN_BEFORE_LINES[] = {
     "We meet again.",
     "This one's a regular.",
     "Recognize this one.",
+};
+
+// The regulars: a device seen on three different days has a name, and he
+// greets it like a neighbour. %s is the name.
+static const char* const REGULAR_LINES[] = {
+    "%s again. Right on time.",
+    "Oh, it's just %s.",
+    "Morning, %s. Or whatever it is.",
+    "%s. Every day. Like clockwork.",
+    "There goes %s. Never says hi.",
+    "%s is up. %s is always up.",
+};
+static const char* const NEW_REGULAR_LINES[] = {
+    "Three days running. I'm calling this one %s.",
+    "Okay, you're a regular now. Hi, %s.",
+    "Seen you enough. You're %s from here on.",
+};
+// The nemesis: the type he has caught most. %s is the type's name.
+static const char* const NEMESIS_LINES[] = {
+    "%s. My old enemy.",
+    "Not you again, %s.",
+    "We meet again, %s. As always.",
+    "One day, %s. One day.",
+    "%s. Of course it's %s.",
+};
+// Streaks: the same type again and again in a short while, and a new
+// closest for its kind.
+static const char* const RUN3_LINES[] = {
+    "Third %s in ten minutes. They travel in packs.",
+    "That's three %s. Somebody's collecting them.",
+};
+static const char* const RUN5_LINES[] = {
+    "Five %s. This is a %s convention.",
+    "Five. Five %s. I'm going to need a bigger log.",
+};
+static const char* const RUN10_LINES[] = {
+    "Ten %s. I've stopped counting. I haven't.",
+};
+static const char* const CLOSEST_LINES[] = {
+    "Closest %s ever. It could hear me breathing.",
+    "New record. That %s was practically in my fur.",
+    "A %s, closer than any before. Personal space, please.",
+};
+
+// You keep opening the LOG. He would say if there were anything.
+static const char* const CHECKING_LINES[] = {
+    "You keep checking. I'd tell you.",
+    "Fifth time in a minute. It hasn't changed. I'd know.",
+    "The log is fine. Are YOU fine?",
+};
+// A whole day without a poke.
+static const char* const IGNORED_LINES[] = {
+    "You haven't poked me in a day. I'm fine. Totally fine.",
+    "Twenty-four hours. No pats. I've started counting.",
+    "Still here. Still unpoked. Just saying.",
 };
 
 static const char* PERSISTENT_LINES[] = {
@@ -478,7 +534,20 @@ static const uint32_t WATCH_EVERY_MS_BASE = 30000;
 static uint32_t       WATCH_EVERY_MS = 30000;
 static uint32_t      s_nextWatchAt   = 6000;
 static uint32_t      lastInteraction = 0;
+// The last time a finger touched HIM: petted, held, stroked or flicked.
+// lastInteraction counts detections too, which is not what "ignored" means.
+static uint32_t      s_lastTouchAt   = 0;
+static bool          s_ignoredSaid   = false;
 static DetectionType s_reactType     = DetectionType::UNKNOWN;
+// See catchContext() in squachy.h. Spent by the next DETECTION trigger.
+static const char*   s_ctxRegular    = nullptr;
+static bool          s_ctxNewRegular = false;
+static bool          s_ctxNemesis    = false;
+static bool          s_ctxNewClosest = false;
+// The run: how many of the same type in a row, ten minutes apart at most.
+static DetectionType s_runType = DetectionType::UNKNOWN;
+static uint8_t       s_runN    = 0;
+static uint32_t      s_runAt   = 0;
 // The pose a SHOCKED body strikes: an emote's, when one has borrowed the
 // reaction, else whatever his last detection calls for.
 static ReactPose curReactPose() {
@@ -785,12 +854,23 @@ static const char* pick(const char* const* arr, int n) {
 // and the naps go on, only the bubble stays empty.
 static bool s_idleRoll = false;
 
+// The volume of the next bubble: 0 normal, 1 loud (a double outline, for a
+// RARE catch), 2 quiet (dim text, for a catch in the small hours). Set
+// before say(); say() takes it for that bubble and clears it.
+static uint8_t s_nextTone = 0, s_bubbleTone = 0;
+static Squachy::IdleProvider s_idleProvider = nullptr;
+static const char* s_noticeLine = nullptr;
+
 static void say(const char* line, uint32_t ms) {
     if (s_idleRoll && Settings::banter() == 0) return;
     bubbleText  = line;
     bubbleStart = millis();
     bubbleUntil = bubbleStart + tempo(ms);
+    s_bubbleTone = s_nextTone;
+    s_nextTone   = 0;
 }
+
+void setIdleProvider(IdleProvider fn) { s_idleProvider = fn; }
 
 // Every bubble stays up at least this long, no matter which line fires.
 static const uint32_t MIN_BUBBLE_MS_BASE = 5000;
@@ -1258,6 +1338,13 @@ static void ensurePrefsLoaded() {
 // device's very first boot.
 static void startOnboardingInternal();
 
+void catchContext(const char* regular, bool newRegular, bool nemesis, bool newClosest) {
+    s_ctxRegular    = regular;
+    s_ctxNewRegular = newRegular;
+    s_ctxNemesis    = nemesis;
+    s_ctxNewClosest = newClosest;
+}
+
 void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCount,
              int8_t rssi, Confidence conf) {
     uint32_t now = millis();
@@ -1344,11 +1431,38 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
                 }
             }
 
+            // Loud for a RARE card, quiet in the small hours -- see s_nextTone.
+            s_nextTone = Dex::rarity(dt) == Dex::Rarity::RARE ? 1 : (Clock::night() ? 2 : 0);
+            // The run of the same type: ten minutes between them at most.
+            if (dt == s_runType && now - s_runAt < 600000u) { if (s_runN < 255) s_runN++; }
+            else { s_runType = dt; s_runN = 1; }
+            s_runAt = now;
+            const char* regular    = s_ctxRegular;
+            const bool  newRegular = s_ctxNewRegular, nemesisHit = s_ctxNemesis, newClosest = s_ctxNewClosest;
+            s_ctxRegular = nullptr; s_ctxNewRegular = s_ctxNemesis = s_ctxNewClosest = false;
+            static char ctxBuf[80];
+
             if (hit > 0) {
                 s_lastMilestone = hit;
                 snprintf(s_milestoneBuf, sizeof(s_milestoneBuf),
                          "Detection #%lu! Milestone.", (unsigned long)hit);
                 say(s_milestoneBuf, 5500);
+            } else if (newRegular && regular) {
+                snprintf(ctxBuf, sizeof ctxBuf, pick(NEW_REGULAR_LINES, 3), regular);
+                say(ctxBuf, 5500);
+            } else if (s_runN == 3 || s_runN == 5 || s_runN == 10) {
+                const char* tmpl = s_runN == 3 ? pick(RUN3_LINES, 2) : s_runN == 5 ? pick(RUN5_LINES, 2) : RUN10_LINES[0];
+                snprintf(ctxBuf, sizeof ctxBuf, tmpl, detectionTypeName(dt), detectionTypeName(dt));
+                say(ctxBuf, 5500);
+            } else if (newClosest && random(0, 3) != 0) {
+                snprintf(ctxBuf, sizeof ctxBuf, pick(CLOSEST_LINES, 3), detectionTypeName(dt));
+                say(ctxBuf, 5500);
+            } else if (regular && random(0, 3) != 0) {
+                snprintf(ctxBuf, sizeof ctxBuf, pick(REGULAR_LINES, 6), regular, regular);
+                say(ctxBuf, 5000);
+            } else if (nemesisHit && random(0, 2) == 0) {
+                snprintf(ctxBuf, sizeof ctxBuf, pick(NEMESIS_LINES, 5), detectionTypeName(dt), detectionTypeName(dt));
+                say(ctxBuf, 5000);
             } else if (hitCount >= 8) {
                 // A device that's matched this many times isn't a
                 // one-off ping — that's a real pattern worth calling
@@ -1386,9 +1500,16 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             }
             break;
         }
-        case Event::LOG_OPENED:
-            say(pick(LOG_OPEN_LINES, 2), MIN_BUBBLE_MS);
+        case Event::LOG_OPENED: {
+            // Five opens inside a minute: he has noticed you checking.
+            static uint32_t opens[5]; static uint8_t oi = 0;
+            opens[oi] = now; oi = (uint8_t)((oi + 1) % 5);
+            bool five = true;
+            for (uint8_t i = 0; i < 5; i++) if (!opens[i] || now - opens[i] > 60000u) five = false;
+            if (five) { say(pick(CHECKING_LINES, 3), MIN_BUBBLE_MS); memset(opens, 0, sizeof opens); }
+            else      say(pick(LOG_OPEN_LINES, 2), MIN_BUBBLE_MS);
             break;
+        }
         case Event::LOG_CLEARED:
             say(pick(LOG_CLEAR_LINES, LOG_CLEAR_N), MIN_BUBBLE_MS);
             break;
@@ -1396,6 +1517,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             say(pick(ROTATE_LINES, 3), MIN_BUBBLE_MS);
             break;
         case Event::BOOTED:
+            s_lastTouchAt = now;
             ensurePrefsLoaded();
             s_cachedLifetimeTotal = lifetimeTotal;
             refreshOutfitUnlocks();
@@ -1408,6 +1530,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             }
             break;
         case Event::PETTED: {
+            s_lastTouchAt = now; s_ignoredSaid = false;
             mood = Mood::BOUNCE;
             moodUntil = now + tempo(1200);
             s_petFxStart = now;
@@ -1445,6 +1568,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             break;
         }
         case Event::HELD: {
+            s_lastTouchAt = now; s_ignoredSaid = false;
             mood = Mood::BOUNCE;
             moodUntil = now + tempo(1500);
             s_petFxStart = now;
@@ -1453,6 +1577,7 @@ void trigger(Event evt, DetectionType dt, uint32_t lifetimeTotal, uint32_t hitCo
             break;
         }
         case Event::PETTING: {
+            s_lastTouchAt = now; s_ignoredSaid = false;
             mood = Mood::BOUNCE;
             moodUntil = now + tempo(900);
             s_petFxStart = now;
@@ -1795,7 +1920,8 @@ static void drawBubbleIn(TFT_eSPI& t, int cx, int topY, const char* text,
         if (bubblePop(t, bx, by, bw, bh, now)) return;
         t.fillRoundRect(bx, by, bw, bh, 3, Theme::BG);
         t.drawRoundRect(bx, by, bw, bh, 3, Theme::VAPOR_PINK);
-        t.setTextColor(Theme::WHITE, Theme::BG);
+        if (s_bubbleTone == 1) t.drawRoundRect(bx - 1, by - 1, bw + 2, bh + 2, 4, Theme::AMBER);
+        t.setTextColor(s_bubbleTone == 2 ? Theme::W95_LIGHT : Theme::WHITE, Theme::BG);
         t.setCursor(bx + 5, by + 3 + Theme::bubbleAscent());
         t.print(text);
         lastBubbleX = bx;
@@ -1830,7 +1956,8 @@ static void drawBubbleIn(TFT_eSPI& t, int cx, int topY, const char* text,
     if (bubblePop(t, bx, by, bw, bh, now)) return;
     t.fillRoundRect(bx, by, bw, bh, 3, Theme::BG);
     t.drawRoundRect(bx, by, bw, bh, 3, Theme::VAPOR_PINK);
-    t.setTextColor(Theme::WHITE, Theme::BG);
+    if (s_bubbleTone == 1) t.drawRoundRect(bx - 1, by - 1, bw + 2, bh + 2, 4, Theme::AMBER);
+    t.setTextColor(s_bubbleTone == 2 ? Theme::W95_LIGHT : Theme::WHITE, Theme::BG);
     for (uint8_t i = 0; i < n; i++) {
         int lw = t.textWidth(lines[i]);
         t.setCursor(bx + (bw - lw) / 2, by + 3 + i * lineH + Theme::bubbleAscent());
@@ -3702,9 +3829,36 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             const int halfW = S(16);
 
             // ---- the dorsal fin, and the hood over his crown -------------
+            // Outlined like every other costume: the same shapes a pixel
+            // larger in black first, then the grey over them, so fin, hood
+            // and jaw corners share ONE edge with no seam where they meet.
+            // The fin's base flares into the hood top (two small triangles)
+            // rather than sitting on it as a separate triangle.
+            const int o = S(1) > 1 ? S(1) : 1;
+            const int jawW = S(5), jawBot = hy + S(13);     // past the shades, above the ears
+            t.fillTriangle(cx2 - S(8) - o, hy - S(6), cx2 + S(8) + o, hy - S(6),
+                           cx2 + S(4), hy - S(18) - o, eyeBk);
+            t.fillTriangle(cx2 - S(10) - o, hy - S(9), cx2 - S(6), hy - S(9), cx2 - S(6), hy - S(12) - o, eyeBk);
+            t.fillTriangle(cx2 + S(11) + o, hy - S(9), cx2 + S(6), hy - S(9), cx2 + S(6), hy - S(13) - o, eyeBk);
+            t.fillRoundRect(cx2 - halfW - o, hy - S(10) - o, halfW * 2 + 2 * o, S(11) + 2 * o, S(5), eyeBk);
+            t.fillRoundRect(cx2 - halfW - o, hy - S(2), jawW + 2 * o, jawBot - (hy - S(2)) + o, S(2), eyeBk);
+            t.fillRoundRect(cx2 + halfW - jawW - o, hy - S(2), jawW + 2 * o, jawBot - (hy - S(2)) + o, S(2), eyeBk);
             t.fillTriangle(cx2 - S(7), hy - S(7), cx2 + S(7), hy - S(7),
                            cx2 + S(4), hy - S(18), silvDk);
+            t.fillTriangle(cx2 - S(10), hy - S(9), cx2 - S(6), hy - S(9), cx2 - S(6), hy - S(12), silvDk);
+            t.fillTriangle(cx2 + S(11), hy - S(9), cx2 + S(6), hy - S(9), cx2 + S(6), hy - S(13), silvDk);
             t.fillRoundRect(cx2 - halfW, hy - S(10), halfW * 2, S(11), S(5), silvDk);
+            // The jaw corners: the hood's sides carried down past the eyes.
+            t.fillRoundRect(cx2 - halfW, hy - S(2), jawW, jawBot - (hy - S(2)), S(2), silvDk);
+            t.fillRoundRect(cx2 + halfW - jawW, hy - S(2), jawW, jawBot - (hy - S(2)), S(2), silvDk);
+            // Two tiny nostrils on the snout, just above the lip.
+            {
+                const int nr = (S(1) + 1) / 2 > 1 ? (S(1) + 1) / 2 : 1;
+                t.fillCircle(cx2 - S(2), hy - S(3), nr, eyeBk);
+                t.fillCircle(cx2 + S(2), hy - S(3), nr, eyeBk);
+            }
+            // The lip: where the hood meets the white band.
+            t.fillRect(cx2 - halfW + jawW, hy - S(1) - o, halfW * 2 - 2 * jawW, o, eyeBk);
             t.fillRoundRect(cx2 - halfW + S(1), hy - S(1), halfW * 2 - S(2), S(4), S(2), silvHi);
             t.fillRect(cx2 - halfW + S(2), hy + S(2), halfW * 2 - S(4), S(2), gum);
             {   // the teeth, inset a shade from the jaw so the jaw has a lip
@@ -5708,6 +5862,20 @@ void tick(TFT_eSPI& t, int cx, int topY, int availHeight, uint32_t now,
             s_stretchStart = now;
             moodUntil = now + STRETCH_MS;
             nextIdleAt = now + tempo(12000) + random(0, 16000);
+        } else if (s_lastTouchAt && !s_ignoredSaid && now - s_lastTouchAt > 86400000u) {
+            s_ignoredSaid = true;
+            say(pick(IGNORED_LINES, 3), 6000);
+            mood = Mood::WAVE;
+            moodUntil = now + tempo(1200);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
+        } else if (s_idleProvider && random(0, 3) == 0 && (s_noticeLine = s_idleProvider()) != nullptr) {
+            // Something the board knows and he does not: the DEX, the black
+            // box, the calendar. See notices.h. Asked once: it rolls its own
+            // dice, so a second ask would be a different line, or none.
+            say(s_noticeLine, 6000);
+            mood = random(0, 2) ? Mood::WAVE : Mood::BOUNCE;
+            moodUntil = now + tempo(1200);
+            nextIdleAt = now + tempo(9000) + random(0, 13000);
         } else if (longIdle && random(0, 5) == 0) {
             // Nothing for a minute and a half: he sits down. His crouch pose,
             // held, with his hands on his knees; a catch stands him up.

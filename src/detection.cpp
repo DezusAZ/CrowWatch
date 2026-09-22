@@ -5,6 +5,7 @@
 #include "blackbox.h"
 #include "bingo.h"
 #include "dex.h"
+#include "regulars.h"
 #include "clock.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -1151,6 +1152,7 @@ void DetectionEngine::processDeauthQ() {
                 }
                 Bingo::note(DetectionType::DEAUTH);
                 Dex::note(DetectionType::DEAUTH, e.rssi);
+                Regulars::note(e.mac, DetectionType::DEAUTH);
                 _latest = &row;
                 _latestChangeMs = now;
                 queueBlackBox(row, true);
@@ -1226,6 +1228,8 @@ void DetectionEngine::postBle(Detection d) {
             _log[slot].lastSeen = millis();
             Bingo::note(d.type);
             Dex::note(d.type, d.rssi);
+    Regulars::note(d.mac, d.type);
+            Regulars::note(d.mac, d.type);
             if (reactivating) {
                 _log[slot].hits++;
                 _log[slot].active = true;
@@ -1655,6 +1659,7 @@ void DetectionEngine::processWiFiQ() {
                 bool reactivating = !_log[slot].active;
                 Bingo::note(t);
                 Dex::note(t, e.rssi);
+                Regulars::note(e.mac, t);
                 _log[slot].hits++;
                 {
                     const uint8_t nowAt = (uint8_t)(millis() >> 11);

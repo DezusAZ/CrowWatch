@@ -23,7 +23,7 @@ CXX      ?= g++
 CXXFLAGS := -std=c++17 -O1 -g -Wall -Wextra -Wno-unused-parameter \
             -I$(SIM) -I$(INC)
 
-TESTS := remote_id_test ibeacon_test signatures_test emitter_roundtrip_test ignore_list_test hacker_test pwnagotchi_test shim_fidelity_test squachmesh_test qwerty_test meshmsg_test device_info_test security_test emote_script_test blackbox_test bingo_test hunt_test bgretire_test autoquiet_test framepush_test touchfit_test logindex_test dex_test
+TESTS := remote_id_test ibeacon_test signatures_test emitter_roundtrip_test ignore_list_test hacker_test pwnagotchi_test shim_fidelity_test squachmesh_test qwerty_test meshmsg_test device_info_test security_test emote_script_test blackbox_test bingo_test hunt_test bgretire_test autoquiet_test framepush_test touchfit_test logindex_test dex_test regulars_test
 
 # Only the units under test get linked in. Pulling the whole firmware
 # would drag in TFT_eSPI, NimBLE and the UI, and a test that needs a
@@ -58,7 +58,9 @@ blackbox_test_FLAGS          := -DBLACKBOX_TEST
 # One LOG row per device, over the same RAM flash.
 logindex_test_SRCS           := $(SRC)/blackbox.cpp $(SRC)/log_index.cpp
 # The DEX's cards and the record, through the Preferences shim; the clock is stubbed.
-dex_test_SRCS                := $(SRC)/dex.cpp
+dex_test_SRCS                := $(SRC)/dex.cpp $(SIM)/detection_sim.cpp $(SRC)/remote_id.cpp
+# The neighbours table; the clock is stubbed.
+regulars_test_SRCS           := $(SRC)/regulars.cpp
 # The card: winnable, and it keeps what it earned. The clock is stubbed in
 # the test; the engine comes along for its lifetime counts.
 bingo_test_SRCS              := $(SRC)/bingo.cpp $(SIM)/detection_sim.cpp $(SRC)/remote_id.cpp

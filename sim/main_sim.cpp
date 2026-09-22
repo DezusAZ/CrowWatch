@@ -39,6 +39,7 @@
 #include "ui_bingo.h"
 #include "ui_dex.h"
 #include "dex.h"
+#include "regulars.h"
 #include "bingo.h"
 #include "blackbox.h"
 #include "ui_meshwarn.h"
@@ -112,6 +113,9 @@ static void seedDetections(DetectionEngine& eng) {
         d.active    = (i >= 4) ? false : true;
         d.prevRssi  = (int8_t)(d.rssi - (i % 3 == 0 ? 7 : (i % 3 == 1 ? -8 : 1)));
         eng.postBle(d);
+        // The Ring is a regular: seen on three days, so the LOG names it.
+        if (seeds[i].type == DetectionType::RING)
+            for (uint32_t day = 20000; day < 20003; day++) Regulars::noteOnDay(d.mac, d.type, day);
     }
 
     // Give the drone an actual Remote ID broadcast to have decoded.
@@ -425,6 +429,7 @@ int main(int argc, char** argv) {
 
     Settings::load();
     Clock::begin();
+    Regulars::begin();
     // Settings' own cycle* mutators are the only public way in, so walk
     // them to the requested index rather than reaching past the API.
     if (themeIdx >= 0) while ((int)Settings::paletteIndex() != themeIdx % (int)Theme::PALETTE_COUNT) Settings::cyclePalette();

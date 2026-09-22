@@ -7,6 +7,7 @@
 #include "blackbox.h"
 #include "detection.h"
 #include "log_index.h"
+#include "regulars.h"
 #include <Arduino.h>
 #include <ctype.h>
 #include <string.h>
@@ -439,19 +440,23 @@ switch (Settings::background()) {
         // driver: the timestamp is drawn already and text written past it
         // would land on top of it. Two characters of margin at each end
         // keep the columns visibly separate at a glance.
-        if (d->name[0]) {
+        // A regular's neighbour-name comes first, in pink, then whatever the
+        // device calls itself. "Gary" on its own when it calls itself nothing.
+        const char* reg = Regulars::nameFor(d->mac);
+        if (d->name[0] || reg) {
             const int nameX   = labelEnd + 8;
             const int nameMax = (w - tw - 14) - 6 - nameX;
             if (nameMax > 0) {
-                char nm[sizeof(d->name)];
-                strncpy(nm, d->name, sizeof(nm) - 1);
-                nm[sizeof(nm) - 1] = '\0';
+                char nm[sizeof(d->name) + 16];
+                if (reg && d->name[0]) snprintf(nm, sizeof nm, "%s: %s", reg, d->name);
+                else if (reg)          snprintf(nm, sizeof nm, "%s", reg);
+                else                   snprintf(nm, sizeof nm, "%s", d->name);
                 while (nm[0] && t.textWidth(nm) > nameMax) nm[strlen(nm) - 1] = '\0';
                 if (nm[0]) {
                     // Centred against the size-2 type label beside it.
                     // Sharing its top edge would leave the small text
                     // hanging off the cap height of the big text.
-                    t.setTextColor(kept ? dim : Theme::WHITE, Theme::BG);
+                    t.setTextColor(kept ? dim : (reg ? Theme::VAPOR_PINK : Theme::WHITE), Theme::BG);
                     t.setCursor(nameX, y + topPad + (nameH - detailH) / 2);
                     t.print(nm);
                 }

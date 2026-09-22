@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include "state.h"
 
+class DetectionEngine;
+
 namespace Dex {
 
 static const uint8_t ENTRIES = (uint8_t)DetectionType::COUNT - 1;   // UNKNOWN has no card
@@ -47,6 +49,14 @@ struct Record {
     uint16_t night;        // catches between eleven and five
 };
 const Record& record(DetectionType t);
+
+// A new closest was just set for this type (a real improvement on a
+// previous best, not the first reading). True once per improvement.
+bool takeNewClosest(DetectionType t);
+
+// His nemesis: the type caught most, once it has been caught ten times.
+// UNKNOWN until then.
+DetectionType nemesis(const DetectionEngine& eng);
 
 // Everything back to zero. RESET STATS does this beside the lifetime counts.
 void reset();

@@ -37,6 +37,8 @@
 #include "bingo.h"
 #include "dex.h"
 #include "ui_dex.h"
+#include "regulars.h"
+#include "notices.h"
 #include "theme.h"            // the crash card on the splash
 #include "clock.h"            // ...and the ten-minute IGNORE on it
 
@@ -1212,6 +1214,15 @@ static bool s_alertArmed = true;
 // main screen: his bubble lives there, not on the card.
 static char s_firstLine[64] = "";
 
+// Every catch Squachy hears about goes through here, so the things the
+// engine's numbers do not carry -- the device's neighbour-name, whether the
+// type is his nemesis, whether it came closer than ever -- reach him too.
+static void squachyCatch(DetectionType type, const uint8_t* mac, uint32_t hits, int8_t rssi, Confidence conf) {
+    Squachy::catchContext(Regulars::nameFor(mac), Regulars::takeNewRegular(mac),
+                          Dex::nemesis(engine) == type, Dex::takeNewClosest(type));
+    Squachy::trigger(Squachy::Event::DETECTION, type, engine.lifetimeTotal(), hits, rssi, conf);
+}
+
 static void enterAlert(const Detection& d) {
     s_backToDesk = (state == AppState::DESK);
     state = AppState::ALERT;
@@ -2228,6 +2239,8 @@ void setup() {
     // type sits out, and those are read in init().
     Bingo::begin(engine);
     Dex::begin();
+    Regulars::begin();
+    Squachy::setIdleProvider([]() { return Notices::idleLine(engine); });
 #if SQUACH_MESH
     // After the radio is up and before anything can ask whether messages are
     // ready: this is where the crypto self-test runs, on the real cipher,
@@ -2450,6 +2463,7 @@ void loop() {
 #endif
     Bingo::tick(now);
     Dex::tick(now);
+    Regulars::tick(now);
     {
         DetectionType bt = DetectionType::UNKNOWN;
         char sub[40];
@@ -3365,7 +3379,7 @@ void loop() {
                         // dismiss step once you'd already read the
                         // explanation.
                         s_infoPending = false;
-                        Squachy::trigger(Squachy::Event::DETECTION, lastAlertType, engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                        squachyCatch(lastAlertType, s_alertMac, lastAlertHits, lastAlertRssi, lastAlertConf);
                         enterClear();
                     }
                 }
@@ -3401,8 +3415,7 @@ void loop() {
                     lastTouch = now;
                     if (IgnoreList::contains(s_alertMac)) IgnoreList::remove(s_alertMac);
                     else                                  IgnoreList::add(s_alertMac, lastAlertType);
-                    Squachy::trigger(Squachy::Event::DETECTION, lastAlertType,
-                                     engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                    squachyCatch(lastAlertType, s_alertMac, lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterClear();
                 } else if (uiAlertHitSnooze(tp.x, tp.y, tft.width(), tft.height())) {
                     // This device, until the board restarts: no more alerts
@@ -3413,8 +3426,7 @@ void loop() {
                     lastTouch = now;
                     IgnoreList::snooze(s_alertMac);
                     Theme::showToast("SNOOZED", "This one, until restart", Theme::AMBER);
-                    Squachy::trigger(Squachy::Event::DETECTION, lastAlertType,
-                                     engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                    squachyCatch(lastAlertType, s_alertMac, lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterClear();
                 } else if (uiAlertHitHunt(tp.x, tp.y, tft.width(), tft.height())) {
                     // Same call pair LOG's confirm panel makes. The
@@ -3426,14 +3438,14 @@ void loop() {
                     // on the info panel) both fire it.
                     if (s_alertIsBle) engine.huntBle(s_alertMac, s_alertLabel);
                     else              engine.huntWifi(s_alertMac, s_alertLabel);
-                    Squachy::trigger(Squachy::Event::DETECTION, lastAlertType, engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                    squachyCatch(lastAlertType, s_alertMac, lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterHunt();
                 } else {
-                    Squachy::trigger(Squachy::Event::DETECTION, lastAlertType, engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                    squachyCatch(lastAlertType, s_alertMac, lastAlertHits, lastAlertRssi, lastAlertConf);
                     enterClear();
                 }
             } else if ((now - alertStart) > ALERT_AUTO_DISMISS_MS) {
-                Squachy::trigger(Squachy::Event::DETECTION, lastAlertType, engine.lifetimeTotal(), lastAlertHits, lastAlertRssi, lastAlertConf);
+                squachyCatch(lastAlertType, s_alertMac, lastAlertHits, lastAlertRssi, lastAlertConf);
                 enterClear();
             }
             break;
@@ -3917,6 +3929,7 @@ void loop() {
                         } else if (pending == SettingsRow::RESET_STATS) {
                             engine.resetLifetime();
                             Dex::reset();
+                            Regulars::reset();
                         } else if (pending == SettingsRow::BORING_MODE) {
                             Settings::toggleBoringMode();
                         } else if (pending == SettingsRow::REPLAY_INTRO) {
@@ -4943,8 +4956,7 @@ void loop() {
                     alertMayInterrupt(*latest)) {
                     uiDeskAlert(*latest, now);
                     lastAlertType = latest->type;
-                    Squachy::trigger(Squachy::Event::DETECTION, latest->type, engine.lifetimeTotal(),
-                                     latest->hits, latest->rssi, latest->conf);
+                    squachyCatch(latest->type, latest->mac, latest->hits, latest->rssi, latest->conf);
                 }
             }
             // The toast goes inside: anything drawn after the bands are

@@ -152,6 +152,12 @@ void drawCard(TFT_eSPI& t, int w, int h, const DetectionEngine& eng) {
     t.setTextColor(Theme::W95_SHADOW, panelFill());
     t.setCursor(bx + boxW - t.textWidth(Dex::kind(type)) - 2, by + boxH - t.fontHeight() - 1);
     t.print(Dex::kind(type));
+    if (have && Dex::nemesis(eng) == type) {
+        // The type he has caught most: his sworn enemy, stamped on the card.
+        t.setTextColor(Theme::RED, panelFill());
+        t.setCursor(bx + 3, by + boxH - t.fontHeight() - 1);
+        t.print("NEMESIS");
+    }
 
     // The record, in a panel of its own under the icon; and the text column
     // in one beside it (or below, in portrait), sized from what it holds.

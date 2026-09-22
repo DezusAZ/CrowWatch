@@ -38,6 +38,17 @@ namespace Squachy {
     // conf is the matched SIGNATURE's grade, not the type's -- he reads a
     // percentage out loud, so quoting the type's would misstate exactly the
     // hits the per-entry split exists to be honest about.
+    // What main.cpp knows about a catch that the engine's numbers do not:
+    // set right before a DETECTION trigger, spent by it. `regular` is the
+    // device's neighbour-name or null; `newRegular` that it just earned one;
+    // `nemesis` that the type is his most-caught; `newClosest` that it came
+    // closer than any of its kind before.
+    void catchContext(const char* regular, bool newRegular, bool nemesis, bool newClosest);
+    // Somewhere to get an idle line from that knows more than he does --
+    // see notices.h. Called from the idle roll a third of the time; null
+    // means "nothing this time" and the usual pools carry on.
+    typedef const char* (*IdleProvider)();
+    void setIdleProvider(IdleProvider fn);
     void trigger(Event evt, DetectionType dt = DetectionType::UNKNOWN,
                  uint32_t lifetimeTotal = 0, uint32_t hitCount = 1,
                  int8_t rssi = 0,

@@ -1,6 +1,7 @@
 // SquachWatch-CYD — the SQUACHY-DEX's entries and this board's record.
 #include "dex.h"
 #include "clock.h"
+#include "detection.h"
 #include <Preferences.h>
 #include <Arduino.h>
 #include <string.h>
@@ -113,6 +114,7 @@ const Entry ENTRY[ENTRIES] = {
 };
 
 Record   s_rec[ENTRIES];
+bool     s_newBest[ENTRIES];
 bool     s_dirty   = false;
 uint32_t s_changed = 0;
 bool     s_began   = false;
@@ -155,7 +157,7 @@ const char* hint(DetectionType t)      { return entry(t).hint; }
 const char* radio(DetectionType t)     { return entry(t).radio; }
 
 void begin() {
-    for (uint8_t i = 0; i < ENTRIES; i++) emptyRecord(s_rec[i]);
+    for (uint8_t i = 0; i < ENTRIES; i++) { emptyRecord(s_rec[i]); s_newBest[i] = false; }
     s_prefs.begin(NS, false);
     // A short read means the type list has grown since it was written; take
     // what is there and leave the rest empty.
@@ -177,7 +179,10 @@ void note(DetectionType t, int8_t rssi) {
         r.lastEpoch = e;
         if (Clock::night() && r.night < 0xFFFF) r.night++;
     }
-    if (rssi > r.bestRssi) r.bestRssi = rssi;
+    if (rssi > r.bestRssi) {
+        if (r.bestRssi > -128) s_newBest[i] = true;   // an improvement, not a first
+        r.bestRssi = rssi;
+    }
     s_dirty = true;
     s_changed = millis();
 }
@@ -197,8 +202,25 @@ const Record& record(DetectionType t) {
     return s_rec[i];
 }
 
+bool takeNewClosest(DetectionType t) {
+    const uint8_t i = indexOf(t);
+    if (i >= ENTRIES || !s_newBest[i]) return false;
+    s_newBest[i] = false;
+    return true;
+}
+
+DetectionType nemesis(const DetectionEngine& eng) {
+    DetectionType best = DetectionType::UNKNOWN;
+    uint32_t n = 9;   // ten or more to count
+    for (uint8_t i = 0; i < ENTRIES; i++) {
+        const uint32_t c = eng.lifetimeTypeCount(typeAt(i));
+        if (c > n) { n = c; best = typeAt(i); }
+    }
+    return best;
+}
+
 void reset() {
-    for (uint8_t i = 0; i < ENTRIES; i++) emptyRecord(s_rec[i]);
+    for (uint8_t i = 0; i < ENTRIES; i++) { emptyRecord(s_rec[i]); s_newBest[i] = false; }
     s_dirty = false;
     if (s_began) s_prefs.putBytes(KEY, s_rec, sizeof s_rec);
 }
