@@ -32,6 +32,13 @@ CYAN  = (0, 214, 214)
 # ---- the clips ----
 
 CLIPS = {
+    # v1.19.1 "Crash Override": the WiFi update that finishes, the label he
+    # reads now, and the shark suit that survives a visit.
+    "crash-override": [
+        ("sysprops", 20, 24, ["--tab", "0"],                                                  {}, 1500, "THE WIFI UPDATE FINISHES NOW. ALL OF IT."),
+        ("sysprops", 20, 24, ["--tab", "0"],                                                  {}, 1500, "ON 1.13 TO 1.19? DO THIS ONE BY USB OR BLUETOOTH"),
+        ("clear",    60, 36, ["--peer", "14", "--peername", "STOMPY", "--noseed", "--bg", "6"], {}, 1500, "THE SHARK SUIT SURVIVES THE TRIP"),
+    ],
     # v1.19.0 "Neighbourhood Watch": the regulars, the nemesis, what he
     # notices, the seven moves, the shark. The moves come from SHOW OFF: the
     # emulator runs it at half tempo, so a step is ~34 frames from frame 204.
