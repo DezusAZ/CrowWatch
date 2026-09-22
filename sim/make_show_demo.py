@@ -32,6 +32,17 @@ CYAN  = (0, 214, 214)
 # ---- the clips ----
 
 CLIPS = {
+    # v1.19.0 "Neighbourhood Watch": the regulars, the nemesis, what he
+    # notices, the seven moves, the shark. The moves come from SHOW OFF: the
+    # emulator runs it at half tempo, so a step is ~34 frames from frame 204.
+    "neighbourhood-watch": [
+        ("clear", 716, 32, ["--showoff", "--noseed", "--bg", "6"],  {},  700, "HE HEARD SOMETHING. HE ALWAYS HEARS SOMETHING."),
+        ("clear", 750, 30, ["--showoff", "--noseed", "--bg", "6"],  {},  700, "HE TRIPS OVER NOTHING. DON'T MENTION IT."),
+        ("clear", 922, 34, ["--showoff", "--noseed", "--bg", "6"],  {},  900, "FLICK HIM. GO ON. HE WALKS BACK. SLOWLY."),
+        ("log",    20, 24, [],                                       {}, 1500, "THE RING YOU PASS EVERY DAY IS CALLED VERN NOW"),
+        ("dex",    20, 24, ["--pose", "6", "--bg", "4"],             {}, 1500, "THE ONE YOU CATCH MOST IS HIS NEMESIS"),
+        ("clear",  60, 36, ["--outfit", "14", "--noseed", "--bg", "10"], {}, 1300, "THE SHARK GOT AN OUTLINE. AND NOSTRILS."),
+    ],
     # v1.18.0 "Field Guide": the SQUACHY-DEX, the LOG showing each device once,
     # and the tap that has to be quick.
     "field-guide": [
