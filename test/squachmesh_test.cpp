@@ -51,11 +51,12 @@ int main() {
         ck("it is not custom",   !p.custom);
         ck("the name is empty",  p.name[0] == '\0');
 
-        n = encode(mk(9, 13, 3, "STOMPY"), buf);
+        // 14 is the shark suit, the last outfit: it once clamped to NONE.
+        n = encode(mk(9, 14, 3, "STOMPY"), buf);
         ck("a named payload is 20 bytes", n == LEN_NAMED);
         ck("it decodes", decode(buf, n, p));
         ck("nickname survives",  p.nick == 9);
-        ck("outfit survives",    p.outfit == 13);
+        ck("outfit survives",    p.outfit == 14);
         ck("shades survive",     p.shade == 3);
         ck("it is custom",       p.custom);
         ck("the name survives",  strcmp(p.name, "STOMPY") == 0);
@@ -185,12 +186,13 @@ int main() {
 
     suite("Unknown indices clamp rather than refuse");
     {
-        // Four bits hold 0..15; this build has 10 nicknames and 14 outfits.
+        // Four bits hold 0..15; this build has 10 nicknames and 15 outfits.
         // A peer on newer firmware is a wrong hat, not an attack.
         size_t n = encode(mk(15, 15, 3, nullptr), buf);
         ck("a payload with out-of-range indices still decodes", decode(buf, n, p));
-        ck("nickname lands in range", p.nick < 10);
-        ck("outfit lands in range",   p.outfit < 14);
+        ck("nickname lands in range", p.nick < NICK_N);
+        ck("outfit lands in range",   p.outfit < OUTFIT_N);
+        ck("the last real outfit is not clamped", OUTFIT_N == 15);
         ck("shades land in range",    p.shade < 4);
     }
 

@@ -18,12 +18,6 @@
 
 namespace SquachMesh {
 
-// Counts in this build. Only used to clamp on decode -- see the note in the
-// header about version skew being a wrong hat rather than an attack.
-static const uint8_t NICK_N   = 10;
-static const uint8_t OUTFIT_N = 14;
-static const uint8_t SHADE_N  = 4;
-
 static inline uint8_t maskOf(uint8_t bits) { return (uint8_t)((1u << bits) - 1u); }
 
 // Printable ASCII only, the same rule and the same reason as the pwnagotchi

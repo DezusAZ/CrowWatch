@@ -21,6 +21,7 @@ static inline uint32_t tempo(uint32_t ms) { return ms * s_tempoPct / 100; }
 #include "void_eye.h"
 #if SQUACH_MESH
 #include "emote_script.h"   // spokenName, for the banter
+#include "squachmesh.h"     // OUTFIT_N, checked against OutfitId::COUNT below
 #endif
 #include <Arduino.h>
 #include <Preferences.h>
@@ -1030,6 +1031,12 @@ static const OutfitDef OUTFITS[] = {
 };
 static const uint8_t OUTFITS_N = sizeof(OUTFITS) / sizeof(OUTFITS[0]);
 static_assert(OUTFITS_N == (uint8_t)OutfitId::COUNT, "OUTFITS must match OutfitId");
+#if SQUACH_MESH
+// The mesh clamps a visitor's outfit index to what this build can draw. If
+// a new outfit lands here without that count moving, the newest outfit
+// wraps to NONE on every visit -- which is how the shark suit went missing.
+static_assert(SquachMesh::OUTFIT_N == (uint8_t)OutfitId::COUNT, "SquachMesh::OUTFIT_N must match OutfitId::COUNT");
+#endif
 
 // Was a prefix count -- "how many from the front of the list qualify" --
 // which only works while every outfit is gated on the same ascending
