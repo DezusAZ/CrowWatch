@@ -24,7 +24,7 @@ namespace {
 const char* NVS_NS = "otawifi";
 const uint32_t JOIN_TIMEOUT_MS  = 20000;
 const uint32_t STALL_TIMEOUT_MS = 15000;
-const uint32_t TASK_STACK       = 12288;   // the TLS handshake is the deep part
+const uint32_t TASK_STACK       = 8192;    // measured 3.2 KB used over a whole plain-HTTP update (was 12 KB, sized for TLS)
 
 volatile State s_state   = State::OFF;
 volatile Fail  s_fail    = Fail::NONE;
@@ -372,8 +372,10 @@ void download() {
         return;
     }
     http.setTimeout(STALL_TIMEOUT_MS);
+        Serial.printf("[ota] heap before GET: %lu free, largest %lu\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     const int code = http.GET();
     const int size = http.getSize();
+        Serial.printf("[ota] heap after GET: %lu free, largest %lu\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     if (code != 200 || size <= 0) {
         Serial.printf("[ota] firmware: HTTP %d, size %d\n", code, size);
         http.end();
@@ -383,15 +385,28 @@ void download() {
     Fail f = OtaCore::begin((uint32_t)size, s_sig, s_sigLen);
     if (f != Fail::NONE) { http.end(); fail(f); return; }
     s_size = (uint32_t)size;
+        Serial.printf("[ota] heap after ota begin: %lu free, largest %lu\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
     uint8_t* buf = (uint8_t*)malloc(4096);
-    if (!buf) { http.end(); OtaCore::abort(); fail(Fail::LOW_MEMORY); return; }
+    if (!buf) {
+        Serial.printf("[ota] no room for the download buffer: heap %lu largest %lu\n",
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        http.end(); OtaCore::abort(); fail(Fail::LOW_MEMORY); return;
+    }
     WiFiClient* s = http.getStreamPtr();
     uint32_t last = millis();
+    // Every 256 KB, and at the end: how far, how fast, and how much room is
+    // left. "The download stopped" on its own said nothing about which of
+    // the two exits below took it, or how far it had got.
+    const uint32_t t0 = millis();
+    uint32_t nextMark = 262144;
+    const char* why = "complete";
     while (s_rx < s_size && !s_cancel && s_state == State::DOWNLOADING) {
         const int a = s->available();
         if (a <= 0) {
-            if (!http.connected() || millis() - last > STALL_TIMEOUT_MS) break;
+            if (!http.connected())                 { why = "connection closed"; break; }
+            if (millis() - last > STALL_TIMEOUT_MS) { why = "no data for 15 s";  break; }
             delay(5);
             continue;
         }
@@ -406,6 +421,22 @@ void download() {
         }
         s_rx += (uint32_t)r;
         last = millis();
+        if (s_rx >= nextMark) {
+            nextMark += 262144;
+            const uint32_t el = millis() - t0;
+            Serial.printf("[ota] rx %lu/%lu  %lu KB/s  heap %lu largest %lu\n", (unsigned long)s_rx,
+                          (unsigned long)s_size, (unsigned long)(el ? s_rx / el : 0),
+                          (unsigned long)ESP.getFreeHeap(),
+                          (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        }
+    }
+    if (s_rx < s_size) {
+        const uint32_t el = millis() - t0;
+        Serial.printf("[ota] download ended: %s at %lu/%lu after %lu ms (last data %lu ms ago), "
+                      "connected %d, heap %lu largest %lu\n", why, (unsigned long)s_rx, (unsigned long)s_size,
+                      (unsigned long)el, (unsigned long)(millis() - last), http.connected() ? 1 : 0,
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     free(buf);
     http.end();
@@ -425,6 +456,13 @@ void run(void*) {
     Clock::syncStop();
     WiFi.disconnect(false, false);
     delay(100);
+    // Bench diagnosis: a drop mid-update names its reason (200 beacon
+    // timeout, 2 auth expired, 201 no AP found, 15 handshake).
+    const wifi_event_id_t dropEv = WiFi.onEvent(
+        [](arduino_event_id_t, arduino_event_info_t info) {
+            Serial.printf("[ota] WiFi dropped mid-update, reason %u\n", (unsigned)info.wifi_sta_disconnected.reason);
+        },
+        ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     if (join()) {
         // The password has done its job; it only lives on in NVS if saved.
         memset(s_pass, 0, sizeof s_pass);
@@ -443,7 +481,10 @@ void run(void*) {
     // hopping channels, which an association would fight over, and the board
     // no longer restarts when update mode ends -- so the association goes
     // rather than the board.
+    WiFi.removeEvent(dropEv);
     WiFi.disconnect(false, false);
+    Serial.printf("[ota] update task stack: %u of %u bytes never used\n",
+                  (unsigned)(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)), (unsigned)TASK_STACK);
     s_task = nullptr;
     vTaskDelete(nullptr);
 }
@@ -625,6 +666,9 @@ void connect(const char* ssid, const char* pass, bool save) {
     if (xTaskCreatePinnedToCore(run, "otawifi", TASK_STACK, nullptr, 1, &s_task, 1) != pdPASS) {
         s_task = nullptr;
         memset(s_pass, 0, sizeof s_pass);
+        Serial.printf("[ota] no room for the update task: %u wanted, heap %lu largest %lu\n", (unsigned)TASK_STACK,
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         fail(Fail::LOW_MEMORY);
     }
 }

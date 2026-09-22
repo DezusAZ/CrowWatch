@@ -1138,6 +1138,9 @@ static void enterBoot() {
 static bool s_scanPickerOpen = false;
 
 static void enterLocked();
+// The frame buffer lent to a WiFi download, and taken back; defined with the update code below.
+static void lendFrameToDownload();
+static void restoreFrameBuffer();
 // Every way home goes through here, which makes it the one place the lock has
 // to be honoured: while locked, "home" is the lock screen.
 // An ALERT opened from the desk's small card goes back to the desk when it
@@ -1157,6 +1160,7 @@ static bool onRawScanScreen() {
 }
 static void enterClear() {
     if (Security::locked()) { enterLocked(); return; }
+    restoreFrameBuffer();   // lent to a download that did not end in a restart
     if (s_backToDesk) { s_backToDesk = false; enterDesk(); return; }
     Settings::deskActive(false);
     Theme::releaseClockBackdrop();   // the clock fire's heat, if the desk had one
@@ -1314,6 +1318,7 @@ static void enterRawScan(bool isBle) {
 }
 
 static void enterSettings() {
+    restoreFrameBuffer();   // lent to a download that did not end in a restart
     Settings::deskActive(false);
     Theme::releaseClockBackdrop();
     state = AppState::SETTINGS;
@@ -1456,6 +1461,7 @@ static void autoUpdateTick(uint32_t now) {
             if (!OtaWifi::end()) { engine.stopUpdateRadio(); enterClear(); }
         } else {
             MeshTalk::markNudged();
+            lendFrameToDownload();
             OtaWifi::install();
         }
     } else if (ws == OtaWifi::State::FAILED) {
@@ -1473,27 +1479,59 @@ static void autoUpdateTick(uint32_t now) {
 #endif
 
 // The frame buffer, handed back: 77 KB at 320x240, the biggest single
-// allocation on the heap. Only the duress wipe does this now -- the board is
-// about to restart, and the copying the wipe does ran the heap dry without
+// allocation on the heap. The duress wipe does it because the board is
+// about to restart and the copying the wipe does ran the heap dry without
 // it. Afterwards the screens draw straight to the panel, the fallback a
 // failed rotate already uses.
-//
-// WiFi updates used to do it too, for a TLS handshake that wanted 17 KB in
-// one piece. The download is plain HTTP since v1.10.2 and needs no such
-// block, so an update now keeps the screen it is drawing on.
-#if HAVE_NVS_ERASE
-static void releaseFrameBuffer() {
+static void releaseFrameBuffer(const char* who) {
 #if !defined(CYD35)
     if (!frameBufferOk) return;
     frame.deleteSprite();
     frameBufferOk = false;
     canvas = &tft;
     tft.fillScreen(Theme::BG);
-    Serial.printf("[wipe] frame buffer released: largest block %lu\n",
+    Serial.printf("[%s] frame buffer released: largest block %lu\n", who,
                   (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#else
+    (void)who;
 #endif
 }
+
+// A WiFi download lends it out too. The buffer went back to being kept
+// through updates in v1.12.0, once plain HTTP had done away with the one
+// 17 KB block TLS wanted -- but it is not one block the download needs, it
+// is room: the WiFi driver and the TCP stack take every packet out of the
+// heap, and by v1.19.0 the board had 18 KB free and a 6 KB largest block
+// the moment the download began. The first 16-30 KB arrived, then nothing
+// could be received, and the connection closed. So the buffer is lent from
+// INSTALL until the board is back on an ordinary screen; the update screen
+// already knows how to draw without it. A successful update restarts; a
+// failed or cancelled one gets the buffer back on its way out, or, if the
+// heap will not give a 77 KB block again, draws unbuffered until a restart
+// (the same fallback a failed rotate takes).
+static bool s_frameLent = false;
+static void lendFrameToDownload() {
+    if (!frameBufferOk) return;
+    releaseFrameBuffer("ota");
+    s_frameLent = true;
+}
+static void restoreFrameBuffer() {
+    if (!s_frameLent) return;
+    s_frameLent = false;
+#if !defined(CYD35)
+    if (frameBufferOk) return;
+    frame.setColorDepth(8);
+    if (frame.createSprite(tft.width(), tft.height())) {
+        frame.setTextSize(1);
+        frameBufferOk = true;
+        canvas = &frame;
+        Serial.println("[ota] frame buffer back");
+    } else {
+        Serial.printf("[ota] frame buffer could not come back (largest block %lu); unbuffered until restart\n",
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    }
 #endif
+}
 
 static void enterWifiPass(const char* ssid) {
     state = AppState::WIFI_PASS;
@@ -1782,7 +1820,7 @@ static void performWipe(WipeBoot after) {
     // The frame buffer is 77 KB the wipe can have: the board restarts in a
     // moment and the screen is meant to go quiet anyway. Without it the copy
     // of the kept settings ran the heap dry.
-    releaseFrameBuffer();
+    releaseFrameBuffer("wipe");
     physicalNvsWipe();
     Serial.println("[wipe] done, restarting");
     Serial.flush();
@@ -4265,7 +4303,7 @@ void loop() {
                         break;
                     }
                     case UpdateHit::RESCAN:    OtaWifi::rescan();   break;
-                    case UpdateHit::INSTALL:   OtaWifi::install();  break;
+                    case UpdateHit::INSTALL:   lendFrameToDownload(); OtaWifi::install(); break;
                     case UpdateHit::TRY_AGAIN: OtaWifi::tryAgain(); break;
                     case UpdateHit::BT_START:
                         // The radio first: NimBLE will not register the update

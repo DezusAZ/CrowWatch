@@ -53,7 +53,15 @@ uint8_t                s_sigLen     = 0;
 // arrives. It sits inside what the signature covers, so it cannot be
 // rewritten by whoever is serving the file.
 const char SQW_IMAGE_VERSION[] = "SQWVER:" FIRMWARE_VERSION ";";
-const char             VER_TAG[]    = "SQWVER:";
+// The letters only. The colon is matched separately, so this literal -- which
+// is in the image too, right next to the marker -- is not itself a marker.
+// It used to be "SQWVER:", and the linker put it BEFORE the real marker: the
+// scan matched the tag, took the NUL after it as the version, and every
+// release "said it was" nothing. The step-backwards refusal never fired.
+// Every release up to v1.19.0 still carries that old literal, so the scan
+// also refuses to stop on a "version" that is empty or does not look like
+// one (a v or a digit first, printable to the end) and keeps looking.
+const char             VER_TAG[]    = "SQWVER";
 uint8_t                s_tagMatch   = 0;
 bool                   s_verTaking  = false;
 bool                   s_verFound   = false;
@@ -65,17 +73,33 @@ void scanVersion(const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         const char c = (char)data[i];
         if (s_verTaking) {
-            if (c == ';' || s_tagMatch >= sizeof s_imgVer - 1) {
+            if (c == ';') {
                 s_imgVer[s_tagMatch] = 0;
                 s_verTaking = false;
-                s_verFound  = true;
-                return;
+                if (s_tagMatch && (s_imgVer[0] == 'v' || (s_imgVer[0] >= '0' && s_imgVer[0] <= '9'))) {
+                    s_verFound = true;
+                    return;
+                }
+                s_imgVer[0] = 0;   // not a version: an old tag literal, or a bench format string
+                s_tagMatch  = 0;
+                continue;
+            }
+            if (c < 0x20 || c > 0x7E || s_tagMatch >= sizeof s_imgVer - 1) {
+                // Unprintable, or too long to be ours: not a marker. Start over.
+                s_verTaking = false;
+                s_imgVer[0] = 0;
+                s_tagMatch  = (c == VER_TAG[0]) ? 1 : 0;
+                continue;
             }
             s_imgVer[s_tagMatch++] = c;
             continue;
         }
-        if (c == VER_TAG[s_tagMatch]) {
-            if (++s_tagMatch == sizeof VER_TAG - 1) { s_tagMatch = 0; s_verTaking = true; }
+        if (s_tagMatch == sizeof VER_TAG - 1) {
+            // The six letters matched; only a colon makes it the marker.
+            if (c == ':') { s_tagMatch = 0; s_verTaking = true; }
+            else          s_tagMatch = (c == VER_TAG[0]) ? 1 : 0;
+        } else if (c == VER_TAG[s_tagMatch]) {
+            ++s_tagMatch;
         } else {
             s_tagMatch = (c == VER_TAG[0]) ? 1 : 0;
         }
@@ -505,7 +529,7 @@ const char* testSignature() {
 
 const char* testVersionDecision(const char* version) {
     char fake[64];
-    const int n = snprintf(fake, sizeof fake, "...SQWVER:%s;...", version ? version : "");
+    const int n = snprintf(fake, sizeof fake, "...%s%c%s;...", VER_TAG, ':', version ? version : "");
     s_tagMatch  = 0;
     s_verTaking = false;
     s_verFound  = false;
