@@ -248,11 +248,6 @@ public:
     // stopUpdateRadio(). Call startUpdateRadio() BEFORE OtaBle::begin().
     void     startUpdateRadio();
     void     stopUpdateRadio();
-    // The watch's duty cycle: WiFi off (and BLE scanning too, if asked)
-    // until wakeRadios(). False when something else owns the radio.
-    bool     restRadios(bool bleToo);
-    void     wakeRadios();
-    bool     radiosResting();
 
     // ---- Watched target ("stalker tracker") --------------------------
     // Session-only (not persisted to NVS -- resets on reboot). One

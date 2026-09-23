@@ -90,11 +90,6 @@ static void rowContent(PowerRow r, char* valBuf, size_t valBufN,
         case PowerRow::WAKE_ON_ALERT:
             label = "WAKE ON ALERT"; value = Settings::wakeOnAlert() ? "ON" : "OFF";
             break;
-#if defined(TWATCH_S3)
-        case PowerRow::RADIO_DUTY:
-            label = "RADIO DUTY"; value = Settings::radioDutyName(Settings::radioDutyRaw());
-            break;
-#endif
         default:
             label = "?";
             break;

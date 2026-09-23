@@ -39,11 +39,7 @@ static DetectionEngine* g_engine = nullptr;
 // -------- manual raw scanner state (see startRawBleScan/startRawWifiScan) --------
 // NONE = normal continuous signature-matched scanning (the default).
 // Only one of these is ever active at a time -- see stopRawScan().
-// REST is the watch's radio duty cycle: WiFi stopped, BLE scanning stopped
-// or left running (s_restBle). Detections that do arrive are handled as
-// usual, which is what sets it apart from UPDATE.
-enum class RawScanMode : uint8_t { NONE, BLE, WIFI, UPDATE, REST };
-static bool g_restBle = false;   // REST: is the BLE scan resting too?
+enum class RawScanMode : uint8_t { NONE, BLE, WIFI, UPDATE };
 static RawScanMode g_rawMode        = RawScanMode::NONE;
 static uint32_t    g_rawBleStartMs  = 0;
 // How long a raw BLE sweep stays open before the UI is told it's
@@ -774,9 +770,7 @@ static void setAdvertising(bool on, uint32_t now) {
 
 void radioTick(uint32_t now) {
     // Update mode owns the advertiser; see DetectionEngine::startUpdateRadio().
-    // Resting radios have nothing to advertise with unless BLE stayed up.
     if (g_rawMode == RawScanMode::UPDATE) return;
-    if (g_rawMode == RawScanMode::REST && g_restBle) return;
     // Our own address goes into the nonce of every message we send, so the
     // runtime needs it -- read once, after the stack is up, and copied out of
     // a named NimBLEAddress rather than through a pointer into a temporary.
@@ -880,8 +874,7 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     NimBLEScan* scan = NimBLEDevice::getScan();
     // Checked again here: a raw scan may have started, or scanning been
     // switched off, between the post and now.
-    if ((g_rawMode != RawScanMode::NONE && !(g_rawMode == RawScanMode::REST && !g_restBle)) ||
-        !scan || !scan->isScanning()) return;
+    if (g_rawMode != RawScanMode::NONE || !scan || !scan->isScanning()) return;
     // Measured across the stop alone -- start() may allocate, and that is not
     // what this number is for.
     const uint32_t before = ESP.getFreeHeap();
@@ -990,9 +983,7 @@ static void scanFlushTick() {
 }
 
 void DetectionEngine::loop() {
-    // Resting radios still take the BLE side of the loop when BLE is up;
-    // only the WiFi steps below are skipped, since WiFi is stopped.
-    if (g_rawMode != RawScanMode::NONE && g_rawMode != RawScanMode::REST) {
+    if (g_rawMode != RawScanMode::NONE) {
         // A raw scan owns the radio right now -- channel hopping here
         // would fight WiFi.scanNetworks()'s own hopping during a WIFI
         // sweep, and the WiFi promiscuous queue is empty anyway (it's
@@ -1004,11 +995,9 @@ void DetectionEngine::loop() {
     // After the raw-scan return above, so a raw scan that owns the radio is
     // never restarted out from under it.
     scanFlushTick();
-    if (g_rawMode != RawScanMode::REST) {
-        hopChannel();
-        processWiFiQ();
-        processDeauthQ();
-    }
+    hopChannel();
+    processWiFiQ();
+    processDeauthQ();
     expireStale();
     decayChannelActivity();
     saveLifetime(millis());
@@ -1405,44 +1394,6 @@ void DetectionEngine::stopUpdateRadio() {
     esp_wifi_set_promiscuous(true);
     if (s_updEvReady) ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_updStartEv);
 }
-
-// The watch's radio duty cycle. WiFi is stopped outright -- a started WiFi
-// radio draws most of its power just sitting there, and taking it out of
-// promiscuous mode alone saves almost nothing. BLE scanning stops too when
-// asked, or keeps going in the BLE-always mode, where trackers walking past
-// are the catches that cannot wait. Only from NONE: a raw scan or an update
-// owns the radio, and the cycle waits its turn.
-bool DetectionEngine::restRadios(bool bleToo) {
-    if (g_rawMode != RawScanMode::NONE) return false;
-    if (!s_updEvReady) {
-        ble_npl_event_init(&s_updStopEv,  updScanStopOnHost,  nullptr);
-        ble_npl_event_init(&s_updStartEv, updScanStartOnHost, nullptr);
-        s_updEvReady = true;
-    }
-    g_rawMode = RawScanMode::REST;
-    g_restBle = bleToo;
-    esp_wifi_set_promiscuous(false);
-    esp_wifi_stop();
-    if (bleToo) {
-#if SQUACH_MESH
-        Mesh::stopAdvertisingForUpdate();
-#endif
-        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_updStopEv);
-    }
-    return true;
-}
-
-void DetectionEngine::wakeRadios() {
-    if (g_rawMode != RawScanMode::REST) return;
-    g_rawMode = RawScanMode::NONE;
-    esp_wifi_start();
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_channel(_wifiChannel, WIFI_SECOND_CHAN_NONE);
-    if (g_restBle && s_updEvReady) ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_updStartEv);
-    g_restBle = false;
-}
-
-bool DetectionEngine::radiosResting() { return g_rawMode == RawScanMode::REST; }
 
 void DetectionEngine::watchBle(const uint8_t* mac, const char* name) {
     _watchKind = WatchKind::BLE;

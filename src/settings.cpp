@@ -118,12 +118,6 @@ static uint8_t  s_idleFpsIx    = 2;    // 12 fps
 static uint8_t  s_idleAfterIx  = 1;    // 10 s
 static uint8_t  s_cpuIx        = 0;    // 240 MHz, the stock clock
 static bool     s_wakeOnAlert  = true;
-// The watch's radio duty cycle: on for a few seconds, resting for the rest.
-// 0 ALWAYS, 1 five seconds of thirty, 2 ten of sixty, 3 BLE always on with
-// WiFi five of thirty. Watch only; the CYDs never read it.
-static const char* const RADIO_DUTY_NAMES[] = { "ALWAYS", "5/30", "10/60", "BLE+5/30" };
-static const uint8_t     RADIO_DUTY_N       = 4;
-static uint8_t  s_radioDutyIx  = 1;
 
 // ---- status light --------------------------------------------------------
 static bool    s_lightOn     = true;
@@ -177,13 +171,6 @@ uint8_t  idleFps()          { return s_powerSaver ? IDLE_FPS[s_idleFpsIx] : 0; }
 uint16_t idleAfterSec()     { return IDLE_AFTER[s_idleAfterIx]; }
 uint16_t cpuMhz()           { return s_powerSaver ? CPU_MHZ[s_cpuIx] : 240; }
 bool     wakeOnAlert()      { return s_wakeOnAlert; }
-uint8_t  radioDuty()        { return s_powerSaver ? s_radioDutyIx : 0; }
-uint8_t  radioDutyRaw()     { return s_radioDutyIx; }
-const char* radioDutyName(uint8_t ix) { return RADIO_DUTY_NAMES[ix < RADIO_DUTY_N ? ix : 0]; }
-void cycleRadioDuty() {
-    s_radioDutyIx = (uint8_t)((s_radioDutyIx + 1) % RADIO_DUTY_N);
-    s_prefs.putUChar("pwrRadio", s_radioDutyIx);
-}
 
 uint16_t screenTimeoutSecRaw() { return SCREEN_TIMEOUTS[s_scrTimeoutIx]; }
 uint8_t  idleFpsRaw()          { return IDLE_FPS[s_idleFpsIx]; }
@@ -323,8 +310,6 @@ void load() {
     s_idleAfterIx  = s_prefs.getUChar("pwrIdleT", 1);
     s_cpuIx        = s_prefs.getUChar("pwrCpu", 0);
     s_wakeOnAlert  = s_prefs.getBool("pwrWake", true);
-    s_radioDutyIx  = s_prefs.getUChar("pwrRadio", 1);
-    if (s_radioDutyIx >= RADIO_DUTY_N) s_radioDutyIx = 1;
     s_lightOn      = s_prefs.getBool("ltOn", true);
     s_lightAlerts  = s_prefs.getBool("ltAlert", true);
     s_lightMsgs    = s_prefs.getBool("ltMsg", true);
