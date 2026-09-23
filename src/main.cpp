@@ -900,9 +900,37 @@ static bool readTouchRaw(int16_t& a, int16_t& b) {
 // coming back from a reboot into a dimmed screen with no memory of why would
 // look exactly like a broken backlight.
 static bool s_screenDimmed = false;
+#if defined(TWATCH_S3)
+// A watch goes dark, not dim. When the screen timeout lands, the backlight
+// goes off and the ST7789 is put to sleep (DISPOFF, SLPIN: about a milliamp
+// instead of tens), and pushFrame() stops sending frames it would not show.
+// A tap or the crown wakes it: SLPOUT needs 120 ms before DISPON, which is
+// the one delay a person can feel here, and it is once per wake.
+static bool s_panelAsleep = false;
+#endif
 
 static void applyBrightness() {
     uint8_t duty = s_screenDimmed ? Settings::dimLevel() : Settings::brightness();
+#if defined(TWATCH_S3)
+    if (s_screenDimmed) {
+        if (!s_panelAsleep) {
+            ledcWrite(BL_CH_ORIG, 0);
+            tft.writecommand(0x28);   // DISPOFF
+            tft.writecommand(0x10);   // SLPIN
+            s_panelAsleep = true;
+            Serial.println("[panel] asleep");
+        }
+        return;
+    }
+    if (s_panelAsleep) {
+        tft.writecommand(0x11);   // SLPOUT
+        delay(120);
+        tft.writecommand(0x29);   // DISPON
+        s_panelAsleep = false;
+        FramePush::invalidate();
+        Serial.println("[panel] awake");
+    }
+#endif
     ledcWrite(BL_CH_ORIG, duty);
     ledcWrite(BL_CH_CAP,  duty);
     ledcWrite(BL_CH_AWOK, duty);
@@ -1891,9 +1919,32 @@ static void twatchPowerUp() {
     s_pmu.setBLDO2Voltage(3300); s_pmu.enableBLDO2();   // DRV2605 haptics
     s_pmu.disableDC2(); s_pmu.disableDC4(); s_pmu.disableDC5();
     s_pmu.disableDLDO2();
+    // The crown is the PMU's power key. A short press is read as an IRQ flag
+    // from the loop (see twatchCrownTick); a long press powers the watch off
+    // in the chip itself, which is what a watch's crown should do.
+    s_pmu.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
+    s_pmu.clearIrqStatus();
+    s_pmu.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ);
     delay(20);
     Serial.printf("[pmu] AXP2101 up: battery %d%%, %s\n", s_pmu.getBatteryPercent(),
                   s_pmu.isVbusIn() ? "on USB" : "on battery");
+}
+#endif
+
+#if defined(TWATCH_S3)
+// Polled ten times a second: one I2C read of the PMU's interrupt flags. A
+// short press of the crown counts as a touch, which is what wakes the screen
+// and holds off the timeout; nothing else is bound to it yet.
+static void twatchCrownTick(uint32_t now) {
+    static uint32_t at = 0;
+    if (!s_pmuOk || now - at < 100) return;
+    at = now;
+    s_pmu.getIrqStatus();
+    if (s_pmu.isPekeyShortPressIrq()) {
+        lastTouch = now;
+        Serial.println("[crown] short press");
+    }
+    s_pmu.clearIrqStatus();
 }
 #endif
 
@@ -2459,12 +2510,16 @@ static void runPrimBench() {
 // tell whether a change to that clock did what the arithmetic claims.
 static uint32_t s_pushUsAvg  = 0;
 static uint32_t s_frameUsAvg = 0;
+static uint32_t s_loopsSinceSay = 0;
 static uint32_t s_pushAccumUs = 0;   // summed within a frame: cyd35 pushes twice
 #if defined(CYD35)
 static uint32_t s_bandUs[2] = {0, 0};      // measurement: the 3.5"'s two draw passes
 #endif
 
 static inline void pushFrame(int x, int y) {
+#if defined(TWATCH_S3)
+    if (s_panelAsleep) return;   // nothing to show it to; see applyBrightness()
+#endif
     uint32_t t0 = micros();
     // The overlapped push converts the next 64 bytes while the previous 64
     // are on the wire, instead of spinning -- see frame_push.h. It declines
@@ -2553,10 +2608,14 @@ void loop() {
     // is the only way in for the one serial command the firmware takes.
     Clock::pollSerial();
     uint32_t frameStartUs = micros();
+    s_loopsSinceSay++;   // the real loop rate, pacing delays included; on the [frame] line
     FrameProf::begin();
     s_pushAccumUs = 0;
     FramePush::newFrame();
     uint32_t now = millis();
+#if defined(TWATCH_S3)
+    twatchCrownTick(now);
+#endif
     Clock::tick(now);   // the note to self, when it is due
 #if SQUACH_MESH && defined(BENCH_TOOLS)
     if (g_benchUpdateNow && (state == AppState::CLEAR || state == AppState::DESK)) {
@@ -5307,6 +5366,8 @@ void loop() {
         static uint32_t lastFrameSay = 0;
         if (s_frameUsAvg && now - lastFrameSay >= 10000) {
             lastFrameSay = now;
+            const uint32_t loopsPerS = s_loopsSinceSay / 10;
+            s_loopsSinceSay = 0;
             FrameProf::print();
 #if defined(CYD35)
             // Measurement, not a feature: where the 3.5"'s frame really goes.
@@ -5316,9 +5377,9 @@ void loop() {
                           (long)FramePush::lastRows());
 #endif
             const volatile uint32_t* ak = advertKinds();
-            Serial.printf("[frame] avg %lu.%lu ms (%lu fps)  push %lu.%lu ms (%ld rows)  screen %u  bg %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
+            Serial.printf("[frame] avg %lu.%lu ms (%lu fps, loop %lu/s)  push %lu.%lu ms (%ld rows)  screen %u  bg %u  heap %lu/%lu  wifi %lu  ble %lu/s  adv %lu  kinds %lu/%lu/%lu/%lu/%lu  det %lu\n",
                           (unsigned long)(s_frameUsAvg / 1000), (unsigned long)((s_frameUsAvg / 100) % 10),
-                          (unsigned long)(1000000UL / s_frameUsAvg),
+                          (unsigned long)(1000000UL / s_frameUsAvg), (unsigned long)loopsPerS,
                           (unsigned long)(s_pushUsAvg / 1000), (unsigned long)((s_pushUsAvg / 100) % 10), (long)FramePush::lastRows(),
                           (unsigned)state, (unsigned)Settings::background(), (unsigned long)ESP.getFreeHeap(),
                           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
@@ -5374,6 +5435,14 @@ void loop() {
         // because the panel push is fast. On the 40 MHz build there is no idle
         // time left to hand over, so the faster SPI clock is what makes this
         // saving possible rather than something to trade against it.
+#if defined(TWATCH_S3)
+        // Asleep, the loop only needs to hear the radios and feel a tap:
+        // ten passes a second is plenty, and the rest of the time is idle.
+        if (s_panelAsleep) {
+            const uint32_t spentUs = micros() - frameStartUs;
+            if (spentUs < 100000UL) delay((100000UL - spentUs) / 1000UL);
+        }
+#endif
         const uint8_t fps = Settings::idleFps();
         if (fps && idleMs > (uint32_t)Settings::idleAfterSec() * 1000UL) {
             const uint32_t budgetUs = 1000000UL / fps;

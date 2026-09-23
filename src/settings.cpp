@@ -96,7 +96,15 @@ static const uint8_t  IDLE_AFTER_N      = sizeof(IDLE_AFTER) / sizeof(IDLE_AFTER
 static const uint16_t CPU_MHZ[]         = { 240, 160, 80 };
 static const uint8_t  CPU_MHZ_N         = sizeof(CPU_MHZ) / sizeof(CPU_MHZ[0]);
 
-static bool     s_powerSaver   = false;
+// On by default on the watch: a screen timeout is what makes a watch a
+// watch, and the rest of the saver's rows stay at their stock values until
+// someone changes them.
+#if defined(TWATCH_S3)
+static const bool DEFAULT_POWER_SAVER = true;
+#else
+static const bool DEFAULT_POWER_SAVER = false;
+#endif
+static bool     s_powerSaver   = DEFAULT_POWER_SAVER;
 static uint8_t  s_scrTimeoutIx = 2;    // 30 s
 static uint8_t  s_dimLevel     = 16;   // ~6%, dim but not off
 static uint8_t  s_idleFpsIx    = 2;    // 12 fps
@@ -288,7 +296,7 @@ void load() {
     // cycle out. Moved to the default rather than to DIGITAL -- it is what a
     // fresh device shows, and the two look nothing alike.
     if (s_background == Background::TUNNEL) s_background = Background::SYNTHWAVE;
-    s_powerSaver   = s_prefs.getBool("pwrOn", false);
+    s_powerSaver   = s_prefs.getBool("pwrOn", DEFAULT_POWER_SAVER);
     s_scrTimeoutIx = s_prefs.getUChar("pwrScrnT", 2);
     s_dimLevel     = s_prefs.getUChar("pwrDim", 16);
     s_idleFpsIx    = s_prefs.getUChar("pwrFps", 2);
