@@ -2509,6 +2509,20 @@ void setup() {
         BlackBox::noteBoot(br);
     }
 
+#if defined(TWATCH_S3)
+    // What the watch is like at the moment the radios start. A boot that
+    // ran the touch calibration first (radios ~40 s after reset) hears the
+    // room; a plain boot (radios ~2 s after reset) comes up deaf. Logged so
+    // the two can be compared, and so a hand-flashed test build can hold the
+    // radios back to see whether time alone is the cure.
+    Serial.printf("[boot] radios start at %lu ms; chip %.1f C\n", (unsigned long)millis(), temperatureRead());
+#if defined(SQW_RADIO_START_DELAY_MS)
+    Serial.printf("[boot] TEST BUILD: holding the radios back %u ms\n", (unsigned)SQW_RADIO_START_DELAY_MS);
+    serialFlush();
+    delay(SQW_RADIO_START_DELAY_MS);
+    Serial.printf("[boot] radios start at %lu ms; chip %.1f C\n", (unsigned long)millis(), temperatureRead());
+#endif
+#endif
     engine.init();
     // After the engine: the card leans on the lifetime counts to pick which
     // type sits out, and those are read in init().
