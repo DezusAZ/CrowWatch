@@ -4,7 +4,9 @@
 #include "security.h"   // a locked device takes no console commands
 #include "ota_wifi.h"    // the WIFI command lists the saved networks
 #include "detection.h"   // WINDOW N, for the bench; RADIO
+#if defined(ARDUINO_ARCH_ESP32)
 #include <esp_phy_init.h> // RADIO FULLCAL
+#endif
 #include "flood_bench.h" // FLOOD N, for the bench (a no-op outside FLOOD_BENCH builds)
 #include "settings.h"
 #include "crowd_bench.h"
@@ -482,6 +484,7 @@ void pollSerial() {
             Serial.printf("[radio] duty -> %s\n", Settings::radioDutyName(Settings::radioDutyRaw()));
             continue;
         }
+#if defined(ARDUINO_ARCH_ESP32)   // the radios themselves: nothing to ask in the emulator
         if (strcasecmp(line, "RADIO FULLCAL") == 0) {
             // Throw away the radio's saved tuning and restart: the next boot
             // has nothing to load, so it calibrates from scratch.
@@ -490,6 +493,7 @@ void pollSerial() {
             ESP.restart();
         }
         if (strncasecmp(line, "RADIO", 5) == 0) { radioReport(strcasestr(line, "SCAN") != nullptr); continue; }
+#endif
         if (strncasecmp(line, "ZONE ", 5) == 0) {
             // ZONE US EASTERN, or ZONE 4: the flasher sends the name it
             // worked out from the browser's own zone.
