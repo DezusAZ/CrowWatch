@@ -202,6 +202,13 @@ namespace Settings {
     bool       wakeOnAlert();
     void       toggleWakeOnAlert();
 
+    // The watch's radio duty cycle; see RADIO_DUTY_NAMES in settings.cpp.
+    // 0 when the saver is off. Watch only.
+    uint8_t     radioDuty();
+    uint8_t     radioDutyRaw();
+    const char* radioDutyName(uint8_t ix);
+    void        cycleRadioDuty();
+
     // ---- STATUS LIGHT ----------------------------------------------------
     // The RGB LED on the back of the 2.8" CYD. See status_light.h for the
     // rules it follows; these are only the knobs. Every one of them is

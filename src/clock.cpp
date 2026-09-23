@@ -49,6 +49,7 @@ extern volatile bool g_consoleInvert;
 extern volatile bool g_consoleRotate;
 extern volatile bool g_consoleBatt;
 extern volatile bool g_consoleBattLog;
+extern volatile bool g_consoleRadioTest;
 
 namespace Clock {
 
@@ -472,6 +473,7 @@ void pollSerial() {
         if (strcasecmp(line, "ROT") == 0)    { g_consoleRotate = true; continue; }
         if (strcasecmp(line, "BATT") == 0)    { g_consoleBatt = true; continue; }
         if (strcasecmp(line, "BATTLOG") == 0) { g_consoleBattLog = true; continue; }
+        if (strcasecmp(line, "RADIO TEST") == 0) { g_consoleRadioTest = !g_consoleRadioTest; Serial.printf("[radio] bench test %s\n", g_consoleRadioTest ? "ON: cycling on the cable, screen or not" : "OFF"); continue; }
         if (strncasecmp(line, "ZONE ", 5) == 0) {
             // ZONE US EASTERN, or ZONE 4: the flasher sends the name it
             // worked out from the browser's own zone.

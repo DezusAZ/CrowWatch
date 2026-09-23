@@ -22,6 +22,9 @@ enum class PowerRow : uint8_t {
     IDLE_AFTER,
     CPU_CLOCK,
     WAKE_ON_ALERT,
+#if defined(TWATCH_S3)
+    RADIO_DUTY,     // the watch only: the CYDs have no battery to duty-cycle for
+#endif
     COUNT,
     NONE = 255
 };

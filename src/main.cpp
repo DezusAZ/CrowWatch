@@ -907,6 +907,7 @@ static bool s_screenDimmed = false;
 // A tap or the crown wakes it: SLPOUT needs 120 ms before DISPON, which is
 // the one delay a person can feel here, and it is once per wake.
 static bool s_panelAsleep = false;
+static bool s_radiosResting = false;   // the duty cycle's state; see twatchRadioTick()
 #endif
 
 static void applyBrightness() {
@@ -1453,6 +1454,7 @@ static void enterInvite() {
 // INVERT and ROT on the console -- see clock.cpp. Consumed in loop().
 volatile bool g_consoleInvert = false;
 volatile bool g_consoleRotate = false;
+volatile bool g_consoleRadioTest = false; // RADIO TEST: cycle even on the cable with the screen on (bench)
 volatile bool g_consoleBatt    = false;   // BATT: one reading, now
 volatile bool g_consoleBattLog = false;   // BATTLOG: every sample kept, newest first
 
@@ -1914,11 +1916,32 @@ static void twatchPowerUp() {
     Wire1.begin(10, 11);
     s_pmuOk = s_pmu.begin(Wire1, AXP2101_SLAVE_ADDRESS, 10, 11);
     if (!s_pmuOk) { Serial.println("[pmu] AXP2101 did not answer -- screen may stay dark"); return; }
+    // The chip's own rail, set rather than assumed: a full power-off (a dead
+    // battery) puts the PMU back to its register defaults. It read 3300
+    // either way on 2026-09-23; the deaf radios that morning were not this.
+    s_pmu.enableVbusVoltageMeasure();
+    s_pmu.enableSystemVoltageMeasure();
+    s_pmu.enableBattVoltageMeasure();
+    Serial.printf("[pmu] DC1 %u mV (%s), ALDO4 %u mV, VBUS %u mV, SYS %u mV, VBUS limit code %u, charge code %u\n",
+                  (unsigned)s_pmu.getDC1Voltage(), s_pmu.isEnableDC1() ? "on" : "off",
+                  (unsigned)s_pmu.getALDO4Voltage(), (unsigned)s_pmu.getVbusVoltage(),
+                  (unsigned)s_pmu.getSystemVoltage(), (unsigned)s_pmu.getVbusCurrentLimit(),
+                  (unsigned)s_pmu.getChargerConstantCurr());
+    s_pmu.setDC1Voltage(3300);
+    // The USB input limit and the charge current. After a full power-off the
+    // PMU is back to its register defaults, and with the cell flat the
+    // system rail is whatever the USB path is allowed to pass: not enough
+    // for a radio burst. 500 mA from USB, 200 mA into the cell (LilyGo's
+    // own example uses 1500 and 200).
+    s_pmu.setVbusCurrentLimit(XPOWERS_AXP2101_VBUS_CUR_LIM_500MA);
+    s_pmu.setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_200MA);
+    s_pmu.setSysPowerDownVoltage(2600);
     s_pmu.setALDO1Voltage(3300); s_pmu.enableALDO1();   // RTC
     s_pmu.setALDO2Voltage(3300); s_pmu.enableALDO2();   // backlight supply
     s_pmu.setALDO3Voltage(3300); s_pmu.enableALDO3();   // touch
     s_pmu.setALDO4Voltage(3300); s_pmu.enableALDO4();   // radio
     s_pmu.setBLDO2Voltage(3300); s_pmu.enableBLDO2();   // DRV2605 haptics
+
     s_pmu.disableDC2(); s_pmu.disableDC4(); s_pmu.disableDC5();
     s_pmu.disableDLDO2();
     // The crown is the PMU's power key. A short press is read as an IRQ flag
@@ -1949,7 +1972,7 @@ static void twatchBatterySample(uint8_t why) {
     if (s_pmu.isVbusIn())   r.flags |= BlackBox::BATT_USB;
     if (s_pmu.isCharging()) r.flags |= BlackBox::BATT_CHARGING;
     if (!s_panelAsleep)     r.flags |= BlackBox::BATT_SCREEN_ON;
-    r.flags |= BlackBox::BATT_RADIOS_ON;   // nothing turns them off yet
+    if (!s_radiosResting)   r.flags |= BlackBox::BATT_RADIOS_ON;
     BlackBox::noteBattery(r);
     static const char* const WHY[] = { "timer", "boot", "usb", "screen" };
     Serial.printf("[batt] %u mV  %u%%  %s%s  screen %s  cpu %u MHz  up %lu s  (%s)\n",
@@ -1980,6 +2003,38 @@ static void twatchBatteryTick(uint32_t now) {
     const bool usb = s_pmu.isVbusIn();   // one I2C read, ten minutes apart
     if (usb != wasUsb) { wasUsb = usb; twatchBatterySample(BlackBox::BATT_WHY_USB); return; }
     twatchBatterySample(BlackBox::BATT_WHY_TIMER);
+}
+
+// The radio duty cycle. The radios are on the cable, on with the screen
+// (someone is looking), on through an alert, and on whenever anything else
+// has the radio (an update, a raw scan). Otherwise they run for the on part
+// of the cycle and rest for the rest of it. What "rest" means is the
+// engine's business: see DetectionEngine::restRadios().
+static void twatchRadioTick(uint32_t now) {
+    static uint32_t phaseAt = 0, usbAt = 0;
+    static bool     usb = true;
+    if (now - usbAt >= 2000) { usbAt = now; usb = s_pmuOk && s_pmu.isVbusIn(); }
+    const uint8_t duty = Settings::radioDuty();
+    const bool alerting = (state == AppState::ALERT || state == AppState::WATCH_ALERT);
+    const bool wantOn = duty == 0 || (!g_consoleRadioTest && (usb || !s_panelAsleep)) || alerting ||
+                        state == AppState::UPDATE || OtaWifi::state() != OtaWifi::State::OFF;
+    uint32_t onMs = 5000, offMs = 25000;
+    if (duty == 2) { onMs = 10000; offMs = 50000; }
+    if (wantOn) {
+        if (s_radiosResting) { engine.wakeRadios(); s_radiosResting = false; Serial.println("[radio] awake"); }
+        phaseAt = now;
+        return;
+    }
+    if (!s_radiosResting) {
+        if (now - phaseAt < onMs) return;
+        if (engine.restRadios(duty != 3)) {
+            s_radiosResting = true;
+            Serial.println(duty == 3 ? "[radio] resting: WiFi off, BLE on" : "[radio] resting: WiFi and BLE off");
+        }
+        phaseAt = now;   // either way: a refused rest tries again after another on-window
+    } else if (now - phaseAt >= offMs) {
+        engine.wakeRadios(); s_radiosResting = false; phaseAt = now;
+    }
 }
 
 // Polled ten times a second: one I2C read of the PMU's interrupt flags. A
@@ -2665,6 +2720,7 @@ void loop() {
     uint32_t now = millis();
 #if defined(TWATCH_S3)
     twatchCrownTick(now);
+    twatchRadioTick(now);
     twatchBatteryTick(now);
     if (g_consoleBatt) { g_consoleBatt = false; twatchBatterySample(BlackBox::BATT_WHY_TIMER); }
     if (g_consoleBattLog) {
@@ -5135,6 +5191,9 @@ void loop() {
                             applyCpuClock();
                             break;
                         case PowerRow::WAKE_ON_ALERT: Settings::toggleWakeOnAlert(); break;
+#if defined(TWATCH_S3)
+                        case PowerRow::RADIO_DUTY:    Settings::cycleRadioDuty(); break;
+#endif
                         default: break;
                     }
                 }
