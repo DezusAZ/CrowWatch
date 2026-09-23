@@ -123,6 +123,8 @@ BootHeap bootHeap();
 bool     scanPassiveNow();   // the scan is passive right now (the room, or heap pressure)
 uint32_t advertRate();       // adverts/s the radio handed over in the last second
 uint32_t wifiFramesSeen();   // frames the WiFi sniffer has been handed since boot
+void     radioReport(bool withScan);   // the RADIO console command
+extern char g_bootRadioLine[192];     // how the radios started this boot
 uint32_t advertsSeen();      // adverts the radio has handed over since boot, seatbelt or not
 const volatile uint32_t* advertKinds();   // [ind, direct, scan, nonconn, other] since boot
 // The scan window, 1..100 of the 100 ms interval, changed live: WINDOW N on
@@ -248,6 +250,11 @@ public:
     // stopUpdateRadio(). Call startUpdateRadio() BEFORE OtaBle::begin().
     void     startUpdateRadio();
     void     stopUpdateRadio();
+    // The watch's duty cycle: WiFi off (and BLE scanning too, if asked)
+    // until wakeRadios(). False when something else owns the radio.
+    bool     restRadios(bool bleToo);
+    void     wakeRadios();
+    bool     radiosResting();
 
     // ---- Watched target ("stalker tracker") --------------------------
     // Session-only (not persisted to NVS -- resets on reboot). One

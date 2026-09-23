@@ -3,7 +3,8 @@
 #include "serial_flush.h"
 #include "security.h"   // a locked device takes no console commands
 #include "ota_wifi.h"    // the WIFI command lists the saved networks
-#include "detection.h"   // WINDOW N, for the bench
+#include "detection.h"   // WINDOW N, for the bench; RADIO
+#include <esp_phy_init.h> // RADIO FULLCAL
 #include "flood_bench.h" // FLOOD N, for the bench (a no-op outside FLOOD_BENCH builds)
 #include "settings.h"
 #include "crowd_bench.h"
@@ -47,6 +48,10 @@ extern volatile bool g_benchUpdateStop;
 // from the console, for bringing up a panel nobody can read yet.
 extern volatile bool g_consoleInvert;
 extern volatile bool g_consoleRotate;
+extern volatile bool g_consoleBatt;
+extern volatile bool g_consoleBattLog;
+extern volatile bool g_consoleRadioTest;
+extern volatile bool g_consolePmu;
 
 namespace Clock {
 
@@ -91,15 +96,31 @@ static uint32_t rawNow() {
 // own. settimeofday puts it in the RTC domain, which keeps counting across
 // a software reset -- so a watchdog reboot, a panic, or the SD-card boot
 // loop does not take the time with it. A private static would.
+// A clock this far past the build is not set, it is stale: an ESP32-S3
+// keeps its system time across resets while the battery keeps it powered,
+// and the T-Watch arrived believing it was 2064 from whatever the factory
+// firmware left in the RTC. Trusted, that would have blocked every real
+// time offer (the mesh only corrects a clock that is NOT trusted). Six
+// years past the build date is the line.
+static uint32_t farFuture() {
+    static uint32_t limit = 0;
+    if (!limit) {
+        const char* d = __DATE__;          // "Sep 22 2026"
+        const int year = atoi(d + 7);
+        limit = (uint32_t)((year - 1970 + 6) * 365.25 * 86400.0);
+    }
+    return limit;
+}
 bool isSet() {
-    return rawNow() > kPlausible;
+    const uint32_t t = rawNow();
+    return t > kPlausible && t < farFuture();
 }
 bool trusted() { return isSet() && !s_guess; }
 bool guessed() { return isSet() && s_guess; }
 
 uint32_t nowEpoch() {
     const uint32_t t = rawNow();
-    return (t > kPlausible) ? t : 0u;
+    return (t > kPlausible && t < farFuture()) ? t : 0u;
 }
 
 // The first time this board knows the date, that date is kept: it is the
@@ -452,6 +473,23 @@ void pollSerial() {
         }
         if (strcasecmp(line, "INVERT") == 0) { g_consoleInvert = true; continue; }
         if (strcasecmp(line, "ROT") == 0)    { g_consoleRotate = true; continue; }
+        if (strcasecmp(line, "BATT") == 0)    { g_consoleBatt = true; continue; }
+        if (strcasecmp(line, "BATTLOG") == 0) { g_consoleBattLog = true; continue; }
+        if (strcasecmp(line, "RADIO TEST") == 0) { g_consoleRadioTest = !g_consoleRadioTest; Serial.printf("[radio] bench test %s\n", g_consoleRadioTest ? "ON: cycling on the cable, screen or not" : "OFF"); continue; }
+        if (strcasecmp(line, "PMU") == 0)    { g_consolePmu = true; continue; }
+        if (strcasecmp(line, "RADIO DUTY") == 0) {
+            Settings::cycleRadioDuty();
+            Serial.printf("[radio] duty -> %s\n", Settings::radioDutyName(Settings::radioDutyRaw()));
+            continue;
+        }
+        if (strcasecmp(line, "RADIO FULLCAL") == 0) {
+            // Throw away the radio's saved tuning and restart: the next boot
+            // has nothing to load, so it calibrates from scratch.
+            Serial.printf("[radio] erasing saved RF calibration: err %d; restarting\n", (int)esp_phy_erase_cal_data_in_nvs());
+            delay(300);
+            ESP.restart();
+        }
+        if (strncasecmp(line, "RADIO", 5) == 0) { radioReport(strcasestr(line, "SCAN") != nullptr); continue; }
         if (strncasecmp(line, "ZONE ", 5) == 0) {
             // ZONE US EASTERN, or ZONE 4: the flasher sends the name it
             // worked out from the browser's own zone.

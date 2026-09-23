@@ -907,6 +907,7 @@ static bool s_screenDimmed = false;
 // A tap or the crown wakes it: SLPOUT needs 120 ms before DISPON, which is
 // the one delay a person can feel here, and it is once per wake.
 static bool s_panelAsleep = false;
+static bool s_radiosResting = false;   // the duty cycle's state; see twatchRadioTick()
 #endif
 
 static void applyBrightness() {
@@ -1141,7 +1142,9 @@ static const bool DEFAULT_TOUCH_USABLE = false;
 static const bool DEFAULT_TOUCH_USABLE = true;
 #endif
 
+static bool s_calRanThisBoot = false;   // for the RADIO report on the watch
 static void runTouchCalibration() {
+    s_calRanThisBoot = true;
     TouchFit::Fit fit;
 #if defined(TWATCH_S3)
     TouchCal::setDensityScale(1.6f);   // 240 px across 27 mm, against the 2.8" board's 5.6 px/mm
@@ -1453,6 +1456,10 @@ static void enterInvite() {
 // INVERT and ROT on the console -- see clock.cpp. Consumed in loop().
 volatile bool g_consoleInvert = false;
 volatile bool g_consoleRotate = false;
+volatile bool g_consoleRadioTest = false; // RADIO TEST: cycle even on the cable with the screen on (bench)
+volatile bool g_consoleBatt    = false;   // BATT: one reading, now
+volatile bool g_consoleBattLog = false;   // BATTLOG: every sample kept, newest first
+volatile bool g_consolePmu = false;   // PMU: dump the power chip's registers (watch)
 
 #ifdef BENCH_TOOLS
 // UPDATE NOW and UPDATE STOP on the console, for the bench: the unattended
@@ -1912,11 +1919,32 @@ static void twatchPowerUp() {
     Wire1.begin(10, 11);
     s_pmuOk = s_pmu.begin(Wire1, AXP2101_SLAVE_ADDRESS, 10, 11);
     if (!s_pmuOk) { Serial.println("[pmu] AXP2101 did not answer -- screen may stay dark"); return; }
+    // The chip's own rail, set rather than assumed: a full power-off (a dead
+    // battery) puts the PMU back to its register defaults. It read 3300
+    // either way on 2026-09-23; the deaf radios that morning were not this.
+    s_pmu.enableVbusVoltageMeasure();
+    s_pmu.enableSystemVoltageMeasure();
+    s_pmu.enableBattVoltageMeasure();
+    Serial.printf("[pmu] DC1 %u mV (%s), ALDO4 %u mV, VBUS %u mV, SYS %u mV, VBUS limit code %u, charge code %u\n",
+                  (unsigned)s_pmu.getDC1Voltage(), s_pmu.isEnableDC1() ? "on" : "off",
+                  (unsigned)s_pmu.getALDO4Voltage(), (unsigned)s_pmu.getVbusVoltage(),
+                  (unsigned)s_pmu.getSystemVoltage(), (unsigned)s_pmu.getVbusCurrentLimit(),
+                  (unsigned)s_pmu.getChargerConstantCurr());
+    s_pmu.setDC1Voltage(3300);
+    // The USB input limit and the charge current. After a full power-off the
+    // PMU is back to its register defaults, and with the cell flat the
+    // system rail is whatever the USB path is allowed to pass: not enough
+    // for a radio burst. 500 mA from USB, 200 mA into the cell (LilyGo's
+    // own example uses 1500 and 200).
+    s_pmu.setVbusCurrentLimit(XPOWERS_AXP2101_VBUS_CUR_LIM_500MA);
+    s_pmu.setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_200MA);
+    s_pmu.setSysPowerDownVoltage(2600);
     s_pmu.setALDO1Voltage(3300); s_pmu.enableALDO1();   // RTC
     s_pmu.setALDO2Voltage(3300); s_pmu.enableALDO2();   // backlight supply
     s_pmu.setALDO3Voltage(3300); s_pmu.enableALDO3();   // touch
     s_pmu.setALDO4Voltage(3300); s_pmu.enableALDO4();   // radio
     s_pmu.setBLDO2Voltage(3300); s_pmu.enableBLDO2();   // DRV2605 haptics
+
     s_pmu.disableDC2(); s_pmu.disableDC4(); s_pmu.disableDC5();
     s_pmu.disableDLDO2();
     // The crown is the PMU's power key. A short press is read as an IRQ flag
@@ -1932,6 +1960,112 @@ static void twatchPowerUp() {
 #endif
 
 #if defined(TWATCH_S3)
+// One battery sample into the black box. See BattRecord for what it holds
+// and why. Printed too, so a bench run shows the same line the ring keeps.
+// The WATCH page's BATTERY row: "81% 4.12V", or "CHG 81%" on the cable.
+void twatchBatteryLine(char* out, size_t n) {
+    if (!s_pmuOk) { snprintf(out, n, "?"); return; }
+    static uint32_t at = 0;
+    static char     line[16] = "";
+    const uint32_t now = millis();
+    if (!line[0] || now - at >= 2000) {   // two I2C reads, not one per frame
+        at = now;
+        const int pct = s_pmu.getBatteryPercent();
+        if (s_pmu.isCharging()) snprintf(line, sizeof line, "CHG %d%%", pct);
+        else snprintf(line, sizeof line, "%d%% %u.%02uV", pct, (unsigned)(s_pmu.getBattVoltage() / 1000),
+                      (unsigned)(s_pmu.getBattVoltage() % 1000 / 10));
+    }
+    snprintf(out, n, "%s", line);
+}
+
+static void twatchBatterySample(uint8_t why) {
+    if (!s_pmuOk) return;
+    BlackBox::BattRecord r;
+    memset(&r, 0, sizeof r);
+    r.mv       = s_pmu.getBattVoltage();
+    r.pct      = (uint8_t)s_pmu.getBatteryPercent();
+    r.why      = why;
+    r.epoch    = Clock::trusted() ? Clock::nowEpoch() : 0;
+    r.upSec    = millis() / 1000u;
+    r.cpuMhz10 = (uint8_t)(getCpuFrequencyMhz() / 10);
+    if (s_pmu.isVbusIn())   r.flags |= BlackBox::BATT_USB;
+    if (s_pmu.isCharging()) r.flags |= BlackBox::BATT_CHARGING;
+    if (!s_panelAsleep)     r.flags |= BlackBox::BATT_SCREEN_ON;
+    if (!s_radiosResting)   r.flags |= BlackBox::BATT_RADIOS_ON;
+    BlackBox::noteBattery(r);
+    static const char* const WHY[] = { "timer", "boot", "usb", "screen" };
+    Serial.printf("[batt] %u mV  %u%%  %s%s  screen %s  cpu %u MHz  up %lu s  (%s)\n",
+                  (unsigned)r.mv, (unsigned)r.pct, (r.flags & BlackBox::BATT_USB) ? "on USB" : "on battery",
+                  (r.flags & BlackBox::BATT_CHARGING) ? ", charging" : "", s_panelAsleep ? "off" : "on",
+                  (unsigned)getCpuFrequencyMhz(), (unsigned long)r.upSec, WHY[why < 4 ? why : 0]);
+}
+
+// Every ten minutes, at boot, and whenever the cable or the screen changes
+// state: the points where the slope of the curve changes.
+static void twatchBatteryTick(uint32_t now) {
+    if (!s_pmuOk) return;
+    static uint32_t lastAt = 0;
+    static bool first = true, wasUsb = false, wasAsleep = false;
+    if (first) {
+        first = false; lastAt = now;
+        wasUsb = s_pmu.isVbusIn(); wasAsleep = s_panelAsleep;
+        twatchBatterySample(BlackBox::BATT_WHY_BOOT);
+        return;
+    }
+    if (wasAsleep != s_panelAsleep) {
+        wasAsleep = s_panelAsleep; lastAt = now;
+        twatchBatterySample(BlackBox::BATT_WHY_SCREEN);
+        return;
+    }
+    if (now - lastAt < 600000u) return;
+    lastAt = now;
+    const bool usb = s_pmu.isVbusIn();   // one I2C read, ten minutes apart
+    if (usb != wasUsb) { wasUsb = usb; twatchBatterySample(BlackBox::BATT_WHY_USB); return; }
+    twatchBatterySample(BlackBox::BATT_WHY_TIMER);
+}
+
+// The radio duty cycle. The radios are on the cable, on with the screen
+// (someone is looking), on through an alert, and on whenever anything else
+// has the radio (an update, a raw scan). Otherwise they run for the on part
+// of the cycle and rest for the rest of it. What "rest" means is the
+// engine's business: see DetectionEngine::restRadios().
+static void twatchRadioTick(uint32_t now) {
+    static uint32_t phaseAt = 0, usbAt = 0;
+    static bool     usb = true;
+    if (now - usbAt >= 2000) { usbAt = now; usb = s_pmuOk && s_pmu.isVbusIn(); }
+    const uint8_t duty = Settings::radioDuty();
+    // Only a device you asked to WATCH holds the radios awake. Every alert
+    // did, and a room with a Ring camera and a Flipper in it alerts every
+    // few seconds, so WiFi never got a rest at home.
+    const bool alerting = (state == AppState::WATCH_ALERT);
+    const bool wantOn = duty == 0 || (!g_consoleRadioTest && (usb || !s_panelAsleep)) || alerting ||
+                        state == AppState::UPDATE || OtaWifi::state() != OtaWifi::State::OFF;
+    uint32_t onMs = 5000, offMs = 25000;
+    if (duty == 2) { onMs = 10000; offMs = 50000; }
+    if (wantOn) {
+        static uint32_t saidAt = 0;
+        if (g_consoleRadioTest && now - saidAt >= 10000) {
+            saidAt = now;
+            Serial.printf("[radio] held awake: duty %u, alerting %d, app state %u, update state %u\n",
+                          (unsigned)duty, (int)alerting, (unsigned)state, (unsigned)OtaWifi::state());
+        }
+        if (s_radiosResting) { engine.wakeRadios(); s_radiosResting = false; Serial.println("[radio] awake"); }
+        phaseAt = now;
+        return;
+    }
+    if (!s_radiosResting) {
+        if (now - phaseAt < onMs) return;
+        if (engine.restRadios(duty != 3)) {
+            s_radiosResting = true;
+            Serial.println(duty == 3 ? "[radio] resting: WiFi off, BLE on" : "[radio] resting: WiFi and BLE off");
+        }
+        phaseAt = now;   // either way: a refused rest tries again after another on-window
+    } else if (now - phaseAt >= offMs) {
+        engine.wakeRadios(); s_radiosResting = false; phaseAt = now;
+        Serial.println("[radio] awake (timed)");
+    }
+}
+
 // Polled ten times a second: one I2C read of the PMU's interrupt flags. A
 // short press of the crown counts as a touch, which is what wakes the screen
 // and holds off the timeout; nothing else is bound to it yet.
@@ -2406,31 +2540,18 @@ void setup() {
 
 #if defined(TWATCH_S3)
     // What the watch is like at the moment the radios start. A boot that
-    // ran the touch calibration first (radios ~40 s after reset) hears the
-    // room; a plain boot (radios ~2 s after reset) comes up deaf. Logged so
-    // the two can be compared, and so a hand-flashed test build can hold the
-    // radios back to see whether time alone is the cure.
-    Serial.printf("[boot] radios start at %lu ms; chip %.1f C\n", (unsigned long)millis(), temperatureRead());
-#if defined(SQW_RADIO_START_DELAY_MS)
-    Serial.printf("[boot] TEST BUILD: holding the radios back %u ms\n", (unsigned)SQW_RADIO_START_DELAY_MS);
-    serialFlush();
-    // Say so on the screen. The backlight was just turned down for the radio
-    // start, so a silent hold reads as a dead watch for 45 s.
-    ledcWrite(BL_CH_ORIG, 255);
-    tft.fillScreen(Theme::BG);
-    tft.setTextColor(Theme::AMBER, Theme::BG);
-    tft.setTextSize(2);
-    tft.setCursor(16, tft.height() / 2 - 28);
-    tft.print("RADIO TEST");
-    for (uint32_t left = SQW_RADIO_START_DELAY_MS / 1000; left > 0; left--) {
-        tft.setCursor(16, tft.height() / 2 + 4);
-        tft.printf("radios in %2lu s ", (unsigned long)left);
-        delay(1000);
+    // ran the touch calibration first hears the room; a plain boot comes up
+    // deaf. Logged so the two kinds of boot can be compared line by line.
+    {
+        nvs_stats_t st = {};
+        nvs_get_stats(NULL, &st);
+        snprintf(g_bootRadioLine, sizeof g_bootRadioLine,
+                 "radios started at %lu ms; chip %.1f C; heap %lu; nvs used %u free %u; calibration %s",
+                 (unsigned long)millis(), temperatureRead(), (unsigned long)ESP.getFreeHeap(),
+                 (unsigned)st.used_entries, (unsigned)st.free_entries,
+                 s_calRanThisBoot ? "RAN this boot" : "skipped");
+        Serial.printf("[boot] %s\n", g_bootRadioLine);
     }
-    tft.fillScreen(Theme::BG);
-    ledcWrite(BL_CH_ORIG, 24);
-    Serial.printf("[boot] radios start at %lu ms; chip %.1f C\n", (unsigned long)millis(), temperatureRead());
-#endif
 #endif
     engine.init();
     // After the engine: the card leans on the lifetime counts to pick which
@@ -2643,6 +2764,21 @@ void loop() {
     uint32_t now = millis();
 #if defined(TWATCH_S3)
     twatchCrownTick(now);
+    twatchRadioTick(now);
+    twatchBatteryTick(now);
+    if (g_consoleBatt) { g_consoleBatt = false; twatchBatterySample(BlackBox::BATT_WHY_TIMER); }
+    if (g_consoleBattLog) {
+        g_consoleBattLog = false;
+        Serial.println("[battlog] newest first: boot  up(s)  epoch  mV  %  flags(usb/chg/scr/radio)  cpu  why");
+        BlackBox::forEachBattery([](const BlackBox::BattRecord& r, void*) {
+            Serial.printf("[battlog] %u  %lu  %lu  %u  %u  %c%c%c%c  %u  %u\n", (unsigned)r.boot,
+                          (unsigned long)r.upSec, (unsigned long)r.epoch, (unsigned)r.mv, (unsigned)r.pct,
+                          (r.flags & BlackBox::BATT_USB) ? 'U' : '-', (r.flags & BlackBox::BATT_CHARGING) ? 'C' : '-',
+                          (r.flags & BlackBox::BATT_SCREEN_ON) ? 'S' : '-', (r.flags & BlackBox::BATT_RADIOS_ON) ? 'R' : '-',
+                          (unsigned)r.cpuMhz10 * 10, (unsigned)r.why);
+            return true;
+        }, nullptr);
+    }
 #endif
     Clock::tick(now);   // the note to self, when it is due
 #if SQUACH_MESH && defined(BENCH_TOOLS)
@@ -2826,6 +2962,25 @@ void loop() {
     // Neither corner button answers a finger that is carrying Squachy: dragged
     // into a corner, he used to open Settings or rotate the screen mid-carry,
     // and the release that would have dropped him never came.
+#if defined(TWATCH_S3)
+    // Every AXP2101 register, sixteen to a line, so a deaf boot and a
+    // hearing boot can be compared register by register.
+    if (g_consolePmu) {
+        g_consolePmu = false;
+        for (uint8_t base = 0x00; base < 0xA0; base += 16) {
+            char line[80];
+            int n = snprintf(line, sizeof line, "[pmu] %02X:", base);
+            for (uint8_t k = 0; k < 16; k++) {
+                Wire1.beginTransmission(0x34);
+                Wire1.write((uint8_t)(base + k));
+                uint8_t v = 0xEE;
+                if (Wire1.endTransmission(false) == 0 && Wire1.requestFrom((uint8_t)0x34, (uint8_t)1) == 1) v = Wire1.read();
+                n += snprintf(line + n, sizeof line - n, " %02X", v);
+            }
+            Serial.println(line);
+        }
+    }
+#endif
     if (g_consoleInvert) {
         g_consoleInvert = false;
         Settings::toggleInvert();
@@ -4253,6 +4408,10 @@ void loop() {
                         case SettingsRow::AUTO_QUIET:  Settings::cycleAutoQuiet(); break;
                         case SettingsRow::DETECTION_FILTER: enterDetFilter(); break;
                         case SettingsRow::POWER_SAVER: enterPower(); break;
+#if defined(TWATCH_S3)
+                        case SettingsRow::WATCH_RADIO: Settings::cycleRadioDuty(); break;
+                        case SettingsRow::WATCH_BATTERY: break;   // a reading, not a switch
+#endif
                         case SettingsRow::STATUS_LIGHT: enterLight(); break;
                         case SettingsRow::SECURITY:    enterSecurity(); break;
                         case SettingsRow::IGNORED_DEVICES:  enterIgnoreList(); break;
@@ -5099,6 +5258,11 @@ void loop() {
                             applyCpuClock();
                             break;
                         case PowerRow::WAKE_ON_ALERT: Settings::toggleWakeOnAlert(); break;
+#if defined(TWATCH_S3)
+                        case PowerRow::RADIO_DUTY:    Settings::cycleRadioDuty(); break;
+#endif
+#if defined(TWATCH_S3)
+#endif
                         default: break;
                     }
                 }

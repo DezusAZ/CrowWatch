@@ -34,7 +34,7 @@ static int g_scrollFor[4] = { 0, 0, 0, 0 };
 
 // Which groups are folded shut. Session-only on purpose: a fold is a "get this
 // out of my way for a minute", not a preference worth surviving a reboot.
-static bool s_folded[6] = { false, false, false, false, false, false };
+static bool s_folded[7] = { false, false, false, false, false, false, false };
 
 // Whether a watch/hunt target exists. Set every tick from the engine, read by
 // buildDisplayList() -- which has no engine of its own, and is called by the
@@ -52,7 +52,15 @@ static uint8_t s_dexCaught = 0;
 // has turned off) are filtered out by visibleRows() below rather than
 // removed here, so their SettingsRow values stay stable regardless of
 // which mode is active.
+#if defined(TWATCH_S3)
+void twatchBatteryLine(char* out, size_t n);   // main.cpp, where the power chip lives
+#endif
+
 static const SettingsRow ALL_ROWS[] = {
+#if defined(TWATCH_S3)
+    // The watch's own group, first: what only a watch has to think about.
+    SettingsRow::WATCH_BATTERY, SettingsRow::WATCH_RADIO,
+#endif
     SettingsRow::BORING_MODE, SettingsRow::CONFIDENCE, SettingsRow::AUTO_QUIET,
     SettingsRow::DETECTION_FILTER,
     SettingsRow::IGNORED_DEVICES,
@@ -151,7 +159,7 @@ static bool isSquachyOnlyRow(SettingsRow r) {
            r == SettingsRow::PET || r == SettingsRow::TOP_HAT;
 }
 
-enum class RowGroupId : uint8_t { APPEARANCE, BEHAVIOR, SQUACHY, SYSTEM, DESK, SQUAD };
+enum class RowGroupId : uint8_t { APPEARANCE, BEHAVIOR, SQUACHY, SYSTEM, DESK, SQUAD, WATCH };
 
 static RowGroupId groupFor(SettingsRow r) {
     // Appearance sits with the Squachy rows because that is where it was asked
@@ -162,6 +170,9 @@ static RowGroupId groupFor(SettingsRow r) {
     // part that matters, since the display rows live behind it.
     if (r == SettingsRow::APPEARANCE && Settings::boringMode()) return RowGroupId::SYSTEM;
     switch (r) {
+        case SettingsRow::WATCH_BATTERY:
+        case SettingsRow::WATCH_RADIO:
+            return RowGroupId::WATCH;
         // TIME ZONE sat on the SYSTEM page too, the same setting twice. Only
         // the clock reads it, so it lives with the clock.
         case SettingsRow::TIME_ZONE:
@@ -221,6 +232,7 @@ static const char* groupName(RowGroupId g) {
         case RowGroupId::SQUACHY:    return "SQUACHY";
         case RowGroupId::DESK:       return "DESK";
         case RowGroupId::SQUAD:      return "SQUAD";
+        case RowGroupId::WATCH:      return "WATCH";
         default:                     return "SYSTEM";
     }
 }
@@ -235,6 +247,7 @@ static uint16_t groupColor(RowGroupId g) {
         case RowGroupId::SQUACHY:    return Theme::VAPOR_PINK;
         case RowGroupId::DESK:       return Theme::CYAN;
         case RowGroupId::SQUAD:      return Theme::GREEN;
+        case RowGroupId::WATCH:      return Theme::AMBER;
         default:                     return Theme::VAPOR_PURPLE;
     }
 }
@@ -397,7 +410,7 @@ void uiSettingsInit(TFT_eSPI& t) {
     // no idea why.
     s_page = SettingsPage::MAIN;
     for (uint8_t i = 0; i < 4; i++) g_scrollFor[i] = 0;
-    for (uint8_t i = 0; i < 6; i++) s_folded[i] = false;
+    for (uint8_t i = 0; i < 7; i++) s_folded[i] = false;
     // Any pending question dies with the screen. Coming back to Settings and
     // finding a confirm panel still up from last time would be answering
     // something you no longer remember asking.
@@ -803,6 +816,14 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             snprintf(valBuf, valBufN, "%u", (unsigned)IgnoreList::count());
             value = valBuf;
             break;
+#if defined(TWATCH_S3)
+        case SettingsRow::WATCH_BATTERY:
+            label = "BATTERY"; twatchBatteryLine(valBuf, valBufN); value = valBuf;
+            break;
+        case SettingsRow::WATCH_RADIO:
+            label = "RADIOS"; value = Settings::radioDutyName(Settings::radioDutyRaw());
+            break;
+#endif
         case SettingsRow::POWER_SAVER:
             label = "POWER SAVER"; value = Settings::powerSaver() ? "ON" : "OFF";
             break;
@@ -981,7 +1002,7 @@ switch (Settings::background()) {
     Theme::drawTitleBar(t, pageTitle);
 
     // +6, not +4: four group headers plus the two tracking rows.
-    DisplayItem items[LIST_MAX_N + 6];
+    DisplayItem items[LIST_MAX_N + 7];
     uint8_t n = buildDisplayList(items);
     // Clamped here rather than in uiSettingsScroll(): row heights come from
     // live font metrics, which that function has no display to ask.
@@ -1037,7 +1058,7 @@ bool uiSettingsTapHeader(TFT_eSPI& t, int x, int y, int screenW, int screenH) {
     int top, bodyBottom, rowH, headerH, tallH;
     computeGeom(t, screenH, top, bodyBottom, rowH, headerH, tallH);
 
-    DisplayItem items[LIST_MAX_N + 6];
+    DisplayItem items[LIST_MAX_N + 7];
     uint8_t n = buildDisplayList(items);
     // Same clamp the draw applies, so a tap can never be tested against a
     // scroll position the screen is not actually showing.
@@ -1068,7 +1089,7 @@ SettingsRow uiSettingsHitTest(TFT_eSPI& t, int x, int y, int screenW, int screen
     int top, bodyBottom, rowH, headerH, tallH;
     computeGeom(t, screenH, top, bodyBottom, rowH, headerH, tallH);
 
-    DisplayItem items[LIST_MAX_N + 6];
+    DisplayItem items[LIST_MAX_N + 7];
     uint8_t n = buildDisplayList(items);
     // Same clamp the draw applies, so a tap can never be tested against a
     // scroll position the screen is not actually showing.

@@ -7,6 +7,7 @@
 #if __has_include(<esp_flash.h>)
 #include <esp_flash.h>
 #include <esp_partition.h>
+static_assert(sizeof(BlackBox::BattRecord) == 64, "BattRecord must be one 64-byte record");
 #define BB_ON_DEVICE 1
 #else
 #define BB_ON_DEVICE 0
@@ -36,6 +37,7 @@ const uint8_t  FORMAT  = 2;   // 2: a boot record keeps a whole version string
 const uint8_t KIND_BOOT  = 1;
 const uint8_t KIND_DET   = 2;
 const uint8_t KIND_CLEAR = 3;
+const uint8_t KIND_BATT  = 4;   // watch only; see BattRecord
 
 // ---- the flash itself ------------------------------------------------------
 // On the board, the chip. In the emulator, 128 KB of RAM that starts erased.
@@ -204,7 +206,15 @@ struct Ring {
 };
 
 Ring s_boots(KIND_BOOT, 0, 2);
+#if defined(TWATCH_S3)
+// Six sectors of battery samples: 378 of them, two and a half days at one
+// every ten minutes. Taken from the detection ring, which the watch's black
+// box starts empty anyway.
+Ring s_dets (KIND_DET, 2, 24);
+Ring s_batt (KIND_BATT, 26, 6);
+#else
 Ring s_dets (KIND_DET, 2, 30);
+#endif
 bool     s_ready     = false;
 uint16_t s_bootNo    = 1;
 uint16_t s_detKept   = 0;
@@ -244,6 +254,9 @@ bool begin() {
     if (!regionFree()) return false;
     s_boots.scan();
     s_dets.scan();
+#if defined(TWATCH_S3)
+    s_batt.scan();
+#endif
     s_ready = true;
 
     uint16_t newest = 0;
@@ -284,6 +297,31 @@ bool begin() {
 bool     ready()          { return s_ready; }
 uint16_t bootNumber()     { return s_bootNo; }
 uint16_t detectionsKept() { return s_detKept; }
+
+void noteBattery(BattRecord& r) {
+#if defined(TWATCH_S3)
+    if (!s_ready) return;
+    r.kind = KIND_BATT;
+    r.boot = s_bootNo;
+    s_batt.append((uint8_t*)&r);
+#else
+    (void)r;
+#endif
+}
+
+void forEachBattery(bool (*fn)(const BattRecord&, void*), void* ctx) {
+#if defined(TWATCH_S3)
+    if (!s_ready) return;
+    struct W { bool (*fn)(const BattRecord&, void*); void* ctx; } w = { fn, ctx };
+    s_batt.walk([](const uint8_t* p, void* c) {
+        if (p[0] != KIND_BATT) return true;
+        const W& w = *(const W*)c;
+        return w.fn(*(const BattRecord*)p, w.ctx);
+    }, &w);
+#else
+    (void)fn; (void)ctx;
+#endif
+}
 uint8_t  crashesKept()    { return s_crashes; }
 bool lastCrash(BootRecord& out) {
     if (!s_haveCrash) return false;
@@ -384,6 +422,9 @@ void wipe() {
     if (!s_ready) return;
     s_boots.scan();
     s_dets.scan();
+#if defined(TWATCH_S3)
+    s_batt.scan();
+#endif
     s_detKept = 0;
     s_crashes = 0;
     s_haveCrash = false;

@@ -54,6 +54,8 @@ enum class SettingsRow : uint8_t {
     CLOCK_FONT,      // on the DESK MODE page: segments or Bangers
     CLOCK_SIZE,      // on the DESK MODE page: small, medium, large
     CLOCK_BACKDROP,  // on the DESK MODE page: what plays inside the clock
+    WATCH_BATTERY,   // the T-Watch only: charge and voltage, under WATCH
+    WATCH_RADIO,     // the T-Watch only: the radio duty cycle, under WATCH
     BACK,
     COUNT,
     NONE = 255
