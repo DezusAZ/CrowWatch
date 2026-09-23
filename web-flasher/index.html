@@ -1423,7 +1423,7 @@
         // named lab run (the "label" input) puts its name in each one.
         ['./manifest-lab-cyd.json', './manifest-lab-cyd-fast.json',
          './manifest-lab-cyd-ili9341.json', './manifest-lab-cyd-ili9341-fast.json',
-         './manifest-lab-rlphantom-r.json'].forEach(function (path) {
+         './manifest-lab-rlphantom-r.json', './manifest-lab-twatch-s3.json'].forEach(function (path) {
           fetch(path, { cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (m) {

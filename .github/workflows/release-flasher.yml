@@ -176,6 +176,10 @@ jobs:
           # rlphantom-r is the RL Phantom 2.4" (Sunton ESP32-2432S024R), the
           # resistive-touch version, confirmed on real boards.
           pio run -e cyd -e cyd-ili9341 -e awok -e rlphantom-r -e cyd-fast -e cyd-ili9341-fast -e cyd35-fast
+          # twatch-s3 is the LilyGo T-Watch S3: an ESP32-S3, so its own
+          # bootloader (at 0x0, not 0x1000) and its own 16 MB partition
+          # table. A lab board until the watch work settles; see ?lab=1.
+          pio run -e twatch-s3
           # The Phantom's capacitive version has never run on a real board, so
           # it is compiled to keep its code honest but NOT published anywhere.
           pio run -e rlphantom
@@ -207,6 +211,13 @@ jobs:
             0x1000  .pio/build/rlphantom-r/bootloader.bin \
             0x8000  .pio/build/rlphantom-r/partitions.bin \
             0x10000 .pio/build/rlphantom-r/firmware.bin
+          python -m esptool --chip esp32s3 merge_bin \
+            -o firmware-twatch-s3-merged.bin \
+            --flash_mode dio --flash_freq 80m --flash_size 16MB \
+            0x0     .pio/build/twatch-s3/bootloader.bin \
+            0x8000  .pio/build/twatch-s3/partitions.bin \
+            0xe000  "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" \
+            0x10000 .pio/build/twatch-s3/firmware.bin
           # Every board's raw PlatformIO artifacts share the same basenames
           # (bootloader.bin/partitions.bin/firmware.bin), and release assets
           # need unique names -- the very first two-board release failed
@@ -251,6 +262,10 @@ jobs:
           # same boot_app0.bin `pio run -t upload` has always written.
           cp "$HOME/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" esp32-otadata.bin
           test "$(stat -c%s esp32-otadata.bin)" -eq 8192
+          # The S3 watch shares none of that: its own chip, its own bootloader
+          # and its own table. otadata is the same eight bytes of boot_app0.
+          cp .pio/build/twatch-s3/bootloader.bin esp32s3-bootloader.bin
+          cp .pio/build/twatch-s3/partitions.bin twatch-s3-partitions.bin
           # The app, which is the only part that actually differs. cyd-fast
           # and cyd-ili9341-fast are the 80MHz display-overclock variants
           # the flasher's "experimental overclock" checkbox targets,
@@ -258,7 +273,7 @@ jobs:
           # merged image for those on purpose: the merged blob is a
           # manual-recovery artifact, and recovery should land you on the
           # spec-compliant build rather than the overclocked one.
-          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
+          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast twatch-s3; do
             cp ".pio/build/$v/firmware.bin" "$v-firmware.bin"
           done
 
@@ -276,7 +291,7 @@ jobs:
           fi
           umask 077
           printf '%s\n' "$OTA_SIGNING_KEY" > "$RUNNER_TEMP/ota_key.pem"
-          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
+          for v in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast twatch-s3; do
             python tools/sign_firmware.py --key "$RUNNER_TEMP/ota_key.pem" \
               --env "$v" --bin "$v-firmware.bin" --out "$v-firmware.sig"
           done
@@ -307,7 +322,8 @@ jobs:
                     "web-flasher/manifest-awok.json", "web-flasher/manifest-cyd-fast.json",
                     "web-flasher/manifest-cyd-ili9341-fast.json",
                     "web-flasher/manifest-rlphantom-r.json",
-                    "web-flasher/manifest-cyd35-fast.json"):
+                    "web-flasher/manifest-cyd35-fast.json",
+                    "web-flasher/manifest-twatch-s3.json"):
               m = json.load(open(p))
               m["version"] = "${{ steps.ver.outputs.version }}"
               if name: m["release_name"] = name
@@ -331,6 +347,7 @@ jobs:
           cp web-flasher/manifest-cyd-ili9341-fast.json manifest-cyd-ili9341-fast.json
           cp web-flasher/manifest-rlphantom-r.json manifest-rlphantom-r.json
           cp web-flasher/manifest-cyd35-fast.json manifest-cyd35-fast.json
+          cp web-flasher/manifest-twatch-s3.json manifest-twatch-s3.json
 
       - name: Create GitHub Release with build artifacts
         # A lab tag publishes a flashable build and nothing else. Creating a
@@ -361,6 +378,11 @@ jobs:
             cyd-fast-firmware.bin \
             cyd-ili9341-fast-firmware.bin \
             cyd35-fast-firmware.bin \
+            esp32s3-bootloader.bin \
+            twatch-s3-partitions.bin \
+            twatch-s3-firmware.bin \
+            firmware-twatch-s3-merged.bin \
+            manifest-twatch-s3.json \
             firmware-cyd-merged.bin \
             firmware-cyd-ili9341-merged.bin \
             firmware-awok-merged.bin \
@@ -430,6 +452,7 @@ jobs:
           cp web-flasher/manifest-cyd-ili9341-fast.json _site/manifest-cyd-ili9341-fast.json
           cp web-flasher/manifest-rlphantom-r.json _site/manifest-rlphantom-r.json
           cp web-flasher/manifest-cyd35-fast.json _site/manifest-cyd35-fast.json
+          cp web-flasher/manifest-twatch-s3.json _site/manifest-twatch-s3.json
           # A LAB RUN MUST NOT CHANGE WHAT THE PUBLIC PAGE SERVES.
           #
           # A Pages deploy is wholesale -- there is no partial update -- so a
@@ -458,7 +481,7 @@ jobs:
           import json, shutil, os
           label = "${{ steps.ver.outputs.label }}"
           ver   = "${{ steps.ver.outputs.version }}"
-          for board in ("cyd", "cyd-ili9341", "cyd-fast", "cyd-ili9341-fast", "rlphantom-r"):
+          for board in ("cyd", "cyd-ili9341", "cyd-fast", "cyd-ili9341-fast", "rlphantom-r", "twatch-s3"):
               shutil.copy(board + "-firmware.bin", "_site/lab-" + board + "-firmware.bin")
               if os.path.exists(board + "-firmware.sig"):
                   shutil.copy(board + "-firmware.sig", "_site/lab-" + board + "-firmware.sig")
@@ -467,8 +490,15 @@ jobs:
               m["version"] = ver
               for b in m["builds"]:
                   for part in b["parts"]:
-                      if part["path"] == board + "-firmware.bin":
-                          part["path"] = "lab-" + board + "-firmware.bin"
+                      # The shared ESP32 bootloader, table and otadata come from
+                      # the restored release. Anything else a lab board needs --
+                      # its firmware, or the S3 watch's own bootloader and
+                      # table -- comes from THIS build, under a lab- name, so a
+                      # release that never carried the board still serves it.
+                      if part["path"].startswith("esp32-"):
+                          continue
+                      shutil.copy(part["path"], "_site/lab-" + part["path"])
+                      part["path"] = "lab-" + part["path"]
               json.dump(m, open("_site/manifest-lab-" + board + ".json", "w"), indent=2)
           print("lab boards added:", label, ver)
           PY
@@ -485,11 +515,13 @@ jobs:
             cp esp32-bootloader.bin _site/esp32-bootloader.bin
             cp esp32-partitions.bin _site/esp32-partitions.bin
             cp esp32-otadata.bin    _site/esp32-otadata.bin
+            cp esp32s3-bootloader.bin  _site/esp32s3-bootloader.bin
+            cp twatch-s3-partitions.bin _site/twatch-s3-partitions.bin
             # Every board in the picker needs BOTH its manifest above and its
             # firmware here: v1.16.0 shipped cyd35-fast to the release and into
             # index.html's <option> list but neither into _site, so the 3.5"
             # appeared in the picker and 404'd when chosen.
-            for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast; do
+            for board in cyd cyd-ili9341 awok rlphantom-r cyd-fast cyd-ili9341-fast cyd35-fast twatch-s3; do
               cp "$board-firmware.bin" "_site/$board-firmware.bin"
               # The Bluetooth update page fetches the image and its signature
               # side by side from the site root.
