@@ -37,6 +37,10 @@ namespace TouchCal {
     // starts. minSpread is the raw distance the diagonal targets must at
     // least be apart (capacitive and resistive chips have very different
     // ranges -- see main.cpp's constants).
+    // How much denser this panel's pixels are than the 2.8" board's (5.6 per
+    // mm): the tap tolerances are in pixels, and a fingertip is the same
+    // size on every screen. The T-Watch S3 packs 240 px into 27 mm, 1.6x.
+    void setDensityScale(float scale);
     Outcome runInteractive(TFT_eSPI& t, RawReader readRaw, uint8_t rot,
                            const TouchFit::Fit* current, int16_t minSpread,
                            uint16_t bg, uint16_t fg, uint16_t accent,

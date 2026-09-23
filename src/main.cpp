@@ -3,6 +3,7 @@
 // and the DetectionEngine.
 
 #include <Arduino.h>
+#include "serial_flush.h"
 #include <SPI.h>
 #include <Wire.h>
 #include <TFT_eSPI.h>
@@ -336,6 +337,10 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_security.h"
 #include "squachy.h"
 #include "cap_touch.h"
+#if defined(TWATCH_S3)
+#define XPOWERS_CHIP_AXP2101
+#include <XPowersLib.h>
+#endif
 #include "touch_cal.h"
 #include "settings.h"
 #include "signatures.h"
@@ -442,6 +447,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #define BL_PIN_ORIG 21
 #define BL_PIN_CAP  27
 #define BL_PIN_AWOK 32
+#define BL_PIN_TWATCH 45
 #define BL_CH_ORIG  0
 #define BL_CH_CAP   1
 #define BL_CH_AWOK  2
@@ -459,7 +465,11 @@ static void drawCrashCard(TFT_eSPI& t) {
 // relative to it. File-scope (not local to setup()) so the Settings >
 // INVERT row handler in loop() can use the same XOR instead of
 // clobbering this baseline with an absolute call.
-#if defined(CYD35)
+#if defined(TWATCH_S3)
+// Confirmed on the watch 2026-09-22: the ST7789 wants inversion on (as
+// LilyGo's own setup says); false showed every colour inverted.
+constexpr bool PANEL_NEEDS_INVERSION = true;
+#elif defined(CYD35)
 // UNCONFIRMED on real hardware post-fix: the original port's "true"
 // guess predates discovering the override bug above, so whatever
 // testing produced that value was toggling a header define that does
@@ -1097,7 +1107,7 @@ static bool    s_confirmArmed = false;
 // The compiled-in ranges are a 2.8" board's. Anywhere else -- the digitisers
 // on the display's own bus -- they put taps nowhere near the finger, so a
 // board with nothing better has no SKIP to offer.
-#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35)
+#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35) || defined(TWATCH_S3)
 static const bool DEFAULT_TOUCH_USABLE = false;
 #else
 static const bool DEFAULT_TOUCH_USABLE = true;
@@ -1105,6 +1115,9 @@ static const bool DEFAULT_TOUCH_USABLE = true;
 
 static void runTouchCalibration() {
     TouchFit::Fit fit;
+#if defined(TWATCH_S3)
+    TouchCal::setDensityScale(1.6f);   // 240 px across 27 mm, against the 2.8" board's 5.6 px/mm
+#endif
     const bool canSkip = s_calSource != CalSource::BUILT_IN || DEFAULT_TOUCH_USABLE;
     const TouchCal::Outcome r =
         TouchCal::runInteractive(tft, readTouchRaw, screenRotation,
@@ -1119,6 +1132,10 @@ static void runTouchCalibration() {
         s_calSource = CalSource::SAVED;
     }
     FramePush::invalidate();
+    // The finger that just did all that counts as a touch: lastTouch was
+    // still 0 from boot, so with the power saver on, a calibration longer
+    // than the screen timeout came back to a screen already dimmed.
+    lastTouch = millis();
 }
 
 static void enterBoot() {
@@ -1404,6 +1421,10 @@ static void enterInvite() {
     if (s_screenDimmed) { s_screenDimmed = false; applyBrightness(); }
     uiInviteInit(*canvas);
 }
+
+// INVERT and ROT on the console -- see clock.cpp. Consumed in loop().
+volatile bool g_consoleInvert = false;
+volatile bool g_consoleRotate = false;
 
 #ifdef BENCH_TOOLS
 // UPDATE NOW and UPDATE STOP on the console, for the bench: the unattended
@@ -1777,7 +1798,7 @@ static void physicalNvsWipe() {
     }
     nvs_release_iterator(it);
     Serial.printf("[wipe] %u entries kept, heap %lu; erasing\n", (unsigned)kept.size(), (unsigned long)ESP.getFreeHeap());
-    Serial.flush();
+    serialFlush();
 
     nvs_flash_erase();       // de-initialises, then erases every page
     nvs_flash_init();
@@ -1823,7 +1844,7 @@ static void performWipe(WipeBoot after) {
     releaseFrameBuffer("wipe");
     physicalNvsWipe();
     Serial.println("[wipe] done, restarting");
-    Serial.flush();
+    serialFlush();
     g_wipeBoot = WIPEBOOT_MAGIC | (uint8_t)after;
     delay(20);
     esp_restart();
@@ -1850,6 +1871,31 @@ static void enterLight() {
     transitionStart = millis();
     uiLightInit(*canvas);
 }
+
+#if defined(TWATCH_S3)
+// The T-Watch S3's AXP2101 gates the screen backlight (ALDO2), the touch
+// chip (ALDO3), the RTC's supply (ALDO1), the radio (ALDO4) and the haptic
+// driver (BLDO2). Nothing on the display or touch bus answers until these
+// are on, so this runs first thing in setup(). Rails and volts are LilyGo's
+// own from LilyGoLib.cpp; the charger is left at the chip's defaults.
+static XPowersAXP2101 s_pmu;
+static bool           s_pmuOk = false;
+static void twatchPowerUp() {
+    Wire1.begin(10, 11);
+    s_pmuOk = s_pmu.begin(Wire1, AXP2101_SLAVE_ADDRESS, 10, 11);
+    if (!s_pmuOk) { Serial.println("[pmu] AXP2101 did not answer -- screen may stay dark"); return; }
+    s_pmu.setALDO1Voltage(3300); s_pmu.enableALDO1();   // RTC
+    s_pmu.setALDO2Voltage(3300); s_pmu.enableALDO2();   // backlight supply
+    s_pmu.setALDO3Voltage(3300); s_pmu.enableALDO3();   // touch
+    s_pmu.setALDO4Voltage(3300); s_pmu.enableALDO4();   // radio
+    s_pmu.setBLDO2Voltage(3300); s_pmu.enableBLDO2();   // DRV2605 haptics
+    s_pmu.disableDC2(); s_pmu.disableDC4(); s_pmu.disableDC5();
+    s_pmu.disableDLDO2();
+    delay(20);
+    Serial.printf("[pmu] AXP2101 up: battery %d%%, %s\n", s_pmu.getBatteryPercent(),
+                  s_pmu.isVbusIn() ? "on USB" : "on battery");
+}
+#endif
 
 // Runtime UART speed -- set per-board in platformio.ini (-DSERIAL_BAUD=...)
 // for hardware confirmed to hold a faster rate cleanly; boards without
@@ -1934,9 +1980,19 @@ void setup() {
     // while it is still the previous life's, not this one's.
     crashReportInit();
     Serial.begin(SERIAL_BAUD);
+#if defined(TWATCH_S3)
+    // Native USB: with nothing reading the port, every print would otherwise
+    // wait its full timeout for a host, and after the chatty first-boot
+    // calibration the loop crawled so slowly the screen looked frozen black.
+    // Drop the bytes instead when nobody is listening.
+    Serial.setTxTimeoutMs(0);
+#endif
     delay(200);
     Serial.println();
     printBootBanner();
+#if defined(TWATCH_S3)
+    twatchPowerUp();
+#endif
 #if defined(CYD35)
     // One-time diagnostic: is PSRAM actually present on this unit? The
     // "no PSRAM" conclusion driving the no-full-framebuffer tradeoff
@@ -1961,11 +2017,17 @@ void setup() {
 // Not on AWOK (TOUCH_CS there) and not on either RL Phantom, where GPIO21 is
 // the capacitive controller's INTERRUPT line. Driving it high at boot is the
 // same mistake as the LEDC attach further down, just earlier.
-#if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
+#if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R) && !defined(TWATCH_S3)
     pinMode(21, OUTPUT); digitalWrite(21, HIGH);
 #endif
+#if defined(TWATCH_S3)
+    // GPIO27 and GPIO32 are the S3's PSRAM lines: touching either hangs the
+    // chip until the watchdog reboots it. The watch's backlight is GPIO45.
+    pinMode(45, OUTPUT); digitalWrite(45, HIGH);
+#else
     pinMode(27, OUTPUT); digitalWrite(27, HIGH);
     pinMode(32, OUTPUT); digitalWrite(32, HIGH);  // AWOK's real BL pin; unused GPIO on the other two boards
+#endif
 
     tft.init();
 
@@ -2015,6 +2077,12 @@ void setup() {
 // TOUCH_CS on AWOK, and the capacitive controller's INTERRUPT line on the RL
 // Phantom. Driving a 5 kHz PWM onto either is the kind of fault that looks
 // like dead touch, which is exactly how it presented on the Phantom.
+#if defined(TWATCH_S3)
+    // One backlight, GPIO45, on the first channel. The CYD pins below are
+    // flash/PSRAM lines and the power chip's interrupt on an S3.
+    ledcSetup(BL_CH_ORIG, 5000, 8);
+    ledcAttachPin(BL_PIN_TWATCH, BL_CH_ORIG);
+#else
 #if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
     ledcSetup(BL_CH_ORIG, 5000, 8);
     ledcAttachPin(BL_PIN_ORIG, BL_CH_ORIG);
@@ -2023,6 +2091,7 @@ void setup() {
     ledcAttachPin(BL_PIN_CAP, BL_CH_CAP);
     ledcSetup(BL_CH_AWOK, 5000, 8);
     ledcAttachPin(BL_PIN_AWOK, BL_CH_AWOK);
+#endif
     applyBrightness();
     // A saved core clock has to be restored here too, or the setting silently
     // reverts to 240 MHz on every reboot and looks like it never took.
@@ -2090,13 +2159,18 @@ void setup() {
     // 16-bit — the full 16-bit buffer didn't fit in the available
     // contiguous heap on this board.
     frame.setColorDepth(8);
+#if defined(TWATCH_S3)
+    // 57.6 KB fits in internal RAM with room to spare, and a sprite in
+    // PSRAM pushes slower and cannot go by DMA. Keep it inside.
+    frame.setAttribute(PSRAM_ENABLE, false);
+#endif
     if (!frame.createSprite(tft.width(), tft.height())) {
         Serial.println("ERROR: frame buffer allocation failed (low memory)");
 #if HAVE_NVS_ERASE
         if (bootCheckRan) {
             // The check's leftovers took the block. Once more, without it.
             g_bootCheckSkip = CHKSKIP_MAGIC;
-            Serial.flush();
+            serialFlush();
             delay(20);
             esp_restart();
         }
@@ -2133,6 +2207,13 @@ void setup() {
     // rotation maths on them, so touch follows the screen round.
     usingCapTouch = false;
     Serial.println("RL Phantom (resistive) -- XPT2046 on shared bus, raw reads + rotation maths.");
+#elif defined(TWATCH_S3)
+    // The T-Watch's FT6336, on I2C SDA 39 / SCL 40 at 0x38. No reset line;
+    // the AXP2101 powers it (ALDO3) in twatchPowerUp(), before this runs.
+    CapTouch::begin(39, 40, -1, 0x38);
+    usingCapTouch = CapTouch::probe();
+    Serial.println(usingCapTouch ? "T-Watch S3 -- FT6336 capacitive touch answered."
+                                 : "T-Watch S3 -- FT6336 did not answer; no touch.");
 #elif defined(TOUCH_ON_DISPLAY_BUS)
     // AWOK's XPT2046 sits on the display's own shared VSPI bus (TOUCH_CS=21,
     // already armed by TFT_eSPI itself once awok_user_setup.h's #define
@@ -2658,13 +2739,21 @@ void loop() {
     // Neither corner button answers a finger that is carrying Squachy: dragged
     // into a corner, he used to open Settings or rotate the screen mid-carry,
     // and the release that would have dropped him never came.
-    if (tp.valid && !Settings::rotationLocked() && !Squachy::isHeld() &&
+    if (g_consoleInvert) {
+        g_consoleInvert = false;
+        Settings::toggleInvert();
+        tft.invertDisplay(PANEL_NEEDS_INVERSION != Settings::inverted());
+        Serial.printf("[console] invert setting %s (panel baseline %s)\n", Settings::inverted() ? "ON" : "OFF",
+                      PANEL_NEEDS_INVERSION ? "inverted" : "normal");
+    }
+    if (g_consoleRotate || (tp.valid && !Settings::rotationLocked() && !Squachy::isHeld() &&
         (state == AppState::CLEAR || state == AppState::LOG ||
                       state == AppState::SETTINGS || state == AppState::OUTFIT ||
                       state == AppState::RAWSCAN || state == AppState::DETECTION_FILTER ||
                       state == AppState::IGNORE_LIST || state == AppState::DESK) &&
         Theme::rotateButtonHit(tp.x, tp.y, tft.width()) &&
-        (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
+        (now - lastTouch) > TOUCH_DEBOUNCE_MS)) {
+        if (g_consoleRotate) { g_consoleRotate = false; Serial.printf("[console] rotation -> %u\n", (unsigned)((screenRotation + 1) % 4)); }
         lastTouch = now;
         Squachy::trigger(Squachy::Event::ROTATED);
         screenRotation = (screenRotation + 1) % 4;

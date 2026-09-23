@@ -1,6 +1,7 @@
 // SquachWatch-CYD — the transport-free half of firmware updates. See
 // include/ota_core.h.
 #include "ota_core.h"
+#include "serial_flush.h"
 #include "ota_pubkey.h"
 #include <Arduino.h>
 #include <Preferences.h>
@@ -281,7 +282,7 @@ void boot() {
 void tick(uint32_t now) {
     if (s_restart && now >= s_restartAt) {
         Serial.println("[ota] restarting");
-        Serial.flush();
+        serialFlush();
         ESP.restart();
     }
     if (!s_probation || now < CONFIRM_MS) return;

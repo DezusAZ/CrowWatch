@@ -6,6 +6,11 @@
 
 namespace TouchCal {
 
+// See setDensityScale() in the header: tap tolerances scale with the panel's
+// pixels per millimetre, against the 2.8" board they were sized on.
+static float s_density = 1.0f;
+void setDensityScale(float scale) { s_density = scale > 0.5f ? scale : 1.0f; }
+
 // The Fit lives in its own namespace, so a firmware that predates it (or a
 // rollback to one) never trips over it, and the old keys below stay exactly
 // where older firmware left them.
@@ -341,8 +346,8 @@ Outcome runInteractive(TFT_eSPI& t, RawReader readRaw, uint8_t rot,
     // How far a tap may land from its target and still count. Fingers are
     // not styluses and a resistive panel wanders a pixel or three; a slipped
     // finger is tens of pixels.
-    const float residualTol = fmaxf(9.0f, 0.04f * shortSide);
-    const float verifyTol   = fmaxf(12.0f, 0.05f * shortSide);
+    const float residualTol = fmaxf(9.0f, 0.04f * shortSide) * s_density;
+    const float verifyTol   = fmaxf(12.0f, 0.05f * shortSide) * s_density;
 
     for (int attempt = 0; attempt < 2; attempt++) {
         t.fillRect(0, 0, w, h, bg);

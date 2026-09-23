@@ -36,7 +36,14 @@ static uint8_t     s_meshCrowd = 1;   // how many on screen at once, 1..CROWD_MA
 static bool        s_deskSquad     = false;   // the squad on the desk clock as well
 static uint8_t     s_deskCrowd     = 1;       // the desk's own HOW MANY
 static bool        s_deskFullVisit = false;   // one visitor: the whole visit, not a chat
-static uint8_t     s_rotation = 1;
+// The screen's starting rotation: landscape on every CYD; the watch reads
+// one step round from that with its crown on the right (LilyGo's default).
+#if defined(TWATCH_S3)
+static const uint8_t DEFAULT_ROTATION = 2;
+#else
+static const uint8_t DEFAULT_ROTATION = 1;
+#endif
+static uint8_t     s_rotation = DEFAULT_ROTATION;
 // OFF / 5 / 10. Stored as the number itself rather than an index, so the
 // value in NVS still means something if the choices ever change.
 static uint8_t s_autoQuiet = 0;
@@ -251,8 +258,8 @@ void load() {
     s_infoPrimerShown = s_prefs.getBool("infoprimer", false);
     s_rotationLocked = s_prefs.getBool("rotlock", false);
     s_topHat         = s_prefs.getBool("tophat", true);
-    s_rotation = s_prefs.getUChar("rot", 1);
-    if (s_rotation > 3) s_rotation = 1;
+    s_rotation = s_prefs.getUChar("rot", DEFAULT_ROTATION);
+    if (s_rotation > 3) s_rotation = DEFAULT_ROTATION;
     s_backgroundLocked = s_prefs.getBool("bglock", false);
     s_deskBg = s_prefs.getUChar("deskBg", 255);
     s_clockFont     = s_prefs.getUChar("clkfont", 0);

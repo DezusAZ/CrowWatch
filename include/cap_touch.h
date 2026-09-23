@@ -13,7 +13,11 @@ namespace CapTouch {
     // sensibly across taps in early testing but Y stayed frozen, which
     // looks exactly like an unreset chip. Call once from setup(),
     // before probe().
-    void begin(int sda, int scl, int rst);
+    // `rst` below zero skips the reset pulse (the T-Watch's FT6336 has no
+    // reset line we drive); `addr` is the controller's I2C address, 0x15
+    // for the CST816/CST820 and 0x38 for the FT6336, whose registers
+    // 0x02..0x06 (finger count, X high/low, Y high/low) share a layout.
+    void begin(int sda, int scl, int rst, uint8_t addr = 0x15);
 
     // True if a CST816/CST820 answers at its known I2C address (0x15).
     // Call after begin(); if this returns false, call Wire.end() and

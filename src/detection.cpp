@@ -1,5 +1,6 @@
 // SquachWatch-CYD — DetectionEngine implementation
 #include "detection.h"
+#include "serial_flush.h"
 #include "signatures.h"
 #include "settings.h"
 #include "blackbox.h"
@@ -413,7 +414,7 @@ bool DetectionEngine::init() {
     // was. A board that boot-loops prints the last one it reached.
     static const bool SLIM_WIFI = true;    // A/B on the bench: 45 frames/40 s slim, 20/45 s stock
     Serial.println("[boot] starting WiFi");
-    Serial.flush();
+    serialFlush();
     Serial.printf("[boot] heap before WiFi: %lu free, %lu largest\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -536,7 +537,7 @@ bool DetectionEngine::init() {
     Serial.printf("[boot] heap with WiFi up: %lu free, %lu largest\n",
                   (unsigned long)s_bootHeap.wifiFree, (unsigned long)s_bootHeap.wifiLargest);
     Serial.println("[boot] starting Bluetooth");
-    Serial.flush();
+    serialFlush();
     NimBLEDevice::init("");
     NimBLEScan* scan = NimBLEDevice::getScan();
     // Passive to start, whatever the room: the first second of an active

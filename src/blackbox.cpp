@@ -19,7 +19,11 @@
 namespace BlackBox {
 namespace {
 
+#if defined(TWATCH_S3)
+const uint32_t BASE    = 0x810000;   // the gap after app1; see partitions_twatch.csv
+#else
 const uint32_t BASE    = 0x3D0000;   // the gap after app1; see partitions_ota.csv
+#endif
 const uint32_t SECTOR  = 4096;
 const uint8_t  SECTORS = 32;
 const uint32_t SIZE    = SECTORS * SECTOR;

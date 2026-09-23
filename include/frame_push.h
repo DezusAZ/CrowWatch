@@ -32,7 +32,10 @@ class TFT_eSPI;
 // so the condition is simply "a board", and a new one inherits it: the push
 // is the library's own transaction with the waiting put to use, and it
 // declines any frame whose shape it does not recognise rather than guessing.
-#if defined(ARDUINO_ARCH_ESP32)
+// Not on the T-Watch S3 yet: the overlapped push talks to the ESP32 SPI
+// registers, and the S3 lays them out differently -- the first frame through
+// it came out white. pushSprite() until it is ported.
+#if defined(ARDUINO_ARCH_ESP32) && !defined(TWATCH_S3)
   #define SQW_FRAME_PUSH 1
 #else
   #define SQW_FRAME_PUSH 0

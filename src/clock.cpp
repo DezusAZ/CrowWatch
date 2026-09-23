@@ -1,5 +1,6 @@
 // SquachWatch-CYD — wall-clock time. See clock.h.
 #include "clock.h"
+#include "serial_flush.h"
 #include "security.h"   // a locked device takes no console commands
 #include "ota_wifi.h"    // the WIFI command lists the saved networks
 #include "detection.h"   // WINDOW N, for the bench
@@ -42,6 +43,10 @@ extern volatile bool g_benchPrimNow;
 extern volatile bool g_benchUpdateNow;
 extern volatile bool g_benchUpdateStop;
 #endif
+// INVERT and ROT: the colour-check toggles and the corner rotate button,
+// from the console, for bringing up a panel nobody can read yet.
+extern volatile bool g_consoleInvert;
+extern volatile bool g_consoleRotate;
 
 namespace Clock {
 
@@ -445,6 +450,8 @@ void pollSerial() {
             OtaWifi::printSaved();
             continue;
         }
+        if (strcasecmp(line, "INVERT") == 0) { g_consoleInvert = true; continue; }
+        if (strcasecmp(line, "ROT") == 0)    { g_consoleRotate = true; continue; }
         if (strncasecmp(line, "ZONE ", 5) == 0) {
             // ZONE US EASTERN, or ZONE 4: the flasher sends the name it
             // worked out from the browser's own zone.
@@ -599,7 +606,7 @@ void pollSerial() {
             // Bench builds only (-DBENCH_TOOLS=1): a deliberate panic, to
             // prove the crash history catches one.
             Serial.println("[bench] crashing on purpose");
-            Serial.flush();
+            serialFlush();
             volatile int* p = nullptr;
             *p = 1;
 #endif

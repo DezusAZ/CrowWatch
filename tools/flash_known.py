@@ -26,12 +26,17 @@ BOARDS = {
     # goes back on hold, comment it out again rather than leaving a board here
     # that nobody means to flash.
     "a4:f0:0f:8e:3a:88": ("cyd35-fast", "3.5in, 80MHz, two-band drawing"),
+    "a0:f2:62:e1:29:10": ("twatch-s3",  "LilyGo T-Watch S3, native USB (COM13 is allowed for THIS MAC only)"),
     # 88:57:21:2e:e6:e0 runs SquachEmit, not this firmware. It is the only
     # CAPACITIVE 2.8in; to test capacitive touch, list it here as cyd-fast
     # for the test and comment it out again after (done 2026-09-21).
     # d4:d4:da:88:62:b8 is something else entirely (HoloCube?): never
 }
-NEVER_PORTS = {"COM10", "COM13"}
+NEVER_PORTS = {"COM10"}
+# COM13 was the wrong device once (2026-08-30) and is never flashed blind. The
+# T-Watch S3 enumerates there as native USB with its MAC as the serial, so
+# COM13 is allowed only when the MAC read back is the watch's (2026-09-22).
+COM13_ONLY_FOR = "a0:f2:62:e1:29:10"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -58,13 +63,34 @@ def main():
     mac = read_mac(port)
     if not mac:
         sys.exit("no ESP32 answered on %s" % port)
+    if port == "COM13" and mac != COM13_ONLY_FOR:
+        sys.exit("refusing COM13: %s is not the watch (%s)" % (mac, COM13_ONLY_FOR))
     if mac not in BOARDS:
         sys.exit("unknown board %s on %s: add it to BOARDS first, or leave it alone" % (mac, port))
     env, what = BOARDS[mac]
     print("%s: %s -> %s (%s)" % (port, mac, env, what))
     if "--check" in sys.argv:
         return
-    r = subprocess.run([PIO, "run", "-e", env, "-t", "upload", "--upload-port", port], cwd=ROOT)
+    if env == "twatch-s3":
+        # Native USB: PlatformIO's bundled esptool 4.5 loses the link when its
+        # stub changes speed, and fails "Unable to verify flash chip" even
+        # without. The system esptool 5 programs it fine at the nominal speed.
+        # The bootloader lives at 0x0 on an S3, not 0x1000.
+        r = subprocess.run([PIO, "run", "-e", env], cwd=ROOT)
+        if r.returncode != 0:
+            sys.exit("build failed")
+        build = os.path.join(ROOT, ".pio", "build", env)
+        boot_app0 = os.path.join(os.path.expanduser("~"), ".platformio", "packages",
+                                 "framework-arduinoespressif32", "tools", "partitions", "boot_app0.bin")
+        r = subprocess.run([sys.executable, "-m", "esptool", "--chip", "esp32s3", "--port", port, "--baud", "115200",
+                            "--before", "default-reset", "--after", "hard-reset", "write-flash", "-z",
+                            "--flash-mode", "dio", "--flash-freq", "80m", "--flash-size", "16MB",
+                            "0x0", os.path.join(build, "bootloader.bin"),
+                            "0x8000", os.path.join(build, "partitions.bin"),
+                            "0xe000", boot_app0,
+                            "0x10000", os.path.join(build, "firmware.bin")], cwd=ROOT)
+    else:
+        r = subprocess.run([PIO, "run", "-e", env, "-t", "upload", "--upload-port", port], cwd=ROOT)
     sys.exit(r.returncode)
 
 
