@@ -93,31 +93,15 @@ static uint32_t rawNow() {
 // own. settimeofday puts it in the RTC domain, which keeps counting across
 // a software reset -- so a watchdog reboot, a panic, or the SD-card boot
 // loop does not take the time with it. A private static would.
-// A clock this far past the build is not set, it is stale: an ESP32-S3
-// keeps its system time across resets while the battery keeps it powered,
-// and the T-Watch arrived believing it was 2064 from whatever the factory
-// firmware left in the RTC. Trusted, that would have blocked every real
-// time offer (the mesh only corrects a clock that is NOT trusted). Six
-// years past the build date is the line.
-static uint32_t farFuture() {
-    static uint32_t limit = 0;
-    if (!limit) {
-        const char* d = __DATE__;          // "Sep 22 2026"
-        const int year = atoi(d + 7);
-        limit = (uint32_t)((year - 1970 + 6) * 365.25 * 86400.0);
-    }
-    return limit;
-}
 bool isSet() {
-    const uint32_t t = rawNow();
-    return t > kPlausible && t < farFuture();
+    return rawNow() > kPlausible;
 }
 bool trusted() { return isSet() && !s_guess; }
 bool guessed() { return isSet() && s_guess; }
 
 uint32_t nowEpoch() {
     const uint32_t t = rawNow();
-    return (t > kPlausible && t < farFuture()) ? t : 0u;
+    return (t > kPlausible) ? t : 0u;
 }
 
 // The first time this board knows the date, that date is kept: it is the
