@@ -25,7 +25,14 @@ static bool        s_messagesOn   = false;
 static bool        s_msgTutor     = false;
 #endif
 static bool        s_infoPrimerShown = false;
-static bool        s_rotationLocked = false;
+// Locked on the watch: a square screen with a crown has one way up, and a
+// corner button that spins it is a thing to hit by accident on a wrist.
+#if defined(TWATCH_S3)
+static const bool DEFAULT_ROTATION_LOCK = true;
+#else
+static const bool DEFAULT_ROTATION_LOCK = false;
+#endif
+static bool        s_rotationLocked = DEFAULT_ROTATION_LOCK;
 static bool        s_topHat = true;
 // Eight is the ceiling because the radio's own squad ring holds eight (see
 // SQUAD_N in mesh.cpp). A menu that offered thirty would be offering something
@@ -264,7 +271,7 @@ void load() {
     s_msgTutor     = s_prefs.getBool("msgtut", false);
 #endif
     s_infoPrimerShown = s_prefs.getBool("infoprimer", false);
-    s_rotationLocked = s_prefs.getBool("rotlock", false);
+    s_rotationLocked = s_prefs.getBool("rotlock", DEFAULT_ROTATION_LOCK);
     s_topHat         = s_prefs.getBool("tophat", true);
     s_rotation = s_prefs.getUChar("rot", DEFAULT_ROTATION);
     if (s_rotation > 3) s_rotation = DEFAULT_ROTATION;
