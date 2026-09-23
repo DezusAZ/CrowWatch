@@ -1453,8 +1453,6 @@ static void enterInvite() {
 // INVERT and ROT on the console -- see clock.cpp. Consumed in loop().
 volatile bool g_consoleInvert = false;
 volatile bool g_consoleRotate = false;
-volatile bool g_consoleBatt    = false;   // BATT: one reading, now
-volatile bool g_consoleBattLog = false;   // BATTLOG: every sample kept, newest first
 
 #ifdef BENCH_TOOLS
 // UPDATE NOW and UPDATE STOP on the console, for the bench: the unattended
@@ -1934,54 +1932,6 @@ static void twatchPowerUp() {
 #endif
 
 #if defined(TWATCH_S3)
-// One battery sample into the black box. See BattRecord for what it holds
-// and why. Printed too, so a bench run shows the same line the ring keeps.
-static void twatchBatterySample(uint8_t why) {
-    if (!s_pmuOk) return;
-    BlackBox::BattRecord r;
-    memset(&r, 0, sizeof r);
-    r.mv       = s_pmu.getBattVoltage();
-    r.pct      = (uint8_t)s_pmu.getBatteryPercent();
-    r.why      = why;
-    r.epoch    = Clock::trusted() ? Clock::nowEpoch() : 0;
-    r.upSec    = millis() / 1000u;
-    r.cpuMhz10 = (uint8_t)(getCpuFrequencyMhz() / 10);
-    if (s_pmu.isVbusIn())   r.flags |= BlackBox::BATT_USB;
-    if (s_pmu.isCharging()) r.flags |= BlackBox::BATT_CHARGING;
-    if (!s_panelAsleep)     r.flags |= BlackBox::BATT_SCREEN_ON;
-    r.flags |= BlackBox::BATT_RADIOS_ON;   // nothing turns them off yet
-    BlackBox::noteBattery(r);
-    static const char* const WHY[] = { "timer", "boot", "usb", "screen" };
-    Serial.printf("[batt] %u mV  %u%%  %s%s  screen %s  cpu %u MHz  up %lu s  (%s)\n",
-                  (unsigned)r.mv, (unsigned)r.pct, (r.flags & BlackBox::BATT_USB) ? "on USB" : "on battery",
-                  (r.flags & BlackBox::BATT_CHARGING) ? ", charging" : "", s_panelAsleep ? "off" : "on",
-                  (unsigned)getCpuFrequencyMhz(), (unsigned long)r.upSec, WHY[why < 4 ? why : 0]);
-}
-
-// Every ten minutes, at boot, and whenever the cable or the screen changes
-// state: the points where the slope of the curve changes.
-static void twatchBatteryTick(uint32_t now) {
-    if (!s_pmuOk) return;
-    static uint32_t lastAt = 0;
-    static bool first = true, wasUsb = false, wasAsleep = false;
-    if (first) {
-        first = false; lastAt = now;
-        wasUsb = s_pmu.isVbusIn(); wasAsleep = s_panelAsleep;
-        twatchBatterySample(BlackBox::BATT_WHY_BOOT);
-        return;
-    }
-    if (wasAsleep != s_panelAsleep) {
-        wasAsleep = s_panelAsleep; lastAt = now;
-        twatchBatterySample(BlackBox::BATT_WHY_SCREEN);
-        return;
-    }
-    if (now - lastAt < 600000u) return;
-    lastAt = now;
-    const bool usb = s_pmu.isVbusIn();   // one I2C read, ten minutes apart
-    if (usb != wasUsb) { wasUsb = usb; twatchBatterySample(BlackBox::BATT_WHY_USB); return; }
-    twatchBatterySample(BlackBox::BATT_WHY_TIMER);
-}
-
 // Polled ten times a second: one I2C read of the PMU's interrupt flags. A
 // short press of the crown counts as a touch, which is what wakes the screen
 // and holds off the timeout; nothing else is bound to it yet.
@@ -2693,20 +2643,6 @@ void loop() {
     uint32_t now = millis();
 #if defined(TWATCH_S3)
     twatchCrownTick(now);
-    twatchBatteryTick(now);
-    if (g_consoleBatt) { g_consoleBatt = false; twatchBatterySample(BlackBox::BATT_WHY_TIMER); }
-    if (g_consoleBattLog) {
-        g_consoleBattLog = false;
-        Serial.println("[battlog] newest first: boot  up(s)  epoch  mV  %  flags(usb/chg/scr/radio)  cpu  why");
-        BlackBox::forEachBattery([](const BlackBox::BattRecord& r, void*) {
-            Serial.printf("[battlog] %u  %lu  %lu  %u  %u  %c%c%c%c  %u  %u\n", (unsigned)r.boot,
-                          (unsigned long)r.upSec, (unsigned long)r.epoch, (unsigned)r.mv, (unsigned)r.pct,
-                          (r.flags & BlackBox::BATT_USB) ? 'U' : '-', (r.flags & BlackBox::BATT_CHARGING) ? 'C' : '-',
-                          (r.flags & BlackBox::BATT_SCREEN_ON) ? 'S' : '-', (r.flags & BlackBox::BATT_RADIOS_ON) ? 'R' : '-',
-                          (unsigned)r.cpuMhz10 * 10, (unsigned)r.why);
-            return true;
-        }, nullptr);
-    }
 #endif
     Clock::tick(now);   // the note to self, when it is due
 #if SQUACH_MESH && defined(BENCH_TOOLS)
