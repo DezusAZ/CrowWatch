@@ -2519,7 +2519,21 @@ void setup() {
 #if defined(SQW_RADIO_START_DELAY_MS)
     Serial.printf("[boot] TEST BUILD: holding the radios back %u ms\n", (unsigned)SQW_RADIO_START_DELAY_MS);
     serialFlush();
-    delay(SQW_RADIO_START_DELAY_MS);
+    // Say so on the screen. The backlight was just turned down for the radio
+    // start, so a silent hold reads as a dead watch for 45 s.
+    ledcWrite(BL_CH_ORIG, 255);
+    tft.fillScreen(Theme::BG);
+    tft.setTextColor(Theme::AMBER, Theme::BG);
+    tft.setTextSize(2);
+    tft.setCursor(16, tft.height() / 2 - 28);
+    tft.print("RADIO TEST");
+    for (uint32_t left = SQW_RADIO_START_DELAY_MS / 1000; left > 0; left--) {
+        tft.setCursor(16, tft.height() / 2 + 4);
+        tft.printf("radios in %2lu s ", (unsigned long)left);
+        delay(1000);
+    }
+    tft.fillScreen(Theme::BG);
+    ledcWrite(BL_CH_ORIG, 24);
     Serial.printf("[boot] radios start at %lu ms; chip %.1f C\n", (unsigned long)millis(), temperatureRead());
 #endif
 #endif
