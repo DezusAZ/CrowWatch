@@ -139,6 +139,12 @@ void radioReport(bool withScan) {
 static volatile uint8_t s_windowReq = 0;   // a WINDOW command waiting for the next restart
 static bool             s_windowPending = false;
 void setScanWindow(uint8_t w) { if (w >= 1 && w <= 100) { s_windowReq = w; s_windowPending = true; } }
+// BENCH: INTERVAL N (ms), with the window in the same message; see scanFlushOnHost.
+static volatile uint16_t s_intervalReq = 0;
+void setScanInterval(uint16_t ms, uint8_t w) {
+    if (ms < 20 || ms > 1000 || w < 1 || w > ms) return;
+    s_intervalReq = ms; s_windowReq = w; s_windowPending = true;
+}
 static volatile uint8_t s_scanPin = 0;   // 0 auto, 1 active, 2 passive -- the bench's say
 void setScanPin(uint8_t pin) { s_scanPin = pin > 2 ? 0 : pin; }
 
@@ -939,6 +945,7 @@ static void scanFlushOnHost(struct ble_npl_event*) {
     // a start, which is why the decision is carried in here.
     const uint32_t nowMs = millis();
     (void)nowMs;
+    if (s_intervalReq) { scan->setInterval(s_intervalReq); s_intervalReq = 0; }
     if (s_windowReq) { scan->setWindow(s_windowReq); s_windowReq = 0; }
     const bool passive = s_wantPassive;
     if (passive != s_passiveNow) { scan->setActiveScan(!passive); s_passiveNow = passive; }

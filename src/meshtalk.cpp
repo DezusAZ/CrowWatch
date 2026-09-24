@@ -963,6 +963,26 @@ void tick(uint32_t now) {
             if (n) { s_outLen[0] = (uint8_t)n; onAir(1, now, HELLO_MS); }
         }
     }
+    // Listen all the time while an invite is under way, on either side. At the
+    // usual scan window of 75 a board heard exactly one squad frame in three
+    // (every 4.5 s against a 1.5 s beacon; bench, 2026-09-24), which let the
+    // handshake run out of time; at 99 it hears every one. Only for the
+    // invite: the other 25 is the WiFi sniffer's airtime, and listening costs
+    // battery. The first offer is still heard at 75 -- it stays on the air for
+    // a minute.
+    {
+        static bool boosted = false;
+        bool want = s_invState == InviteState::OFFERING || s_invState == InviteState::ASKED ||
+                          s_invState == InviteState::CODE     || s_invState == InviteState::SENDING ||
+                          s_invState == InviteState::WAITING;
+        // Never longer than three minutes, even for an offer nobody answers.
+        if (want && now - s_invSince > 180000) want = false;
+        if (want != boosted) {
+            boosted = want;
+            setScanWindow(want ? 99 : 75);
+            Serial.printf("[invite] listening %s\n", want ? "all the time until it is done" : "as usual again");
+        }
+    }
     // The invite's clocks: a side that waits too long for the other gives up,
     // and the inviter is done once the phrase has had its time on the air.
     if (s_invState == InviteState::OFFERING && now - s_invSince > INVITE_WAIT_MS) inviteFail("No answer from their board", now);

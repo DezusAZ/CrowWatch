@@ -74,7 +74,7 @@ namespace Mesh {
     // The visitor, or nullptr. Goes stale on its own if the peer walks away.
     const SquachMesh::Peer* peer();
     const uint8_t*          peerMac();
-    // How many SquachWatches have been heard in the last twelve seconds --
+    // How many SquachWatches have been heard in the last twenty seconds (PEER_STALE_MS) --
     // the visitor and everybody else. For the small "+2" beside him.
     uint8_t                 squadCount(uint32_t now);
     // Every one of them, with what their advert said they look like -- for the
@@ -130,6 +130,7 @@ const volatile uint32_t* advertKinds();   // [ind, direct, scan, nonconn, other]
 // The scan window, 1..100 of the 100 ms interval, changed live: WINDOW N on
 // the console. For pricing the WiFi/Bluetooth radio-time trade on the bench.
 void     setScanWindow(uint8_t w);
+void     setScanInterval(uint16_t ms, uint8_t window);   // bench: INTERVAL ms window
 // SCAN ACTIVE / SCAN PASSIVE / SCAN AUTO on the console: pin the scan mode
 // for a bench flood, or hand it back to the room. 0 auto, 1 active, 2 passive.
 void     setScanPin(uint8_t pin);

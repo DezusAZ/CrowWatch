@@ -455,6 +455,14 @@ void pollSerial() {
             else Serial.println("[scan] unknown. One of: ACTIVE, PASSIVE, AUTO");
             continue;
         }
+        if (strncasecmp(line, "INTERVAL ", 9) == 0) {
+            unsigned ms = 0, win = 0;
+            if (sscanf(line + 9, "%u %u", &ms, &win) == 2) {
+                setScanInterval((uint16_t)ms, (uint8_t)win);
+                Serial.printf("[scan] interval %u ms, window %u ms from the next restart\n", ms, win);
+            }
+            continue;
+        }
         if (strncasecmp(line, "WINDOW ", 7) == 0) {
             setScanWindow((uint8_t)atoi(line + 7));
             continue;

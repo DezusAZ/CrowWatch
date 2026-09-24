@@ -2219,7 +2219,8 @@ static void twatchRadioTick(uint32_t now) {
     static uint32_t phaseAt = 0, usbAt = 0;
     static bool     usb = true;
     if (now - usbAt >= 2000) { usbAt = now; usb = s_pmuOk && s_pmu.isVbusIn(); }
-    const uint8_t duty = Settings::radioDuty();
+    // RADIO TEST on the console forces BLE+5/30 whatever the settings say.
+    const uint8_t duty = g_consoleRadioTest ? 3 : Settings::radioDuty();
     // Only a device you asked to WATCH holds the radios awake. Every alert
     // did, and a room with a Ring camera and a Flipper in it alerts every
     // few seconds, so WiFi never got a rest at home.

@@ -37,14 +37,18 @@ static uint8_t          s_nameMac[6] = { 0 };
 static char             s_name[13]   = { 0 };
 
 // How long a peer survives without being heard from again. Adverts go out
-// every 1500ms, so this is roughly eight missed ones -- long enough that a
-// pocket or a passing wall does not end a visit, short enough that somebody
-// who actually left stops standing on your screen.
-static const uint32_t PEER_STALE_MS = 12000;
+// every 1500ms, but a scanner does not hear every one: at the usual scan
+// window the watch caught one in three for stretches (a 4.5 s gap, bench
+// 2026-09-24), and a wrist over the antenna eats more. At 12 s that walked
+// squad members off the watch's screen and straight back on. 20 s is four
+// such gaps -- long enough that a pocket, a wall or an arm does not end a
+// visit, short enough that somebody who actually left soon stops standing on
+// your screen.
+static const uint32_t PEER_STALE_MS = 20000;
 
 // Every SquachWatch heard lately, not just the one visiting: the count behind
 // the small "+2" beside the visitor. Addresses only, eight of them, RAM only,
-// each gone twelve seconds after it stops being heard. Written in the BLE task
+// each gone twenty seconds after it stops being heard. Written in the BLE task
 // and read in the loop; a count wrong by one for a frame is the worst a race
 // here can do.
 static const uint8_t SQUAD_N = 8;
@@ -70,6 +74,13 @@ static void squadNote(const uint8_t* mac, uint32_t now, const SquachMesh::Peer& 
         }
         memcpy(s_squadMac[slot], mac, 6);
         s_squadLive[slot] = true;
+        Serial.printf("[squad] %02x%02x arrived\n", mac[4], mac[5]);
+    } else if ((int32_t)(now - s_squadSeen[slot]) > 4000) {
+        // BENCH: adverts go out every 1.5 s, so a gap this long is three or
+        // more missed in a row; past PEER_STALE_MS the member has left the screen.
+        Serial.printf("[squad] %02x%02x heard again after %lu ms%s\n", mac[4], mac[5],
+                      (unsigned long)(now - s_squadSeen[slot]),
+                      (int32_t)(now - s_squadSeen[slot]) > (int32_t)PEER_STALE_MS ? " (had left)" : "");
     }
     s_squadPeer[slot] = p;
     s_squadSeen[slot] = now;
