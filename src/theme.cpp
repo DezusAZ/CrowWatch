@@ -285,6 +285,12 @@ static int lockIconX(int w) {
     return rotateShown() ? (w - ROTATE_ICON_W - LOCK_ICON_W) : (w - LOCK_ICON_W);
 }
 
+int titleBarRightIconsX(int w) {
+    if (Security::enabled()) return lockIconX(w);
+    if (rotateShown()) return w - ROTATE_ICON_W;
+    return w;
+}
+
 static void drawLockIcon(TFT_eSPI& t, int w, int barH) {
     const int x0 = lockIconX(w);
     t.fillRect(x0, 0, LOCK_ICON_W, barH, BG);

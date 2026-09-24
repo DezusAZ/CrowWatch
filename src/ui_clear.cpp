@@ -1,5 +1,6 @@
 // SquachWatch-CYD — clear (idle) screen implementation
 #include "ui_clear.h"
+#include "clock.h"      // the watch's corner clock
 #include "draw_band.h"
 #include "frame_prof.h"
 // Needed this early: the message helpers sit up with the visit machine,
@@ -1704,7 +1705,10 @@ static void drawSquadBadge(TFT_eSPI& t, int rightX, int bottomY, uint8_t count) 
 static bool    s_watchPillOn = false;
 static int16_t s_wpX = 0, s_wpY = 0, s_wpW = 0, s_wpH = 0;
 
-static void drawWatchPill(TFT_eSPI& t, int screenW, bool watching, bool hunting) {
+// spanR: the right end of the free span. -1 keeps the old fixed reserve for
+// the rotate button and the padlock; the watch passes the corner clock's
+// left edge instead, which already sits left of both.
+static void drawWatchPill(TFT_eSPI& t, int screenW, bool watching, bool hunting, int spanR = -1) {
     // HUNT wins the label when both are set: it is the active, look-at-me mode.
     // The two are independent slots (see DetectionEngine), so both can be on.
     const char* txt = hunting ? "HUNT" : "WATCH";
@@ -1716,7 +1720,8 @@ static void drawWatchPill(TFT_eSPI& t, int screenW, bool watching, bool hunting)
     // Left edge of the free span, past the gear. The right limit is the rotate
     // icon (28) plus the lock (26) -- reserve both whether or not either is
     // showing, so the pill cannot move when a PIN is set or rotation locked.
-    const int spanL = 32, spanR = screenW - 54;
+    const int spanL = 32;
+    if (spanR < 0) spanR = screenW - 54;
     int x = spanL + ((spanR - spanL) - bw) / 2;
     if (x < spanL) x = spanL;
     const int y = (20 - bh) / 2;
@@ -2953,7 +2958,27 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         // pill the other pass had just drawn, and it would stop being tappable.
         if (DrawBand::has(0, titleBottom)) {
             s_watchPillOn = false;
-            if (watching || hunting) drawWatchPill(t, w, watching, hunting);
+            int pillR = -1;
+#if defined(TWATCH_S3)
+            // The watch's corner clock: 12-hour, cyan on a black tile like the
+            // icons, just left of whichever right-hand icons are showing (the
+            // corner itself when rotation is locked, the default). Only once
+            // the time is real -- a guessed or unset clock draws nothing.
+            if (Clock::trusted()) {
+                char tm[8];
+                Clock::formatTime(tm, sizeof tm, true);
+                t.setTextSize(2);
+                const int right = Theme::titleBarRightIconsX(w) - (Theme::titleBarRightIconsX(w) < w ? 2 : 4);
+                const int tw = t.textWidth(tm) - 2;   // no spacing column after the last glyph
+                const int x = right - tw;
+                t.fillRect(x - 3, 0, tw + 6, 20, TFT_BLACK);
+                t.setTextColor(Theme::CYAN, TFT_BLACK);
+                t.setCursor(x, 3);
+                t.print(tm);
+                pillR = x - 3 - 4;
+            }
+#endif
+            if (watching || hunting) drawWatchPill(t, w, watching, hunting, pillR);
         }
     }
 

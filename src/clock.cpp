@@ -54,6 +54,8 @@ extern volatile bool g_consoleBatt;
 extern volatile bool g_consoleBattLog;
 extern volatile bool g_consoleRadioTest;
 extern volatile bool g_consolePmu;
+extern volatile bool g_consoleRtc;
+extern volatile bool g_consoleBuzz;
 
 namespace Clock {
 
@@ -147,6 +149,9 @@ static void writeSystemClock(uint32_t epoch) {
 #endif
 }
 
+static void (*s_onSet)(uint32_t) = nullptr;
+void onSet(void (*fn)(uint32_t)) { s_onSet = fn; }
+
 bool setEpoch(uint32_t epoch) {
     if (epoch <= kPlausible) return false;
     // A real answer, from wherever: the guess is over, and the note is
@@ -155,6 +160,7 @@ bool setEpoch(uint32_t epoch) {
     writeSystemClock(epoch);
     noteKnown();
     if (s_begun) { s_prefs.putUInt("last", epoch); s_lastNote = millis(); }
+    if (s_onSet && isSet()) s_onSet(epoch);
     return true;
 }
 
@@ -479,6 +485,8 @@ void pollSerial() {
         if (strcasecmp(line, "BATTLOG") == 0) { g_consoleBattLog = true; continue; }
         if (strcasecmp(line, "RADIO TEST") == 0) { g_consoleRadioTest = !g_consoleRadioTest; Serial.printf("[radio] bench test %s\n", g_consoleRadioTest ? "ON: cycling on the cable, screen or not" : "OFF"); continue; }
         if (strcasecmp(line, "PMU") == 0)    { g_consolePmu = true; continue; }
+        if (strcasecmp(line, "RTC") == 0)    { g_consoleRtc = true; continue; }
+        if (strcasecmp(line, "BUZZ") == 0)   { g_consoleBuzz = true; continue; }
         if (strcasecmp(line, "RADIO DUTY") == 0) {
             Settings::cycleRadioDuty();
             Serial.printf("[radio] duty -> %s\n", Settings::radioDutyName(Settings::radioDutyRaw()));

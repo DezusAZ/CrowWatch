@@ -118,6 +118,7 @@ static uint8_t  s_idleFpsIx    = 2;    // 12 fps
 static uint8_t  s_idleAfterIx  = 1;    // 10 s
 static uint8_t  s_cpuIx        = 0;    // 240 MHz, the stock clock
 static bool     s_wakeOnAlert  = true;
+static bool     s_buzz         = true;
 // The watch's radio duty cycle: on for a few seconds, resting for the rest.
 // 0 ALWAYS, 1 five seconds of thirty, 2 ten of sixty, 3 BLE always on with
 // WiFi five of thirty. Watch only; the CYDs never read it.
@@ -185,6 +186,7 @@ uint8_t  idleFps()          { return s_powerSaver ? IDLE_FPS[s_idleFpsIx] : 0; }
 uint16_t idleAfterSec()     { return IDLE_AFTER[s_idleAfterIx]; }
 uint16_t cpuMhz()           { return s_powerSaver ? CPU_MHZ[s_cpuIx] : 240; }
 bool     wakeOnAlert()      { return s_wakeOnAlert; }
+bool     buzz()             { return s_buzz; }
 // Only while POWER SAVER is on. Either RADIO DUTY row (the Power screen,
 // or WATCH in settings) picks the mode; neither turns the saver on.
 uint8_t  radioDuty()        { return s_powerSaver ? s_radioDutyIx : 0; }
@@ -225,6 +227,10 @@ void cycleIdleAfter() {
 void cycleCpuMhz() {
     s_cpuIx = (uint8_t)((s_cpuIx + 1) % CPU_MHZ_N);
     s_prefs.putUChar("pwrCpu", s_cpuIx);
+}
+void toggleBuzz() {
+    s_buzz = !s_buzz;
+    s_prefs.putBool("buzz", s_buzz);
 }
 void toggleWakeOnAlert() {
     s_wakeOnAlert = !s_wakeOnAlert;
@@ -333,6 +339,7 @@ void load() {
     s_idleAfterIx  = s_prefs.getUChar("pwrIdleT", 1);
     s_cpuIx        = s_prefs.getUChar("pwrCpu", 0);
     s_wakeOnAlert  = s_prefs.getBool("pwrWake", true);
+    s_buzz         = s_prefs.getBool("buzz", true);
     s_radioDutyIx  = s_prefs.getUChar("pwrRadio", RADIO_DUTY_DEFAULT);
     if (s_radioDutyIx >= RADIO_DUTY_N) s_radioDutyIx = RADIO_DUTY_DEFAULT;
     s_lightOn      = s_prefs.getBool("ltOn", true);

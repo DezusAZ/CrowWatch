@@ -56,6 +56,7 @@ enum class SettingsRow : uint8_t {
     CLOCK_BACKDROP,  // on the DESK MODE page: what plays inside the clock
     WATCH_BATTERY,   // the T-Watch only: charge and voltage, under WATCH
     WATCH_RADIO,     // the T-Watch only: the radio duty cycle, under WATCH
+    WATCH_BUZZ,      // the T-Watch only: buzz on an alert, under WATCH
     BACK,
     COUNT,
     NONE = 255

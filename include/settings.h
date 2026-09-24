@@ -201,6 +201,11 @@ namespace Settings {
     // worse than useless.
     bool       wakeOnAlert();
     void       toggleWakeOnAlert();
+    // The T-Watch's buzz on an alert (the DRV2605 haptic motor). Kept on
+    // every board so the settings file reads the same; only the watch has
+    // a motor to use it.
+    bool       buzz();
+    void       toggleBuzz();
 
     // The watch's radio duty cycle; see RADIO_DUTY_NAMES in settings.cpp.
     // 0 when the saver is off. Watch only.

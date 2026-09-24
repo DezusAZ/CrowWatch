@@ -119,6 +119,10 @@ namespace Theme {
     // button in the top-left corner, and the rotate button in the
     // top-right corner (unless hidden, see setRotateIconVisible()).
     void drawTitleBar(TFT_eSPI& t, const char* title);
+    // Where the title bar's right-hand icons begin: the rotate button
+    // and the padlock, whichever are showing right now. The screen width
+    // when neither is. The watch's corner clock stands just left of it.
+    int  titleBarRightIconsX(int w);
 
     // The chrome every list screen BELOW Settings shares, so they read as
     // one family with it: a small heading at the top in the colour of the
