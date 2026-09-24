@@ -32,6 +32,14 @@ CYAN  = (0, 214, 214)
 # ---- the clips ----
 
 CLIPS = {
+    # v1.20.0 "SquachWatch^2": he moves onto a wrist. Shot on the T-Watch S3's
+    # own 240x240 panel (see CLIP_SIZE). The emulator is not the watch build,
+    # so the corner clock and the WATCH settings are the notes' to describe.
+    "squachwatch-squared": [
+        ("clear",  60, 36, ["--noseed", "--bg", "7"],                                  {}, 1500, "SQUACHWATCH. ON A WATCH."),
+        ("clear",  60, 36, ["--peer", "3", "--peername", "POOTS", "--noseed", "--bg", "6"], {}, 1600, "SQUAD VISITS STAY PUT NOW"),
+        ("clear", 716, 32, ["--showoff", "--noseed", "--bg", "10"],                    {},  900, "240 BY 240. HE FITS. MOSTLY."),
+    ],
     # v1.19.1 "Crash Override": the WiFi update that finishes, the label he
     # reads now, and the shark suit that survives a visit.
     "crash-override": [
@@ -110,6 +118,7 @@ CLIPS = {
 # 1 there: 480x320 doubled is a 960-pixel GIF, which is more than the notes
 # embed at anyway.
 CLIP_SIZE = {
+    "squachwatch-squared": (240, 240, 2),
     "the-big-screen": (480, 320, 1),
     "good-company":   (480, 320, 1),
 }

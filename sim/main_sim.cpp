@@ -778,14 +778,14 @@ int main(int argc, char** argv) {
         // The real path: a version arrives, then the release's own lines if
         // it came from the site. --from makes it a squad member's hello,
         // which carries a number and no notes.
-        OtaCore::noteAvailable("1.19.1", heardFrom.c_str());
+        OtaCore::noteAvailable("1.20.0", heardFrom.c_str());
         if (heardFrom.empty()) {
             static const char* const NEWS[3] = {
-                "WiFi updates finish again",
-                "He reads the version off the image",
-                "The shark suit survives a visit",
+                "He runs on a T-Watch S3 now",
+                "Squad visitors stay put",
+                "Invites land in seconds",
             };
-            OtaCore::noteRelease("Crash Override", NEWS, 3);
+            OtaCore::noteRelease("SquachWatch^2", NEWS, 3);
         }
         uiSysPropsInit(frame);
         // The tab a tap would have opened, for rendering one of them.
