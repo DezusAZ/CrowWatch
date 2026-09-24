@@ -180,7 +180,14 @@ const char* backgroundName(Background b) {
 // the rest of the firmware never has to ask twice: one call tells it both
 // whether the feature is on and what to do.
 bool     powerSaver()       { return s_powerSaver; }
+#if defined(TWATCH_S3)
+// On the watch the screen times out POWER SAVER or not: a screen left on is
+// never what a wrist wants. The two exceptions are the cable (main.cpp
+// keeps it lit on USB) and NEVER, kept as the deliberate override.
+uint16_t screenTimeoutSec() { return SCREEN_TIMEOUTS[s_scrTimeoutIx]; }
+#else
 uint16_t screenTimeoutSec() { return s_powerSaver ? SCREEN_TIMEOUTS[s_scrTimeoutIx] : 0; }
+#endif
 uint8_t  dimLevel()         { return s_dimLevel; }
 uint8_t  idleFps()          { return s_powerSaver ? IDLE_FPS[s_idleFpsIx] : 0; }
 uint16_t idleAfterSec()     { return IDLE_AFTER[s_idleAfterIx]; }
