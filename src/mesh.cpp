@@ -209,7 +209,14 @@ void tick(uint32_t now) {
     // frozen there.
     if (!Settings::meshDetect()) { s_havePeer = false; return; }
 
-    if (s_havePeer && (now - s_peerSeen) > PEER_STALE_MS) s_havePeer = false;
+    // SIGNED. s_peerSeen is stamped in the BLE task with its own millis(),
+    // which can be later than this loop pass's `now`; unsigned, that age was
+    // minus a few ms, read as 49 days, and the visitor was dropped the
+    // instant it was heard -- then heard again: the watch's guest phasing in
+    // and out. The watch loops ten times a second with its screen off, so it
+    // hit this far more often than the CYDs. The squad list was already
+    // signed, which is why the member count never flickered.
+    if (s_havePeer && (int32_t)(now - s_peerSeen) > (int32_t)PEER_STALE_MS) s_havePeer = false;
 }
 
 } // namespace Mesh

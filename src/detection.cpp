@@ -1942,7 +1942,9 @@ void DetectionEngine::expireStale() {
     uint32_t now = millis();
     for (uint8_t i = 0; i < _logCount; i++) {
         uint8_t slot = (_logHead + LOG_CAP - 1 - i) % LOG_CAP;
-        if (_log[slot].active && (now - _log[slot].lastSeen) > STALE_MS) {
+        // Signed: lastSeen is written from the radio tasks and can land a
+        // moment after `now` was read.
+        if (_log[slot].active && (int32_t)(now - _log[slot].lastSeen) > (int32_t)STALE_MS) {
             _log[slot].active = false;
             if (_typeCounts[(uint8_t)_log[slot].type] > 0) {
                 _typeCounts[(uint8_t)_log[slot].type]--;

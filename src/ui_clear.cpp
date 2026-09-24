@@ -1703,6 +1703,32 @@ static void drawSquadBadge(TFT_eSPI& t, int rightX, int bottomY, uint8_t count) 
 // Squachy, it is the state of a detection feature, and boring mode keeps all
 // of those.
 static bool    s_watchPillOn = false;
+
+// The watch's corner clock: 12-hour, cyan on a black tile like the icons, just
+// left of whichever right-hand icons are showing (the corner itself when
+// rotation is locked, the default). Only once the time is real -- a guessed or
+// unset clock draws nothing. Drawn straight after the background, BEFORE
+// Squachy, the visitor and every speech bubble, so a bubble that reaches the
+// top band covers the clock rather than the clock cutting a hole in the
+// bubble. Returns where the WATCH pill's free span must end, or -1.
+static int16_t s_cornerClockPillR = -1;
+#if defined(TWATCH_S3)
+static int16_t drawCornerClock(TFT_eSPI& t, int w) {
+    if (!Clock::trusted()) return -1;
+    char tm[8];
+    Clock::formatTime(tm, sizeof tm, true);
+    t.setTextSize(2);
+    const int icons = Theme::titleBarRightIconsX(w);
+    const int right = icons - (icons < w ? 2 : 4);
+    const int tw = t.textWidth(tm) - 2;   // no spacing column after the last glyph
+    const int x = right - tw;
+    t.fillRect(x - 3, 0, tw + 6, 20, TFT_BLACK);
+    t.setTextColor(Theme::CYAN, TFT_BLACK);
+    t.setCursor(x, 3);
+    t.print(tm);
+    return (int16_t)(x - 3 - 4);
+}
+#endif
 static int16_t s_wpX = 0, s_wpY = 0, s_wpW = 0, s_wpH = 0;
 
 // spanR: the right end of the free span. -1 keeps the old fixed reserve for
@@ -2825,6 +2851,10 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
     Theme::drawActiveBackground(t, now, 0, h, eng, advance);
     Theme::clearBackgroundFloor();
     FrameProf::lap(FrameProf::BG);
+#if defined(TWATCH_S3)
+    // Under everything that moves: see drawCornerClock().
+    if (DrawBand::has(0, titleBottom)) s_cornerClockPillR = drawCornerClock(t, w);
+#endif
     // Everything from here that moves by the call, not by the clock, moves
     // on the mascot's clock. See uiMascotStep().
     const bool step = uiMascotStep(now, advance);
@@ -2958,27 +2988,9 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adv
         // pill the other pass had just drawn, and it would stop being tappable.
         if (DrawBand::has(0, titleBottom)) {
             s_watchPillOn = false;
-            int pillR = -1;
-#if defined(TWATCH_S3)
-            // The watch's corner clock: 12-hour, cyan on a black tile like the
-            // icons, just left of whichever right-hand icons are showing (the
-            // corner itself when rotation is locked, the default). Only once
-            // the time is real -- a guessed or unset clock draws nothing.
-            if (Clock::trusted()) {
-                char tm[8];
-                Clock::formatTime(tm, sizeof tm, true);
-                t.setTextSize(2);
-                const int right = Theme::titleBarRightIconsX(w) - (Theme::titleBarRightIconsX(w) < w ? 2 : 4);
-                const int tw = t.textWidth(tm) - 2;   // no spacing column after the last glyph
-                const int x = right - tw;
-                t.fillRect(x - 3, 0, tw + 6, 20, TFT_BLACK);
-                t.setTextColor(Theme::CYAN, TFT_BLACK);
-                t.setCursor(x, 3);
-                t.print(tm);
-                pillR = x - 3 - 4;
-            }
-#endif
-            if (watching || hunting) drawWatchPill(t, w, watching, hunting, pillR);
+            // Right of the pill: the watch's corner clock, drawn earlier (see
+            // drawCornerClock()); -1 elsewhere, the old fixed reserve.
+            if (watching || hunting) drawWatchPill(t, w, watching, hunting, s_cornerClockPillR);
         }
     }
 
