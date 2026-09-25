@@ -844,7 +844,7 @@ void drawDigitalRain(TFT_eSPI& t, uint32_t now, int yStart, int yEnd, bool advan
     static const int  SPACING  = 5;
     static const char GLYPHS[] =
         "01" "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "!@#$%^&*<>{}[]/\\|+=~" "SASQUACH";
+        "!@#$%^&*<>{}[]/\\|+=~" "RAVEN";
     static const int  GLN      = sizeof(GLYPHS) - 1;
     static const int  MINTRAIL = 17;      // averages ~21, just under the old flat 22
     // Ordered cool -> warm so that indexing them by depth gives distance:
@@ -8937,7 +8937,7 @@ void drawClockBackdrop(TFT_eSPI& t, uint32_t now, int x, int y, int w, int h, ui
     if (kind == 1) {
         // Digital rain: the same glyphs and the same depth colours as the
         // background, dimmed so the time stays the brightest thing.
-        static const char GL[] = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*<>{}[]/\\|+=~SASQUACH";
+        static const char GL[] = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*<>{}[]/\\|+=~RAVEN";
         static const uint16_t HUE[3] = { VAPOR_PURPLE, CYAN, GREEN };
         const int COL = 6, ROW = 8, TRAIL = 7;
         t.setTextSize(1);

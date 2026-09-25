@@ -35,6 +35,14 @@ static const uint8_t SD_MAX_FILES = 2;
 
 bool SdLog::begin() {
     if (_ready) return true;
+#if defined(ESP32_4848S040)
+    // No SD on this board: its SPI pins (18/19/23) are RGB panel data
+    // lines, so mounting would corrupt the display. Logging to flash
+    // (the black box) still works.
+    Serial.println("[sd] no SD bus on this board: logging to flash only");
+    _ready = false;
+    return false;
+#endif
     Serial.printf("[sd] mounting: heap %lu, largest block %lu\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 #if defined(CYD35)
     // (The RL Phantom used to land here too, and its SD card never worked as

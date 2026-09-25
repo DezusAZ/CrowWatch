@@ -98,6 +98,9 @@ namespace Mesh {
     // The radio half, called from tick(): detection.cpp on the device,
     // sim/meshsim.cpp in the emulator.
     void                    radioTick(uint32_t now);
+    // The TX test page owns the BLE advertiser while it is open: this stops
+    // mesh advertising and makes radioTick() leave the advertiser alone.
+    void                    setAdvertiserBorrowed(bool borrowed);
 }
 #endif
 

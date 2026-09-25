@@ -27,22 +27,32 @@ static void computeGeom(int w, int h,
                          int& invX, int& invY, int& invW, int& invH,
                          int& ordX, int& ordY, int& ordW, int& ordH,
                          int& doneX, int& doneY, int& doneW, int& doneH) {
-    (void)h;
-    squachyScale = 0.6f;
-    squachyBaseY = 50;
-    captionTop = squachyBaseY + 14;
-    captionMaxW = w - 24;
-    wordsTop  = captionTop + CAPTION_MAX_LINES * 10 + 4;
-    wordRowH  = 24;
+    // Panels are 320x240 (or wider, e.g. 480x480). A bigger panel gets
+    // proportionally bigger text and row pitch: everything below scales
+    // off `hi = max(w,h)` the same way touch_cal's `big` screen does.
+    const int hi = (w > h ? w : h);
+    const bool big = hi >= 400;
+    const int capSz = big ? 2 : 1;        // caption text size
+    const int wordSz = big ? 4 : 3;      // RED/GREEN/BLUE text size
+    const int lineH = capSz * 8;          // caption line pitch
+    const int wordH = wordSz * 8;         // word glyph height
+    const int btnH = big ? 40 : 20;
+    const int gap = big ? 12 : 8;
+    const int margin = big ? 24 : 12;
 
-    int btnY = wordsTop + wordRowH * 3 + 6;
-    int btnH = 20;
-    const int margin = 12, gap = 8;
+    squachyScale = big ? 1.0f : 0.6f;
+    squachyBaseY = big ? (h * 2) / 10 : 50;
+    captionTop = squachyBaseY + (gap * 2);
+    captionMaxW = w - 2 * margin;
+    wordsTop  = captionTop + CAPTION_MAX_LINES * lineH + gap;
+    wordRowH  = wordH + (big ? 12 : 4);
+
+    int btnY = wordsTop + wordRowH * 3 + gap;
     int btnW = (w - 2 * margin - gap) / 2;
     invX = margin;           invY = btnY; invW = btnW; invH = btnH;
     ordX = invX + btnW + gap; ordY = btnY; ordW = btnW; ordH = btnH;
 
-    doneY = btnY + btnH + 6;
+    doneY = btnY + btnH + gap;
     doneX = margin;
     doneW = w - 2 * margin;
     doneH = btnH;
@@ -62,6 +72,10 @@ void uiColorCheckTick(TFT_eSPI& t, uint32_t now) {
     computeGeom(w, h, squachyBaseY, squachyScale, captionTop, captionMaxW, wordsTop, wordRowH,
                 invX, invY, invW, invH, ordX, ordY, ordW, ordH, doneX, doneY, doneW, doneH);
 
+    const int hi = (w > h ? w : h);
+    const int capSz = hi >= 400 ? 2 : 1;
+    const int wordSz = hi >= 400 ? 4 : 3;
+
     // Lightweight cameo (same one the boot splash itself uses just
     // before this screen appears) rather than the full tick()
     // idle/quip state machine -- this is a one-shot explanation, not
@@ -71,7 +85,7 @@ void uiColorCheckTick(TFT_eSPI& t, uint32_t now) {
     // wrapped block below him instead, with a real line budget.
     Squachy::drawWaving(t, w / 2, squachyBaseY, now, squachyScale, nullptr);
 
-    t.setTextSize(1);
+    t.setTextSize(capSz);
     t.setTextWrap(false);
     t.setTextColor(Theme::WHITE, Theme::BG);
     char capLines[CAPTION_MAX_LINES][48];
@@ -81,10 +95,10 @@ void uiColorCheckTick(TFT_eSPI& t, uint32_t now) {
         int lw = t.textWidth(capLines[i]);
         t.setCursor((w - lw) / 2, cy);
         t.print(capLines[i]);
-        cy += 10;
+        cy += capSz * 8;
     }
 
-    t.setTextSize(3);
+    t.setTextSize(wordSz);
     const char* words[3] = { "RED", "GREEN", "BLUE" };
     uint16_t cols[3] = { PURE_RED, PURE_GREEN, PURE_BLUE };
     int y = wordsTop;

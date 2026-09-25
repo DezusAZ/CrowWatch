@@ -97,6 +97,8 @@ enum class Mood : uint8_t { IDLE, WAVE, SHOCKED, BOUNCE, SLEEPY, WALK, DANCE, WI
 // left -- because the two share drawBody() and this is the one thing about
 // the pose that differs between them.
 static int8_t s_reachDir = 1;
+// Which way the beak points: +1 right (the host), -1 left (a visitor).
+static int8_t s_beakDir = 1;
 // ...and at what height: 0 up (a high five), 1 down (a low five), 2 level (a
 // fist bump, or a hand held out with a rock, paper or scissors over it). The
 // host's comes from visitReach(), the guest's from his VisitPose.
@@ -151,14 +153,14 @@ static const char* IDLE_LINES[] = {
     "Too quiet. I love it.",
     "Snacks fuel good opsec. Pack extra.",
     "This screen's my new hideout.",
-    "Bigfoot sightings up 40% lately.",
+    "Raven sightings up 40% lately.",
     "Locks keep out the polite. I'm not polite.",
     "The best hack teaches someone.",
     "I contain multitudes and RF signals.",
     "Every good cryptid needs a hobby.",
     "This counts as cardio. Fight me.",
     "Cryptid by night, operator by day.",
-    "Nobody suspects the Sasquach.",
+    "Nobody suspects the raven.",
 };
 
 static const char* ENCOURAGE_LINES[] = {
@@ -261,7 +263,7 @@ static const char* const RUN10_LINES[] = {
 };
 static const char* const CLOSEST_LINES[] = {
     "Closest %s ever. It could hear me breathing.",
-    "New record. That %s was practically in my fur.",
+    "New record. That %s was practically in my feathers.",
     "A %s, closer than any before. Personal space, please.",
 };
 
@@ -339,7 +341,7 @@ static const char* PET_LINES[] = {
     "Petting a cryptid. Bold move.",
     "This is why they never get good photos of me.",
     "Okay, ONE more. Don't tell the others.",
-    "You'd pet Bigfoot too. Don't lie.",
+    "You'd pet a raven too. Don't lie.",
     "Cryptid, not a house pet. But okay.",
     "Ten out of ten, would be spotted again.",
     "Careful, that's how legends get spoiled.",
@@ -922,7 +924,7 @@ static const char* const SIT_LINES[] = {
 static const char* const TICKLE_HEAD_LINES[] = {
     "Head pats. Acceptable.",
     "Right there. Yes.",
-    "The fur is soft. I know.",
+    "The feathers are soft. I know.",
 };
 static const char* const TICKLE_BELLY_LINES[] = {
     "Hehe. Stop. Don't stop.",
@@ -956,7 +958,7 @@ static const char* const JUGGLE_LINES[] = {
 };
 
 static const char* const NICKNAMES[] = {
-    "SQUACHY", "BIGSY", "FOOTS", "STOMPER", "SHADOW",
+    "SQUACHY", "CORVY", "BEAKY", "CAW", "SHADOW",
     "TRACKER", "CHONK", "WOODS", "YETI", "SASSY",
 };
 static const uint8_t NICKNAMES_N = sizeof(NICKNAMES) / sizeof(NICKNAMES[0]);
@@ -1190,11 +1192,11 @@ static const char* buildStatLine() {
 // the wrong row's lines for a while. Folded into idle chatter
 // alongside buildStatLine() (see tick()).
 static const char* const BG_LINES[][3] = {
-    /* DIGITAL   */ { "Digital rain again. Very hacker of me.", "Falling code, brown fur. Bold combo.", "I could read this if I tried. I won't." },
+    /* DIGITAL   */ { "Digital rain again. Very hacker of me.", "Falling code, black feathers. Bold combo.", "I could read this if I tried. I won't." },
     /* STARFIELD */ { "Starfield's up. Feeling cosmic.", "Somewhere out there, a bigger cryptid.", "Space is just the woods, but darker." },
     /* TOASTERS  */ { "Flying toasters. A classic.", "Nobody needs that much toast airborne.", "After Dark energy today." },
     /* AQUARIUM  */ { "Aquarium mode. Very zen.", "Fish don't do opsec. Rookies.", "I'd get a tank but I'm camera-shy." },
-    /* TERMINAL  */ { "Terminal log background. Very my speed.", "Green text, brown fur, good times.", "Looks official. It's mostly vibes though." },
+    /* TERMINAL  */ { "Terminal log background. Very my speed.", "Green text, black feathers, good times.", "Looks official. It's mostly vibes though." },
     /* FIREFLIES */ { "Fireflies out tonight. Nice.", "Little lights, big ambiance.", "They're not surveillance. I checked." },
     /* FIRE      */ { "Fire background. Cozy, not concerning.", "Warm vibes, zero smoke alarms.", "Nothing's actually burning. Probably." },
     /* SNOWFALL  */ { "Snowing again. Big feet, better traction.", "Perfect weather for leaving mysterious tracks.", "Cold out. I'm built for this." },
@@ -2743,7 +2745,7 @@ static const Exchange HANG_EXCHANGES[] = {
     // and short. Which is which changes with who's hosting.
     { "Quiet night. Suspiciously quiet.",            "I could fix that.",
       "Please don't."                                   },
-    { "I've seen things that would curl your fur.",  "Was it the printer?",
+    { "I've seen things that would ruffle your feathers.",  "Was it the printer?",
       "It was the printer."                             },
     { "Great galloping gateways, is that a doorbell?", "Can we arrest it?",
       "We can look at it sternly."                      },
@@ -2784,7 +2786,7 @@ enum class Ctx : uint8_t { BG, CAUGHT, GUEST_OUTFIT, HOST_OUTFIT, RETURNING, REG
 struct CtxExchange { Ctx ctx; uint8_t bg; const char* host; const char* guest; const char* topper; };
 static const CtxExchange CTX_EXCHANGES[] = {
     // the weather, by Settings::Background value
-    { Ctx::BG, 7,  "Cold enough for you?",        "I'm mostly fur.",              "Show-off." },
+    { Ctx::BG, 7,  "Cold enough for you?",        "I'm mostly feathers.",              "Show-off." },
     { Ctx::BG, 7,  "Snow's settling.",            "On you, mostly.",              nullptr },
     { Ctx::BG, 7,  "Ever eat it?",                "The snow? Constantly.",        "Respect." },
     { Ctx::BG, 10, "That sun ever set?",          "Not once. I've watched.",      "Grim." },
@@ -3354,7 +3356,7 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
     switch (outfit) {
         case OutfitId::TANOOKI: {
             // The framing idea was always right and the colour was always
-            // wrong: these bands used to be blend(BLACK, FUR_DARK, 130), a
+            // wrong: these bands used to be blend(BLACK, PLUME_DARK, 130), a
             // brown drawn onto brown fur, so the mask has been invisible since
             // it shipped and the outfit read as wearing nothing. Cream above,
             // near-black on the bands, and it reads instantly.
@@ -3954,7 +3956,7 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             // below this switch) -- not up at the crest peak (hy -
             // S(14)), which put the whole horn floating well above his
             // actual face. Pastel fur is handled separately, up in
-            // drawBody()'s furMain/furLight block.
+            // drawBody()'s plume/sheen block.
             int baseY = hy;
             int tipY  = baseY - S(24);
             int baseW = S(9);
@@ -3991,7 +3993,7 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             t.fillRoundRect(cx2 - S(11), hy + S(14), S(22), S(10), S(4), BLACK);
             // Red belt across the torso -- his fur is recolored
             // near-black for this outfit up in drawBody()'s
-            // furMain/furLight block, so the belt is the one splash of
+            // plume/sheen block, so the belt is the one splash of
             // color against it.
             t.fillRect(cx2 - S(torsoHalf()), hy + S(32), S(2 * torsoHalf()), S(4), RED);
             break;
@@ -4001,7 +4003,7 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             t.fillRoundRect(cx2 - S(15), hy - S(4), S(30), S(9), S(4), cap);
             t.fillRoundRect(cx2 - S(4),  hy - S(2), S(16), S(6), S(3), cap);
             t.fillCircle(cx2 - S(2), hy - S(1), S(3), WHITE);
-            t.fillRoundRect(cx2 - S(9), hy + S(14), S(18), S(4), S(2), blend(BLACK, FUR_DARK, 80));
+            t.fillRoundRect(cx2 - S(9), hy + S(14), S(18), S(4), S(2), t.color565(109, 73, 36));
             // Full bib front, not just two thin straps -- a much
             // stronger "overalls" silhouette.
             t.fillRoundRect(cx2 - S(9), hy + S(28), S(18), S(9), S(2), VAPOR_BLUE);
@@ -4016,7 +4018,7 @@ static void drawOutfit(TFT_eSPI& t, int cx2, int hy, uint32_t now, Mood m, float
             t.fillRoundRect(cx2 - S(15), hy - S(6), S(30), S(11), S(4), cap);
             t.fillRoundRect(cx2 - S(4),  hy - S(3), S(16), S(6), S(3), cap);
             t.fillCircle(cx2 - S(2), hy - S(1), S(3), WHITE);
-            t.fillRoundRect(cx2 - S(10), hy + S(13), S(20), S(5), S(2), blend(BLACK, FUR_DARK, 80));
+            t.fillRoundRect(cx2 - S(10), hy + S(13), S(20), S(5), S(2), t.color565(109, 73, 36));
             t.fillRoundRect(cx2 - S(9), hy + S(28), S(18), S(9), S(2), GREEN);
             t.fillRect(cx2 - S(10), hy + S(23), S(3), S(14), GREEN);
             t.fillRect(cx2 + S(7),  hy + S(23), S(3), S(14), GREEN);
@@ -4250,19 +4252,19 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // it for a few seconds when that's active — a Legend-stage device
     // still gets the full rainbow flourish, it just settles back to
     // gold afterward instead of plain brown.
-    uint16_t furMain = FUR_MAIN, furLight = FUR_LIGHT;
+    uint16_t plume = PLUME_MAIN, sheen = PLUME_SHEEN;
     switch (currentStage()) {
         case GrowthStage::TRACKER:
-            furMain  = blend(FUR_MAIN, CYAN, 50);
-            furLight = blend(FUR_LIGHT, CYAN, 50);
+            plume  = blend(PLUME_MAIN, CYAN, 50);
+            sheen = blend(PLUME_SHEEN, CYAN, 50);
             break;
         case GrowthStage::VETERAN:
-            furMain  = blend(FUR_MAIN, WHITE, 90);
-            furLight = blend(FUR_LIGHT, WHITE, 90);
+            plume  = blend(PLUME_MAIN, WHITE, 90);
+            sheen = blend(PLUME_SHEEN, WHITE, 90);
             break;
         case GrowthStage::LEGEND:
-            furMain  = blend(FUR_MAIN, AMBER, 110);
-            furLight = blend(FUR_LIGHT, VAPOR_YELLOW, 110);
+            plume  = blend(PLUME_MAIN, AMBER, 110);
+            sheen = blend(PLUME_SHEEN, VAPOR_YELLOW, 110);
             break;
         default: break;
     }
@@ -4273,33 +4275,33 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // color without redrawing every shape that used the old one).
     OutfitId outfitNow = currentOutfit();
     if (outfitNow == OutfitId::UNICORN) {
-        // Baby-blue/baby-pink two-tone -- furMain (body fill) and
-        // furLight (highlights/outlines) already alternate across
+        // Baby-blue/baby-pink two-tone -- plume (body fill) and
+        // sheen (highlights/outlines) already alternate across
         // every shape he's made of, so giving them distinct pastels
         // reads as a fade across his whole body without needing a
         // real per-pixel gradient.
-        furMain  = blend(WHITE, VAPOR_BLUE, 130);
-        furLight = blend(WHITE, VAPOR_PINK, 110);
+        plume  = blend(WHITE, VAPOR_BLUE, 130);
+        sheen = blend(WHITE, VAPOR_PINK, 110);
     } else if (outfitNow == OutfitId::BLUEBLUR) {
-        furMain  = blend(VAPOR_BLUE, BLACK, 20);
-        furLight = blend(VAPOR_BLUE, WHITE, 70);
+        plume  = blend(VAPOR_BLUE, BLACK, 20);
+        sheen = blend(VAPOR_BLUE, WHITE, 70);
     } else if (outfitNow == OutfitId::PARKA) {
         // One flat orange everywhere -- arms, legs and torso -- so the coat
         // only has to draw its own outline and hem rather than repaint him.
-        furMain  = t.color565(255, 138, 26);
-        furLight = t.color565(255, 138, 26);
+        plume  = t.color565(255, 138, 26);
+        sheen = t.color565(255, 138, 26);
     } else if (outfitNow == OutfitId::VOIDEYE) {
         // Deep space, but chosen off the RGB332 ramp rather than nudged toward
         // it. The first pass used a true navy and he vanished outright: 8-bit
         // blue has four levels, and everything below the first one is black.
-        furMain  = t.color565(48, 44, 96);
-        furLight = t.color565(96, 88, 180);
+        plume  = t.color565(48, 44, 96);
+        sheen = t.color565(96, 88, 180);
     } else if (outfitNow == OutfitId::SHADOW) {
-        // Mostly black -- furLight stays a touch lighter than pure
+        // Mostly black -- sheen stays a touch lighter than pure
         // black purely so edges/highlights (ears, arm outlines) don't
         // vanish into a single flat silhouette.
-        furMain  = blend(BLACK, WHITE, 12);
-        furLight = blend(BLACK, WHITE, 32);
+        plume  = blend(BLACK, WHITE, 12);
+        sheen = blend(BLACK, WHITE, 32);
     }
     // PARKA sits out the shimmer. Everything of him that shows is either the
     // coat, which is a fixed orange this cannot reach, or his legs and arms,
@@ -4307,8 +4309,8 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // legs and leaves them a different colour from the coat above them.
     if (s_legendary && now < s_legendaryUntil && outfitNow != OutfitId::PARKA) {
         float ph = (float)(now % 900) / 900.0f;
-        furMain  = blend(CYAN, VAPOR_PINK, (uint16_t)(ph * 256.0f));
-        furLight = blend(VAPOR_PINK, VAPOR_PURPLE, (uint16_t)(ph * 256.0f));
+        plume  = blend(CYAN, VAPOR_PINK, (uint16_t)(ph * 256.0f));
+        sheen = blend(VAPOR_PINK, VAPOR_PURPLE, (uint16_t)(ph * 256.0f));
     }
 
     // ---- CHROME WING's wings ----------------------------------------------
@@ -4447,9 +4449,11 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // Silhouette keyline helpers. Drawn as slightly expanded copies UNDER
     // each shape, so no per-pose outline maths is needed -- whatever the
     // limb does, its outline does too.
+    // A LIGHT rim: black plumage against a night sky needs a pale edge.
     const uint16_t keyCol = (outfitNow == OutfitId::PARKA)
                             ? t.color565(138, 68, 8)      // a seam, not an edge
-                            : blend(FUR_DARK, BLACK, 150);
+                            : PLUME_RIM;
+    const int bd = s_beakDir;
     const int kb = (S(1) < 1) ? 1 : S(1);          // rim thickness, min 1px
     auto keyRR = [&](int x, int y, int w, int h, int r) {
         if (SQUACHY_KEYLINE) t.fillRoundRect(x - kb, y - kb, w + 2 * kb, h + 2 * kb, r, keyCol);
@@ -4504,8 +4508,8 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
             // bow's or howl's head offset both move the head, and an outline
             // left at the base position showed as a black cap above a bowed
             // head.
-            t.fillRoundRect(cx2 - S(16), hy + s_headDrop + actHead - S(1), S(32), S(26), S(8), keyCol);
-        t.fillRoundRect(cx2 - S(torsoHalf() + 1), hy + S(22), S(2 * torsoHalf() + 2), S(20), S(6), keyCol);
+            t.fillEllipse(cx2, hy + s_headDrop + actHead + S(12), S(16), S(13), keyCol);
+        t.fillRoundRect(cx2 - S(torsoHalf() + 1), hy + S(22), S(2 * torsoHalf() + 2), S(20), S(10), keyCol);
     }
 
     // ---- shadow ------------------------------------------------------
@@ -4564,7 +4568,7 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         const int sy   = headTopY + S(62);
         const int rx2  = rx * rx, ry2 = ry * ry;
         const int cov0 = (int)s_shadowCov;
-        const uint16_t sc = blend(BG, FUR_DARK, 70);
+        const uint16_t sc = blend(BG, PLUME_DARK, 70);
         for (int dy = -ry; dy <= ry; dy++) {
             const int yy = sy + dy;
             const int qy = (dy * dy * 256) / ry2;
@@ -4585,71 +4589,60 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     }
     }
 
-    // Legs + big bigfoot feet — a simple alternating step lift while
-    // walking (TFT_eSPI has no canvas-style transforms to pivot a real
-    // leg swing on, so this just varies each leg's vertical offset in
-    // opposition, which reads fine at this size). Static otherwise.
+    // ---- tail fan -----------------------------------------------------
+    // Behind everything, trailing away from the beak. TANOOKI brings its
+    // own tail (above) and keeps this one tucked.
+    if (outfitNow != OutfitId::TANOOKI) {
+        const float sway = sinf((float)(now % 2600) / 2600.0f * 6.2831853f);
+        const int rx = cx2 - bd * S(4), ry = hy + S(36) - crouch;
+        for (int i = 0; i < 4; i++) {
+            const int tx = rx - bd * (S(15) + i * S(2));
+            const int ty = ry - S(2) + i * S(4) + (int)(sway * S(2));
+            if (SQUACHY_KEYLINE)
+                t.fillTriangle(rx, ry - S(3) - kb, rx, ry + S(3) + kb, tx - bd * kb, ty, keyCol);
+            t.fillTriangle(rx, ry - S(3), rx, ry + S(3), tx, ty, (i & 1) ? PLUME_DARK : plume);
+            t.drawLine(rx, ry, tx, ty, sheen);
+        }
+    }
+
+    // ---- legs and feet -------------------------------------------------
+    // Thin scaly legs, three toes forward. The foot's bounding box
+    // (s_footLx/y, S(12) by S(6)) is what the costumes' boots and shoes
+    // are drawn to, so it is published the same as before.
+    const uint16_t legCol = (outfitNow == OutfitId::PARKA) ? plume : BEAK;
+    auto leg = [&](int lx, int top, int h, bool left) {
+        const int lw = S(3) < 2 ? 2 : S(3), tw = S(2) < 2 ? 2 : S(2);
+        const int fy = top + h - S(1);
+        keyR(lx - lw / 2, top, lw, h);
+        t.fillRect(lx - lw / 2, top, lw, h, legCol);
+        const int toes[3][2] = { { -S(5), S(4) }, { 0, S(5) }, { S(5), S(4) } };
+        for (int k = 0; k < 3; k++) keyW(lx, fy, lx + toes[k][0], fy + toes[k][1], tw);
+        for (int k = 0; k < 3; k++) wideLine(t, lx, fy, lx + toes[k][0], fy + toes[k][1], tw, legCol);
+        if (left) { s_footLx = lx - S(6); s_footLy = fy; }
+        else      { s_footRx = lx - S(6); s_footRy = fy; }
+    };
     if (s_dangle) {
-        // Hanging: both legs straight down and kicking out of phase.
-        // Same shapes as the walk cycle, driven faster and without the
-        // ground contact that makes a walk a walk.
         const float kp = (float)(now % 260) / 260.0f * 6.2831853f;
         const int kL = (int)(sinf(kp) * S(4));
         const int kR = (int)(sinf(kp + 3.14159265f) * S(4));
-        keyR(cx2 - S(10) + kL, hy + S(40), S(8), S(12));
-        keyR(cx2 + S(2) + kR,  hy + S(40), S(8), S(12));
-        keyRR(cx2 - S(13) + kL, hy + S(51), S(12), S(6), 2);
-        keyRR(cx2 + S(1) + kR,  hy + S(51), S(12), S(6), 2);
-        t.fillRect(cx2 - S(10) + kL, hy + S(40), S(8), S(12), furMain);
-        t.fillRect(cx2 + S(2) + kR,  hy + S(40), S(8), S(12), furMain);
-        s_footLx = cx2 - S(13) + kL; s_footLy = hy + S(51);
-        s_footRx = cx2 + S(1)  + kR; s_footRy = hy + S(51);
-        t.fillRoundRect(s_footLx, s_footLy, S(12), S(6), 2, furLight);
-        t.fillRoundRect(s_footRx, s_footRy, S(12), S(6), 2, furLight);
+        leg(cx2 - S(6) + kL, hy + S(40), S(12), true);
+        leg(cx2 + S(6) + kR, hy + S(40), S(12), false);
     } else if (m == Mood::WALK) {
-        // Feet stop while he is striking a beat. A walk cycle still
-        // running under a character who has visibly paused is the single
-        // thing that would read as broken here.
+        // Feet stop while he is striking a beat; the hip stays put and the
+        // leg changes length.
         float legPhase = s_walkBeat ? 0.0f : (float)(now % 400) / 400.0f * 6.2831853f;
         int legL = (int)(sinf(legPhase) * S(3));
         int legR = (int)(sinf(legPhase + 3.14159265f) * S(3));
-        // The HIP stays put and the leg changes length; it used to be the
-        // other way round -- the top moved down by legL while the torso did
-        // not follow, so on the half of the cycle where legL is positive the
-        // leg detached from the body and left a gap at the hip. The torso
-        // bottom sits at S(23)+S(18) and the leg top at S(40), which overlap
-        // by about two pixels at any scale, so a swing of up to S(3) opened a
-        // five-or-six pixel hole. Visible at every size, not just MEDIUM --
-        // that is just where it was spotted.
-        //
-        // Pinning the top is also what a leg does: the hip is a joint, the
-        // foot is what travels.
-        keyR(cx2 - S(10), hy + S(40), S(8), S(10) + legL);
-        keyR(cx2 + S(2),  hy + S(40), S(8), S(10) + legR);
-        keyRR(cx2 - S(13), hy + S(49) + legL, S(12), S(6), 2);
-        keyRR(cx2 + S(1),  hy + S(49) + legR, S(12), S(6), 2);
-        t.fillRect(cx2 - S(10), hy + S(40), S(8), S(10) + legL, furMain);
-        t.fillRect(cx2 + S(2),  hy + S(40), S(8), S(10) + legR, furMain);
-        s_footLx = cx2 - S(13); s_footLy = hy + S(49) + legL;
-        s_footRx = cx2 + S(1);  s_footRy = hy + S(49) + legR;
-        t.fillRoundRect(s_footLx, s_footLy, S(12), S(6), 2, furLight);
-        t.fillRoundRect(s_footRx, s_footRy, S(12), S(6), 2, furLight);
+        leg(cx2 - S(6), hy + S(40), S(10) + legL, true);
+        leg(cx2 + S(6), hy + S(40), S(10) + legR, false);
     } else {
-        const int legH = S(10) - crouch, footY = hy + S(49) - crouch;
-        keyR(cx2 - S(10), hy + S(40), S(8), legH);
-        keyR(cx2 + S(2),  hy + S(40), S(8), legH);
-        keyRR(cx2 - S(13), footY, S(12), S(6), 2);
-        keyRR(cx2 + S(1),  footY, S(12), S(6), 2);
-        t.fillRect(cx2 - S(10), hy + S(40), S(8), legH, furMain);
-        t.fillRect(cx2 + S(2),  hy + S(40), S(8), legH, furMain);
-        s_footLx = cx2 - S(13); s_footLy = footY;
-        s_footRx = cx2 + S(1);  s_footRy = footY;
-        t.fillRoundRect(s_footLx, s_footLy, S(12), S(6), 2, furLight);
-        t.fillRoundRect(s_footRx, s_footRy, S(12), S(6), 2, furLight);
+        leg(cx2 - S(6), hy + S(40), S(10) - crouch, true);
+        leg(cx2 + S(6), hy + S(40), S(10) - crouch, false);
     }
 
-    // Body — broad, stocky torso instead of a slim rounded rect.
-    t.fillRoundRect(cx2 - S(torsoHalf()), hy + S(23), S(2 * torsoHalf()), S(18), S(5), furMain);
+    // Body: a sleek oval with one glossy patch on the breast.
+    t.fillRoundRect(cx2 - S(torsoHalf()), hy + S(23), S(2 * torsoHalf()), S(18), S(9), plume);
+    t.fillEllipse(cx2 - bd * S(3), hy + S(29), S(4), S(3), sheen);
     // No highlight down the sides. There used to be a light strip down each
     // edge, exactly under where the arms hang, so it was invisible at rest and
     // appeared as a second, lighter pair of arms the moment a pose lifted one.
@@ -4702,22 +4695,30 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // Side is decided by the SHOULDER, not the hand: DANCE throws both
     // arms to the same side of centre, and keying off the hand would
     // file both of them as the same arm.
-    auto limbTo = [&](int x0, int y0, int x1, int y1, int w = 0) {
+    // A feathered wing from shoulder (x0,y0) to tip (x1,y1), aimed along the
+    // limb every pose already describes (the flock's own wing routine).
+    auto limbTo = [&](int x0, int y0, int x1, int y1, int w = 0, float curl = 0.0f) {
+        (void)w;
         if (x0 < cx2) { s_armL0x = x0; s_armL0y = y0; s_armL1x = x1; s_armL1y = y1; }
         else          { s_armR0x = x0; s_armR0y = y0; s_armR1x = x1; s_armR1y = y1; }
-        const int ww = w ? w : S(7);
-        keyW(x0, y0, x1, y1, ww);
-        wideLine(t, x0, y0, x1, y1, ww, furLight);
+        const float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+        const float len = sqrtf(dx * dx + dy * dy);
+        if (len < 1.0f) return;
+        const float ang = atan2f(dy, dx) * 57.29578f;
+        if (SQUACHY_KEYLINE)
+            Theme::drawWing(t, x0 - dx / len * kb, y0 - dy / len * kb, len + 2 * kb, ang, 0.0f,
+                            0.40f + 2.0f * kb / len, 0, keyCol, keyCol, curl, 0.0f, keyCol);
+        Theme::drawWing(t, x0, y0, len, ang, 0.0f, 0.40f, 3, plume, sheen, curl, 0.0f, PLUME_DARK);
     };
-
-    // The resting pose's equivalent: the hanging roundrects are drawn
-    // longhand in several branches, so this records their centre line
-    // rather than trying to rewrite all of them.
+    // A wing folded along the body, left (-1) or right (+1), shifted by dy.
+    auto hangWing = [&](int side, int dy) {
+        limbTo(cx2 + side * S(12), hy + S(23) + dy, cx2 + side * S(16), hy + S(44) + dy, 0, side * 0.35f);
+    };
     auto restArms = [&](int dL, int dR) {
-        s_armL0x = cx2 - S(14); s_armL0y = hy + S(24) + dL;
-        s_armL1x = cx2 - S(14); s_armL1y = hy + S(42) + dL;
-        s_armR0x = cx2 + S(14); s_armR0y = hy + S(24) + dR;
-        s_armR1x = cx2 + S(14); s_armR1y = hy + S(42) + dR;
+        s_armL0x = cx2 - S(12); s_armL0y = hy + S(23) + dL;
+        s_armL1x = cx2 - S(16); s_armL1y = hy + S(44) + dL;
+        s_armR0x = cx2 + S(12); s_armR0y = hy + S(23) + dR;
+        s_armR1x = cx2 + S(16); s_armR1y = hy + S(44) + dR;
     };
     // Seeded, so a branch that leaves one arm hanging (WAVE, and the
     // pointing SHOCKED poses) still reports that arm correctly.
@@ -4774,11 +4775,7 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     } else if (m == Mood::ACT) {
         // An emote's pose. sd points at the other Squachy, as HIGHFIVE's does.
         const int sd = s_reachDir;
-        auto hang = [&](int side) {             // one arm hanging, left (-1) or right
-            const int ax = (side < 0) ? cx2 - S(18) : cx2 + S(10);
-            keyRR(ax, hy + S(22), S(8), S(22), S(3));
-            t.fillRoundRect(ax, hy + S(22), S(8), S(22), S(3), furLight);
-        };
+        auto hang = [&](int side) { hangWing(side, 0); };
         const float beat = sinf((float)(now % 500) / 500.0f * 6.2831853f);
         switch (act) {
         case VisitPose::SALUTE:                 // hand to the brow
@@ -4801,8 +4798,8 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
             const int sh = (int)(sinf((float)(now % 120) / 120.0f * 6.2831853f) * S(1));
             limbTo(cx2 - S(11), hy + S(26), cx2 - S(21) + sh, hy + S(41));
             limbTo(cx2 + S(11), hy + S(26), cx2 + S(21) + sh, hy + S(41));
-            t.fillCircle(cx2 - S(21) + sh, hy + S(41), S(4), furLight);
-            t.fillCircle(cx2 + S(21) + sh, hy + S(41), S(4), furLight);
+            t.fillCircle(cx2 - S(21) + sh, hy + S(41), S(4), sheen);
+            t.fillCircle(cx2 + S(21) + sh, hy + S(41), S(4), sheen);
             break;
         }
         case VisitPose::CROUCH:                 // hands on his knees
@@ -4858,29 +4855,24 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // The hand ends S(30) out from centre, so two of them S(60) apart
         // meet in the middle -- which is where the visit puts the guest.
         const int sd = s_reachDir;
-        const int hx = (sd > 0) ? cx2 - S(18) : cx2 + S(10);
-        keyRR(hx, hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(hx, hy + S(22), S(8), S(22), S(3), furLight);
+        hangWing(-sd, 0);
         static const int8_t REACH_HY[3] = { 4, 40, 22 };   // must match ui_clear's REACH_Y
         limbTo(cx2 + sd * S(11), hy + S(26), cx2 + sd * S(30), hy + S(REACH_HY[s_reachLevel % 3]));
     } else if (m == Mood::PUMP) {
         // One fist pumping in front of him, three times in the second and a
         // half before the reveal; the other arm hangs.
         const int sd = s_reachDir;
-        const int hx = (sd > 0) ? cx2 - S(18) : cx2 + S(10);
-        keyRR(hx, hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(hx, hy + S(22), S(8), S(22), S(3), furLight);
+        hangWing(-sd, 0);
         const float pk = fabsf(sinf((float)(now % 500) / 500.0f * 3.14159265f));
         const int fx = cx2 + sd * S(22), fy = hy + S(6) + (int)(pk * S(12));
         limbTo(cx2 + sd * S(11), hy + S(26), fx, fy);
-        t.fillCircle(fx, fy, S(4), furLight);
+        t.fillCircle(fx, fy, S(4), sheen);
     } else if (m == Mood::WAVE) {
         float wa = -1.0f + sinf((float)(now % 400) / 400.0f * 6.2831853f) * 0.5f;
         float ex = cx2 + S(13) + cosf(wa) * (18.0f * scale);
         float ey = hy + S(28) + sinf(wa) * (18.0f * scale);
         limbTo(cx2 + S(11), hy + S(28), (int)ex, (int)ey);
-        keyRR(cx2 - S(18), hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22), S(8), S(22), S(3), furLight);
+        hangWing(-1, 0);
     } else if (m == Mood::SHOCKED) {
         // Fast small shake layered onto whichever pose reactPoseFor()
         // picks, so a flail reads as "can't hold still" instead of a
@@ -4902,8 +4894,7 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
             case ReactPose::DISGUST:
                 // Resting arm now; the pointing/covering arm is drawn
                 // after the head for the same in-front-of-face reason.
-                keyRR(cx2 - S(18), hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22), S(8), S(22), S(3), furLight);
+                hangWing(-1, 0);
                 break;
             case ReactPose::LOOK_UP:
             case ReactPose::LOOK_AROUND:
@@ -4939,16 +4930,12 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // One hand up shading his eyes at something above him. The other
         // stays hanging, so restArms() records that side correctly before
         // limbTo() overwrites only this one.
-        restArms(0, 0);
-        keyRR(cx2 - S(18), hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22), S(8), S(22), S(3), furLight);
+        hangWing(-1, 0);
         limbTo(cx2 + S(11), hy + S(26), cx2 + S(5), hy + S(1));
     } else if (m == Mood::WALK && s_walkBeat == 3) {
         // A scratch behind the ear, hand buzzing.
         const int bz = (int)(sinf((float)now / 45.0f) * S(2));
-        restArms(0, 0);
-        keyRR(cx2 - S(18), hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22), S(8), S(22), S(3), furLight);
+        hangWing(-1, 0);
         limbTo(cx2 + S(11), hy + S(26), cx2 + S(16) + bz, hy + S(11));
     } else if (m == Mood::WALK) {
         // Opposite-arm-opposite-leg swing, same phase the legs above
@@ -4958,29 +4945,21 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         float legPhase = (float)(now % 400) / 400.0f * 6.2831853f;
         int armL = (int)(sinf(legPhase + 3.14159265f) * S(4));
         int armR = (int)(sinf(legPhase) * S(4));
-        restArms(armL, armR);
-        keyRR(cx2 - S(18), hy + S(22) + armL, S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22) + armL, S(8), S(22), S(3), furLight);
-        keyRR(cx2 + S(10), hy + S(22) + armR, S(8), S(22), S(3));
-        t.fillRoundRect(cx2 + S(10), hy + S(22) + armR, S(8), S(22), S(3), furLight);
+        hangWing(-1, armL);
+        hangWing(1, armR);
     } else if (m == Mood::SLEEPY) {
         // Static/droopy on purpose -- motion here would fight the
         // "tired" read the rest of this pose is going for.
-        keyRR(cx2 - S(18), hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22), S(8), S(22), S(3), furLight);
-        keyRR(cx2 + S(10), hy + S(22), S(8), S(22), S(3));
-        t.fillRoundRect(cx2 + S(10), hy + S(22), S(8), S(22), S(3), furLight);
+        hangWing(-1, 0);
+        hangWing(1, 0);
     } else {
         // IDLE/BOUNCE -- gentle continuous opposing sway so just
         // standing there never reads as a frozen frame.
         float armPhase = (float)(now % 1800) / 1800.0f * 6.2831853f;
         int armSwingL = (int)(sinf(armPhase) * S(3));
         int armSwingR = (int)(sinf(armPhase + 3.14159265f) * S(3));
-        restArms(armSwingL, armSwingR);
-        keyRR(cx2 - S(18), hy + S(22) + armSwingL, S(8), S(22), S(3));
-        t.fillRoundRect(cx2 - S(18), hy + S(22) + armSwingL, S(8), S(22), S(3), furLight);
-        keyRR(cx2 + S(10), hy + S(22) + armSwingR, S(8), S(22), S(3));
-        t.fillRoundRect(cx2 + S(10), hy + S(22) + armSwingR, S(8), S(22), S(3), furLight);
+        hangWing(-1, armSwingL);
+        hangWing(1, armSwingR);
     }
 
     // ---- PARKA's hood shell ----------------------------------------------
@@ -5017,7 +4996,7 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     // own, brown, sitting inside the hood; run orange all the way up and the
     // face inside the opening is the same colour as the coat around it and
     // the whole hood stops reading.
-    if (outfitNow == OutfitId::PARKA) { furMain = FUR_MAIN; furLight = FUR_LIGHT; }
+    if (outfitNow == OutfitId::PARKA) { plume = PLUME_MAIN; sheen = PLUME_SHEEN; }
 
     // VOID EYE replaces his head outright with the sphere drawn in
     // drawOutfit(), so the whole face below is skipped rather than drawn and
@@ -5039,98 +5018,60 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         t.fillRect(cx2 - S(5), seat - S(TOP_HAT_H), S(10), S(9), felt);
         t.fillRect(cx2 - S(5), seat - S(5), S(10), S(2), VAPOR_PINK);
     };
-    // PARKA has no mouth. Guarded at each draw rather than painted over
-    // afterwards: the mouth moves and changes shape with the mood, so no
-    // fixed patch covers all of them, and one big enough to try spills off
-    // the face patch onto his fur.
-    const bool noMouth = (outfitNow == OutfitId::PARKA);
     if (!hideFace) {
 
-    // Head — broader jaw than before, brow ridge over the eyes.
-    t.fillRoundRect(cx2 - S(15), hh, S(30), S(24), S(7), furLight);
-    t.fillRoundRect(cx2 - S(12), hh + S(2), S(24), S(19), S(5), furMain);
-    t.fillRoundRect(cx2 - S(9),  hh + S(7), S(18), S(11), S(4), SKIN_TAN);
-
-    // A cowlick, plus a couple of smaller shaggy fringe tufts either side.
-    //
-    // This used to be ONE symmetrical triangle 14 units tall -- a sagittal
-    // crest, the pronounced skull peak real bigfoot sightings always mention.
-    // Anatomically the better reference, and the wrong shape: a single tall
-    // point centred over his face read as a spear tip or a party hat, and at
-    // his current size the tip was clipping off the top of the screen.
-    //
-    // Two spikes now, and the asymmetry is the whole point. A short one on
-    // the left and a taller one leaning right reads as hair that slept
-    // funny rather than as a bone ridge, which is both friendlier and more
-    // animal. Nothing here is centred, deliberately: the lean is what stops
-    // it looking like a shape and starts it looking like a cowlick.
-    //
-    // 9 units at the tallest against the old 14. It costs him no size --
-    // CREST_REACH guarantees the 4-unit side tufts, not this -- but it does
-    // mean his silhouette no longer runs off the top at rest.
-    //
-    // Skipped for BLUE BLUR, the same way the top hat just below is skipped
-    // for UNICORN and for the same reason: that outfit already puts its own
-    // quills across this exact spot. In brown fur this reads as hair, but
-    // BLUE BLUR recolours him blue, so it stops reading as fur and starts
-    // reading as a stray quill among the swept-back ones -- the one shape in
-    // that silhouette that doesn't belong. Every other outfit, and plain
-    // Squachy, still get it.
-    // PARKA joins BLUE BLUR in skipping it, for a plainer reason: it is under
-    // a hood. The side tufts go with it -- they reach as high as this does
-    // and would poke through the fur trim.
-    if (outfitNow != OutfitId::PARKA) {
-    if (currentOutfit() != OutfitId::BLUEBLUR) {
-        // The short one, upright.
-        keyT(cx2 - S(7), hh + S(2), cx2 - S(4), hh - S(5), cx2 - S(1), hh + S(2));
-        t.fillTriangle(cx2 - S(7), hh + S(2), cx2 - S(4), hh - S(5), cx2 - S(1), hh + S(2), furLight);
-        // The tall one, apex pushed out over its own right base corner so
-        // the whole tuft leans instead of standing to attention.
-        //
-        // 80% of nine units, written as the scaled fraction rather than
-        // rounded to S(7): one base unit is under three pixels at CLEAR's
-        // scale, so rounding to whole units here is a 3% step and there is
-        // no reason to take it. Picked off eight rendered heights rather
-        // than by eye -- at nine it read as a horn, and this is the point
-        // where it goes back to reading as hair.
-        const int tallApex = hh - (S(9) * 80) / 100;
-        keyT(cx2 - S(2), hh + S(2), cx2 + S(6), tallApex, cx2 + S(6), hh + S(2));
-        t.fillTriangle(cx2 - S(2), hh + S(2), cx2 + S(6), tallApex, cx2 + S(6), hh + S(2), furLight);
+    // Head: throat hackles' rims first so they only show below the chin,
+    // then the domed skull with its ring of sheen, then the hackles.
+    for (int k = -2; k <= 2 && SQUACHY_KEYLINE; k++) {
+        const int bx = cx2 + k * S(4), tip = hh + S(25) - abs(k) * S(1);
+        t.fillTriangle(bx - S(2) - kb, hh + S(20), bx + S(2) + kb, hh + S(20), bx, tip + kb, keyCol);
     }
-        keyT(cx2 - S(13), hh + S(3), cx2 - S(9), hh - S(4), cx2 - S(5), hh + S(3));
-        t.fillTriangle(cx2 - S(13), hh + S(3), cx2 - S(9), hh - S(4), cx2 - S(5), hh + S(3), furLight);
-        keyT(cx2 + S(5),  hh + S(3), cx2 + S(9), hh - S(4), cx2 + S(13),hh + S(3));
-        t.fillTriangle(cx2 + S(5),  hh + S(3), cx2 + S(9), hh - S(4), cx2 + S(13),hh + S(3), furLight);
+    t.fillEllipse(cx2, hh + S(12), S(15), S(12), sheen);
+    t.fillEllipse(cx2, hh + S(12), S(13), S(10), plume);
+    for (int k = -2; k <= 2; k++) {
+        const int bx = cx2 + k * S(4), tip = hh + S(25) - abs(k) * S(1);
+        t.fillTriangle(bx - S(2), hh + S(20), bx + S(2), hh + S(20), bx, tip, plume);
     }
 
-    // (The Legend top hat goes on after drawOutfit(), below.)
-
-    // Ears — small and tucked close, like a real Sasquach rather than
-    // a cartoon animal's.
-    t.fillCircle(cx2 - S(15), hh + S(13), S(3), furMain);
-    t.fillCircle(cx2 + S(15), hh + S(13), S(3), furMain);
-    t.fillCircle(cx2 - S(15), hh + S(13), S(1), SKIN_DARK);
-    t.fillCircle(cx2 + S(15), hh + S(13), S(1), SKIN_DARK);
-
-    // Blush
-    t.fillCircle(cx2 - S(8), hh + S(15), S(2), VAPOR_PINK);
-    t.fillCircle(cx2 + S(8), hh + S(15), S(2), VAPOR_PINK);
-
-    // TANOOKI's snout pad goes on HERE, underneath the mood chain below,
-    // rather than in drawOutfit() with the rest of that costume. drawOutfit()
-    // runs last, so a snout drawn there painted a single fixed mouth over the
-    // top of every expression he has -- the talking flap, the yawn, the
-    // pursed lip he blows a bubble with. Under the chain it is a pad his own
-    // mouth is drawn onto, and he keeps all of them.
-    if (outfitNow == OutfitId::TANOOKI) {
-        const uint16_t tcream = t.color565(238, 222, 190);
-        const uint16_t tdark  = t.color565(52, 42, 34);
-        t.fillEllipse(cx2, hh + S(19), S(9), S(6), tcream);
-        t.fillEllipse(cx2, hh + S(14), S(2), S(2), tdark);
-        t.drawLine(cx2, hh + S(15), cx2, hh + S(17), tdark);
+    // Crest: three feathers swept back, away from the beak. Skipped under
+    // PARKA's hood and BLUE BLUR's own quills.
+    if (outfitNow != OutfitId::PARKA && outfitNow != OutfitId::BLUEBLUR) {
+        static const int8_t F[3][6] = {
+            {  4, 3,   1, -8,  -3, 2 },
+            { -1, 3,  -8, -5,  -7, 3 },
+            { -6, 4, -13, -1, -11, 5 },
+        };
+        for (int i = 0; i < 3; i++) {
+            const int x1 = cx2 + bd * S(F[i][0]), y1 = hh + S(F[i][1]);
+            const int x2 = cx2 + bd * S(F[i][2]), y2 = hh + S(F[i][3]);
+            const int x3 = cx2 + bd * S(F[i][4]), y3 = hh + S(F[i][5]);
+            keyT(x1, y1, x2, y2, x3, y3);
+            t.fillTriangle(x1, y1, x2, y2, x3, y3, plume);
+            t.drawLine(x1, y1, x2, y2, sheen);
+        }
     }
 
-    // Eyes / sunglasses + mouth
+    // The beak, hinged at its base: `open` drops the lower mandible,
+    // `tilt` dips the whole thing. Every mood below sets one of these
+    // instead of drawing a mouth.
+    int bOpen = 0, bTilt = 0;
+    bool beakDone = false;
+    auto beak = [&](int open, int tilt) {
+        const int bx = cx2 + bd * S(2);
+        const int top = hh + S(13), mid = hh + S(16), bot = hh + S(19);
+        const int tx = cx2 + bd * S(17), ty = hh + S(16) + tilt;
+        const int lx = cx2 + bd * S(15), ly = ty + S(2) + open;
+        if (SQUACHY_KEYLINE) {
+            t.fillTriangle(bx - bd * kb, top - kb, tx + bd * kb, ty, bx - bd * kb, bot + kb, keyCol);
+            t.fillTriangle(bx, mid, tx + bd * kb, ty, lx + bd * kb, ly + kb, keyCol);
+        }
+        if (open > 0) t.fillTriangle(bx, mid, tx, ty, lx, ly, t.color565(109, 0, 36));
+        t.fillTriangle(bx, top, tx, ty, bx, mid, BEAK);
+        t.fillTriangle(bx, mid, lx, ly, bx, bot, blend(BEAK, BLACK, 80));
+        t.drawLine(bx, top, tx, ty, BEAK_LIGHT);
+    };
+
+    // Eyes / sunglasses + beak
     if (m == Mood::SHOCKED) {
         ReactPose pose = curReactPose();
         int pdx = 0, pdy = 0;
@@ -5143,7 +5084,8 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         t.fillEllipse(cx2 + S(5), hh + S(9), S(3), S(4), WHITE);
         t.fillCircle(cx2 - S(5) + pdx, hh + S(9) + pdy, S(1), BLACK);
         t.fillCircle(cx2 + S(5) + pdx, hh + S(9) + pdy, S(1), BLACK);
-        if (!noMouth) t.fillEllipse(cx2, hh + S(18), S(4), S(5), BLACK);
+        beak(S(4), 0);
+        beakDone = true;
 
         // The pointing/covering gesture for these reactions lands on
         // the face, so it's drawn last, in front of the head just
@@ -5163,37 +5105,30 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
     } else if (act == VisitPose::SAD) {
         // No shades for this one: eyes you can see, brows up in the middle, a
         // frown, and a tear on its way down.
-        wideLine(t, cx2 - S(10), hh + S(6), cx2 - S(3), hh + S(4), S(1) + 1, furLight);
-        wideLine(t, cx2 + S(10), hh + S(6), cx2 + S(3), hh + S(4), S(1) + 1, furLight);
+        wideLine(t, cx2 - S(10), hh + S(6), cx2 - S(3), hh + S(4), S(1) + 1, sheen);
+        wideLine(t, cx2 + S(10), hh + S(6), cx2 + S(3), hh + S(4), S(1) + 1, sheen);
         t.fillCircle(cx2 - S(6), hh + S(9), S(1) + 1, BLACK);
         t.fillCircle(cx2 + S(6), hh + S(9), S(1) + 1, BLACK);
-        if (!noMouth) {
-            wideLine(t, cx2 - S(5), hh + S(20), cx2, hh + S(17), S(1) + 1, BLACK);
-            wideLine(t, cx2, hh + S(17), cx2 + S(5), hh + S(20), S(1) + 1, BLACK);
-        }
+        bTilt = S(3);
         const float tk = (float)(now % 1100) / 1100.0f;
         t.fillCircle(cx2 - S(7), hh + S(11) + (int)(tk * S(9)), S(1) + 1, CYAN);
     } else if (m == Mood::STRETCH) {
         // Eyes still shut and one enormous yawn -- he is not awake yet,
         // he is waking up, and those are different poses.
-        t.drawLine(cx2 - S(9), hh + S(9), cx2 - S(2), hh + S(11), furLight);
-        t.drawLine(cx2 + S(2), hh + S(11), cx2 + S(9), hh + S(9), furLight);
+        t.drawLine(cx2 - S(9), hh + S(9), cx2 - S(2), hh + S(11), sheen);
+        t.drawLine(cx2 + S(2), hh + S(11), cx2 + S(9), hh + S(9), sheen);
         const uint32_t se2 = (now > s_stretchStart) ? (now - s_stretchStart) : 0;
         // Peaks at 0.85, not 1.25: the face patch is only S(11) tall, and
         // a yawn drawn any bigger than this covers the closed eyes that
         // are half of what makes the pose read as waking rather than
         // shouting.
         const float yk = 0.30f + sinf(fminf((float)se2 / (float)STRETCH_MS, 1.0f) * 3.14159265f) * 0.55f;
-        if (!noMouth) {
-        t.fillEllipse(cx2, hh + S(18), (int)(S(4) * yk) + 1, (int)(S(5) * yk) + 1, BLACK);
-        t.fillEllipse(cx2, hh + S(19), (int)(S(2) * yk) + 1, (int)(S(2) * yk) + 1, PINK);
-        }
+        bOpen = (int)(S(7) * yk);
     } else if (m == Mood::SLEEPY) {
         // Closed, content eyes — soft downward arcs instead of shades —
         // plus a little "o" mouth and a drifting Z to sell the nap.
-        t.drawLine(cx2 - S(9), hh + S(9), cx2 - S(2), hh + S(11), furLight);
-        t.drawLine(cx2 + S(2), hh + S(11), cx2 + S(9), hh + S(9), furLight);
-        if (!noMouth) t.fillCircle(cx2, hh + S(18), S(2), BLACK);
+        t.drawLine(cx2 - S(9), hh + S(9), cx2 - S(2), hh + S(11), sheen);
+        t.drawLine(cx2 + S(2), hh + S(11), cx2 + S(9), hh + S(9), sheen);
 
         float zPhase = (float)(now % 1600) / 1600.0f;
         int zx = cx2 + S(15) + (int)(zPhase * S(6));
@@ -5307,30 +5242,10 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
         // the fix is that a body which does not own the bubble does not get
         // to read it.
         bool talking = forceTalking || (ownsBubble && bubbleText && now < bubbleUntil);
-        if (noMouth) {
-            // nothing: this costume has no mouth in any mood
-        } else if (act == VisitPose::HOWL) {
-            // Wide open and round -- the howl itself.
-            t.fillEllipse(cx2, hh + S(19), S(4), S(6), BLACK);
-            t.fillEllipse(cx2, hh + S(21), S(2), S(2), PINK);
-        } else if (act == VisitPose::GRR || act == VisitPose::STRAIN) {
-            // Gritted teeth.
-            t.fillRoundRect(cx2 - S(7), hh + S(16), S(14), S(6), S(2), BLACK);
-            t.fillRect(cx2 - S(6), hh + S(17), S(12), S(4), WHITE);
-            for (int k = -1; k <= 1; k++) t.drawFastVLine(cx2 + k * S(3), hh + S(17), S(4), BLACK);
-        } else if (m == Mood::GUM) {
-            // Pursed, because there is a bubble coming out of it.
-            t.fillCircle(cx2, hh + S(18), S(2), BLACK);
-        } else if (talking && ((now / 160) % 2) == 0) {
-            t.fillRoundRect(cx2 - S(8), hh + S(15), S(16), S(9), S(3), BLACK);
-            t.fillRect(cx2 - S(6), hh + S(16), S(12), S(2), WHITE);
-            t.fillEllipse(cx2, hh + S(21), S(5), S(3), PINK);
-        } else {
-            t.fillRoundRect(cx2 - S(8), hh + S(16), S(16), S(7), S(3), BLACK);
-            t.fillRect(cx2 - S(6), hh + S(17), S(12), S(2), WHITE);
-            t.fillRect(cx2 - S(6), hh + S(19), S(12), S(3), PINK);
-        }
+        if (act == VisitPose::HOWL) bOpen = S(7);
+        else if (talking && ((now / 160) % 2) == 0) bOpen = S(4);
     }
+    if (!beakDone) beak(bOpen, bTilt);
     }   // end if (!hideFace)
 
     drawOutfit(t, cx2, hh, now, m, scale, outfitNow);
@@ -5378,19 +5293,16 @@ static void drawBody(TFT_eSPI& t, int cx, int hy, int headTopY, uint32_t now, Mo
             const float gk = (ge < GUM_GROW_MS) ? (float)ge / (float)GUM_GROW_MS : 1.0f;
             const int r = (int)(scale * (2.0f + 8.0f * sqrtf(gk)
                                          + sinf((float)now / 120.0f) * gk * 0.8f));
-            const int by = hh + S(21) + (int)(r * 0.75f);
-            t.fillCircle(cx2, by, r + kb, keyCol);
-            // Toward WHITE rather than toward BG: blending a pink down
-            // into this background walks it to purple, and a purple
-            // sphere on his chest reads as anything but bubblegum.
-            t.fillCircle(cx2, by, r, blend(VAPOR_PINK, WHITE, 55));
-            t.fillCircle(cx2 - r / 3, by - r / 3, r / 5 + 1, WHITE);
+            const int gx = cx2 + bd * S(16), by = hh + S(17) + (int)(r * 0.6f);
+            t.fillCircle(gx, by, r + kb, keyCol);
+            t.fillCircle(gx, by, r, blend(VAPOR_PINK, WHITE, 55));
+            t.fillCircle(gx - r / 3, by - r / 3, r / 5 + 1, WHITE);
         } else if (ge < GUM_GROW_MS + GUM_HOLD_MS + GUM_POP_MS) {
             const float pk = (float)(ge - GUM_GROW_MS - GUM_HOLD_MS) / (float)GUM_POP_MS;
             const int d = (int)(pk * S(16));
             for (uint8_t i = 0; i < 6; i++) {
                 const float ang = (float)i / 6.0f * 6.2831853f;
-                t.fillCircle(cx2 + (int)(cosf(ang) * d), hh + S(25) + (int)(sinf(ang) * d),
+                t.fillCircle(cx2 + bd * S(16) + (int)(cosf(ang) * d), hh + S(19) + (int)(sinf(ang) * d),
                              (int)(S(2) * (1.0f - pk)) + 1, blend(VAPOR_PINK, WHITE, 55));
             }
         }
@@ -5533,8 +5445,11 @@ void drawWaving(TFT_eSPI& t, int cx, int baseY, uint32_t now, float scale, const
             }
             break;
     }
+    // A visitor faces the host on his left; the splash cameo faces right.
+    s_beakDir = (pose == VisitPose::NONE && waving) ? 1 : -1;
     drawBody(t, bodyCx, hy, headTopY, now, cm, scale,
              cameoTalking, /*ownsBubble=*/false);
+    s_beakDir = 1;
     s_reachDir = 1;
     s_actReact = -1;
     // Fixed above his (pre-bob, pre-wander) head, same as tick()'s

@@ -53,6 +53,8 @@ static uint8_t s_dexCaught = 0;
 // removed here, so their SettingsRow values stay stable regardless of
 // which mode is active.
 static const SettingsRow ALL_ROWS[] = {
+    // Near the top so the transmitter test tool is one tap from the menu.
+    SettingsRow::TX_TEST,
     SettingsRow::BORING_MODE, SettingsRow::CONFIDENCE, SettingsRow::AUTO_QUIET,
     SettingsRow::DETECTION_FILTER,
     SettingsRow::IGNORED_DEVICES,
@@ -193,6 +195,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::PET:
         case SettingsRow::BANTER:
             return RowGroupId::APPEARANCE;
+        case SettingsRow::TX_TEST:
         case SettingsRow::BORING_MODE:
         case SettingsRow::CONFIDENCE:
         case SettingsRow::AUTO_QUIET:
@@ -820,6 +823,9 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::DIAGNOSTICS:
             label = "DIAGNOSTICS";
+            break;
+        case SettingsRow::TX_TEST:
+            label = "TX"; value = ">";
             break;
         case SettingsRow::UPDATE_FIRMWARE:
             // The row names the newer version when one is known, so the boot

@@ -767,9 +767,17 @@ static void setAdvertising(bool on, uint32_t now) {
     s_srGen = outGen;
 }
 
+static bool s_advBorrowed = false;
+void setAdvertiserBorrowed(bool borrowed) {
+    s_advBorrowed = borrowed;
+    if (borrowed && s_advOn) setAdvertising(false, 0);
+}
+
 void radioTick(uint32_t now) {
     // Update mode owns the advertiser; see DetectionEngine::startUpdateRadio().
     if (g_rawMode == RawScanMode::UPDATE) return;
+    // The TX test page owns it too, while it is open.
+    if (s_advBorrowed) return;
     // Our own address goes into the nonce of every message we send, so the
     // runtime needs it -- read once, after the stack is up, and copied out of
     // a named NimBLEAddress rather than through a pointer into a temporary.

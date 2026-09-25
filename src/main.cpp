@@ -6,7 +6,9 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <TFT_eSPI.h>
+#if !defined(ESP32_4848S040)
 #include <XPT2046_Touchscreen.h>
+#endif
 #include <Preferences.h>  // AWOK's own per-rotation touch-cal storage; see the AWOK block below pollTouch()'s globals
 #include <esp_heap_caps.h>   // heap_caps_get_largest_free_block() -- diagnostics screen
 #include <esp_system.h>      // esp_reset_reason() -- diagnostics screen
@@ -304,6 +306,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_diagnostics.h"
 #include "ui_hunt.h"
 #include "ui_colorcheck.h"
+#include "ui_txtest.h"
 #include "detection_info.h"
 #include "ui_diary.h"
 #include "ui_outfit.h"
@@ -336,6 +339,9 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "ui_security.h"
 #include "squachy.h"
 #include "cap_touch.h"
+#if defined(ESP32_4848S040)
+#include "gt911_touch.h"
+#endif
 #include "touch_cal.h"
 #include "settings.h"
 #include "signatures.h"
@@ -396,6 +402,13 @@ static void drawCrashCard(TFT_eSPI& t) {
 #if defined(AWOK)
     #define TOUCH_ON_DISPLAY_BUS 1
 #endif
+// 4848: the GT911 is probed and read by gt911_touch.h; its raw values
+// are already in screen pixels (0-479), rescaled in Gt911::rawRead from
+// the chip's own reported range. Unlike the shared-bus boards, touch
+// has a genuine dedicated I2C peripheral here.
+#if defined(ESP32_4848S040)
+    #define TOUCH_IS_GT911 1
+#endif
 #if defined(RLPHANTOM_R)
     #define TOUCH_RAW_SHARED_BUS 1
 #endif
@@ -445,6 +458,15 @@ static void drawCrashCard(TFT_eSPI& t) {
 #define BL_CH_ORIG  0
 #define BL_CH_CAP   1
 #define BL_CH_AWOK  2
+// The 4848's backlight is GPIO38, its own LEDC channel, and no other
+// pin is a backlight: 21/27/32 are RGB data lines there.
+#if defined(ESP32_4848S040)
+#undef BL_PIN_ORIG
+#undef BL_PIN_CAP
+#undef BL_PIN_AWOK
+#define BL_PIN_4848 38
+#define BL_CH_4848  0
+#endif
 
 // invertDisplay() sets an ABSOLUTE panel state -- it doesn't toggle
 // relative to whatever TFT_INVERSION_ON/OFF a board's user-setup header
@@ -537,7 +559,9 @@ ResizableSprite     frame = ResizableSprite(&tft);
 #else
     TFT_eSPI*        canvas = &frame;
 #endif
+#if !defined(ESP32_4848S040)
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
+#endif
 // cyd35's touch bus IS the display's bus, shared via CS rather than a
 // separate peripheral — see the CYD35 touch-init branch in setup(),
 // which uses tft.getSPIinstance() instead of this object. A second,
@@ -589,7 +613,7 @@ const uint32_t      OUTFIT_UNLOCK_AUTO_MS = 12000;
 // bar -- except AWOK, which has no rotate button (see loop()) and
 // stays fixed at its case's one physical orientation, confirmed on
 // real hardware to be portrait/rotation 0.
-#if defined(AWOK)
+#if defined(AWOK) || defined(ESP32_4848S040)
 uint8_t             screenRotation = 0;
 #else
 uint8_t             screenRotation = 1;
@@ -645,6 +669,11 @@ static uint8_t madctlRotationBits(uint8_t rotation) {
 // setRotation(), since the rotation-dependent bits above have to be
 // reissued alongside it either way.
 static void applyColorOrder() {
+#if defined(ESP32_4848S040)
+    // A parallel-RGB panel has no MADCTL latch: its colors are fixed
+    // by the ST7701 init sequence, so there is nothing to reissue.
+    (void)0;
+#else
 #ifdef TFT_RGB_ORDER
     bool baselineBgr = (TFT_RGB_ORDER != TFT_RGB);
 #else
@@ -654,6 +683,7 @@ static void applyColorOrder() {
     uint8_t bits = madctlRotationBits(screenRotation) | (wantBgr ? MADCTL_BGR : 0);
     tft.writecommand(MADCTL_CMD);
     tft.writedata(bits);
+#endif
 }
 
 // ---- Touch helpers ----
@@ -669,8 +699,15 @@ static bool rawReadResistive(int16_t& a, int16_t& b);
 // (rotation 1). Not const: overwritten at boot if a saved calibration
 // exists (see loadOrDefaultCal()/TouchCal), and by the long-press
 // calibration flow (see checkCalibrationTrigger()).
+#if defined(ESP32_4848S040)
+// The GT911's raw values are already rescaled to the 480x480 panel, so
+// the built-in fit is the identity; TouchCal can still refine it.
+static uint16_t CAP_NX_MIN = 0,  CAP_NX_MAX = 479;
+static uint16_t CAP_NY_MIN = 0,  CAP_NY_MAX = 479;
+#else
 static uint16_t CAP_NX_MIN = 32,  CAP_NX_MAX = 166;
 static uint16_t CAP_NY_MIN = 10,  CAP_NY_MAX = 308;
+#endif
 // Resistive XPT2046 raw ADC range — same idea, factory default was a
 // flat 200-3800 for both axes; not const for the same reason.
 static uint16_t RAW_X_MIN = 200, RAW_X_MAX = 3800;
@@ -822,8 +859,16 @@ static bool rawReadCap(int16_t& a, int16_t& b) {
     return true;
 }
 
+#if defined(ESP32_4848S040)
+static bool rawReadGt911(int16_t& a, int16_t& b) {
+    return Gt911::rawRead(a, b);
+}
+#endif
+
 static bool rawReadResistive(int16_t& a, int16_t& b) {
-#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35)
+#if defined(ESP32_4848S040)
+    return false;   // no resistive digitiser on this board
+#elif defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35)
     // None of these boards' `touch` (XPT2046_Touchscreen) object is ever
     // begin()'d -- a second SPI driver on the display's own bus produced
     // garbage -- so this goes through TFT_eSPI's raw-touch accessors.
@@ -877,6 +922,9 @@ static bool rawReadFiltered(int16_t& a, int16_t& b) {
 // The one reader pollTouch(), the calibration and the diagnostics screen all
 // use, so what the calibration measures is exactly what touch then reads.
 static bool readTouchRaw(int16_t& a, int16_t& b) {
+#if defined(ESP32_4848S040)
+    return rawReadGt911(a, b);
+#endif
     if (usingCapTouch) return rawReadCap(a, b);
 #if defined(TOUCH_ON_DISPLAY_BUS) || defined(CYD35)
     return rawReadFiltered(a, b);
@@ -893,9 +941,13 @@ static bool s_screenDimmed = false;
 
 static void applyBrightness() {
     uint8_t duty = s_screenDimmed ? Settings::dimLevel() : Settings::brightness();
+#if defined(ESP32_4848S040)
+    ledcWrite(BL_CH_4848, duty);
+#else
     ledcWrite(BL_CH_ORIG, duty);
     ledcWrite(BL_CH_CAP,  duty);
     ledcWrite(BL_CH_AWOK, duty);
+#endif
 }
 
 // 240, 160 or 80 MHz. Never lower: the radio needs an 80 MHz APB clock, and
@@ -1333,6 +1385,12 @@ static void enterDiagnostics() {
     transitionStart = millis();
     OtaCore::refreshOther();    // reads flash: once on the way in, not per frame
     uiDiagnosticsInit(*canvas);
+}
+
+static void enterTxTest() {
+    state = AppState::TX_TEST;
+    transitionStart = millis();
+    uiTxTestInit(*canvas);
 }
 
 static void enterUpdate() {
@@ -1846,7 +1904,7 @@ static void printBootBanner() {
     // "v1.5.16-dirty" and a commit past a tag as "v1.5.16-3-g554330d", both
     // of which walk the border off the end of the line. Truncated here only;
     // the boot screen and the diary still show the version in full.
-    Serial.printf ("║  |   -   |     TALKING SASQUACH  .  %-13.13s║\n", FIRMWARE_VERSION);
+    Serial.printf ("║  |   -   |     TALKING RAVEN     .  %-13.13s║\n", FIRMWARE_VERSION);
     // Same %-34s trick as the version line above: the reason is variable
     // length ("interrupt watchdog" is the longest at eighteen characters)
     // and the right border has to stay put.
@@ -1923,11 +1981,13 @@ void setup() {
 // Not on AWOK (TOUCH_CS there) and not on either RL Phantom, where GPIO21 is
 // the capacitive controller's INTERRUPT line. Driving it high at boot is the
 // same mistake as the LEDC attach further down, just earlier.
-#if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
+#if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R) && !defined(ESP32_4848S040)
     pinMode(21, OUTPUT); digitalWrite(21, HIGH);
 #endif
+#if !defined(ESP32_4848S040)
     pinMode(27, OUTPUT); digitalWrite(27, HIGH);
     pinMode(32, OUTPUT); digitalWrite(32, HIGH);  // AWOK's real BL pin; unused GPIO on the other two boards
+#endif
 
     tft.init();
 
@@ -1977,6 +2037,12 @@ void setup() {
 // TOUCH_CS on AWOK, and the capacitive controller's INTERRUPT line on the RL
 // Phantom. Driving a 5 kHz PWM onto either is the kind of fault that looks
 // like dead touch, which is exactly how it presented on the Phantom.
+#if defined(ESP32_4848S040)
+    // GPIO38 only. Attaching PWM to 21/27/32 here would drive RGB
+    // data lines.
+    ledcSetup(BL_CH_4848, 5000, 8);
+    ledcAttachPin(BL_PIN_4848, BL_CH_4848);
+#else
 #if !defined(AWOK) && !defined(RLPHANTOM) && !defined(RLPHANTOM_R)
     ledcSetup(BL_CH_ORIG, 5000, 8);
     ledcAttachPin(BL_PIN_ORIG, BL_CH_ORIG);
@@ -1985,6 +2051,7 @@ void setup() {
     ledcAttachPin(BL_PIN_CAP, BL_CH_CAP);
     ledcSetup(BL_CH_AWOK, 5000, 8);
     ledcAttachPin(BL_PIN_AWOK, BL_CH_AWOK);
+#endif
     applyBrightness();
     // A saved core clock has to be restored here too, or the setting silently
     // reverts to 240 MHz on every reboot and looks like it never took.
@@ -2011,9 +2078,13 @@ void setup() {
         // radio start below: WiFi's RF calibration plus a full backlight is
         // more than a weak USB port holds, and the first run of this check
         // browned the Phantom out into a second boot.
+#if defined(ESP32_4848S040)
+        ledcWrite(BL_CH_4848, 24);
+#else
         ledcWrite(BL_CH_ORIG, 24);
         ledcWrite(BL_CH_CAP,  24);
         ledcWrite(BL_CH_AWOK, 24);
+#endif
         tft.fillScreen(Theme::BG);
         tft.setTextSize(1);
         tft.setTextWrap(false);
@@ -2073,7 +2144,15 @@ void setup() {
     // and can go anywhere after the display is up.
     FramePush::begin();
 
-#if defined(CYD35)
+#if defined(ESP32_4848S040)
+    // GT911 on I2C 0x5D/0x14 (SDA 19 / SCL 45). No resistive fallback
+    // exists on this board -- the panel's touch is capacitive only --
+    // so there is no probe-and-fallback shape here.
+    Gt911::begin(TOUCH_SDA, TOUCH_SCL);
+    usingCapTouch = Gt911::s_addr != 0;
+    Serial.println(usingCapTouch ? "4848: GT911 touch found."
+                                 : "4848: GT911 not found -- no touch.");
+#elif defined(CYD35)
     // The standalone XPT2046_Touchscreen library (own SPIClass, own
     // IRQ pin) produced constant garbage reads and a free-running IRQ
     // here -- not a wrong-pin problem, a second SPI master fighting
@@ -2204,9 +2283,13 @@ void setup() {
     // browned out at exactly this point on every boot -- three seconds a
     // cycle, forever -- off any supply short of a powered hub. The backlight
     // is the one large load that nobody misses for a second at boot.
+#if defined(ESP32_4848S040)
+    ledcWrite(BL_CH_4848, 24);
+#else
     ledcWrite(BL_CH_ORIG, 24);
     ledcWrite(BL_CH_CAP,  24);
     ledcWrite(BL_CH_AWOK, 24);
+#endif
 
     // The black box, before the radios: this boot's record -- with the crash
     // in it when there was one -- then the log as the last boot left it, so
@@ -4075,6 +4158,7 @@ void loop() {
                             break;
                         case SettingsRow::CHECK_COLORS: enterColorCheck(true); break;
                         case SettingsRow::DIAGNOSTICS:  enterDiagnostics(); break;
+                        case SettingsRow::TX_TEST:      enterTxTest(); break;
                         case SettingsRow::WIFI_NETWORKS: enterWifiNets(); break;
                         case SettingsRow::DESK_MODE:    uiSettingsOpenPage(SettingsPage::DESK); break;
                         case SettingsRow::DESK_OPEN:
@@ -5064,6 +5148,15 @@ void loop() {
                 uiDiagnosticsHitBack(tp.x, tp.y, tft.width(), tft.height())) {
                 lastTouch = now;
                 enterSettings();
+            }
+            break;
+        }
+        case AppState::TX_TEST: {
+            drawTwoBand([&](TFT_eSPI& t, bool) { uiTxTestTick(t, now); });
+            uiTxTestRadioTick();
+            if (touchJustDown && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
+                lastTouch = now;
+                if (uiTxTestTouch(tp.x, tp.y)) enterSettings();
             }
             break;
         }

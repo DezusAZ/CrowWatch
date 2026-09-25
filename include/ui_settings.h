@@ -54,6 +54,7 @@ enum class SettingsRow : uint8_t {
     CLOCK_FONT,      // on the DESK MODE page: segments or Bangers
     CLOCK_SIZE,      // on the DESK MODE page: small, medium, large
     CLOCK_BACKDROP,  // on the DESK MODE page: what plays inside the clock
+    TX_TEST,         // opens the transmitter test page (top of the main list)
     BACK,
     COUNT,
     NONE = 255

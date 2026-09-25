@@ -9,7 +9,7 @@
 // pins, and nothing else on the Phantom's build uses 4, 16 or 17. The AWOK
 // and the 3.5" are unverified and get nothing -- see the header for why that
 // is a rule and not a shortcut.
-#if defined(ESP32) && !defined(CYD35) && !defined(AWOK)
+#if defined(ESP32) && !defined(CYD35) && !defined(AWOK) && !defined(ESP32_4848S040)
 #define STATUS_LIGHT_HW 1
 #else
 #define STATUS_LIGHT_HW 0

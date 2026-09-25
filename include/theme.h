@@ -32,15 +32,15 @@ namespace Theme {
     constexpr uint16_t WHITE        = 0xFFFF;
     constexpr uint16_t BLACK        = 0x0000;
 
-    // Squachy's fur — real Sasquach brown, matching the original
-    // talkingsasquach.com drawSquachy() palette (not the neon set
-    // above). Deliberately NOT part of the swappable palette — he
-    // should look like Squachy no matter which UI theme is active.
-    constexpr uint16_t FUR_DARK     = 0x38C0;  // #3d1800 shadow only
-    constexpr uint16_t FUR_MAIN     = 0x5941;  // #5a2808 body/head fill
-    constexpr uint16_t FUR_LIGHT    = 0x9326;  // #965a32 highlight/outline
-    constexpr uint16_t SKIN_TAN     = 0xF60F;  // #f4c07a face patch
-    constexpr uint16_t SKIN_DARK    = 0xCB88;  // #c87040 ear inner
+    // Squachy's plumage: raven black with a steel-blue sheen, snapped to
+    // the RGB332 grid. Not part of the swappable palette -- he looks the
+    // same whatever UI theme is active.
+    constexpr uint16_t PLUME_DARK   = 0x000A;  // (0,0,85) shadow
+    constexpr uint16_t PLUME_MAIN   = 0x212A;  // (36,36,85) body/head fill
+    constexpr uint16_t PLUME_SHEEN  = 0x4A55;  // (73,73,170) highlight
+    constexpr uint16_t PLUME_RIM    = 0x9495;  // (146,146,170) silhouette keyline
+    constexpr uint16_t BEAK         = 0x4A49;  // (73,73,73)
+    constexpr uint16_t BEAK_LIGHT   = 0x6B6D;  // (109,109,109) ridge
 
     // Windows 95/98 system chrome.
     //

@@ -127,7 +127,7 @@ void uiBootTick(TFT_eSPI& t, uint32_t now) {
     // rectangle. Anything built on it would look correct in one and
     // wrong on the other, and the emulator is where this gets checked.
     t.setTextSize(2);
-    const char* sub = "TALKING SASQUACH";
+    const char* sub = "TALKING RAVEN";
     const int sw = t.textWidth(sub);
     const int sx = (w - sw) / 2;
     const int sy = 54;

@@ -32,7 +32,10 @@ class TFT_eSPI;
 // so the condition is simply "a board", and a new one inherits it: the push
 // is the library's own transaction with the waiting put to use, and it
 // declines any frame whose shape it does not recognise rather than guessing.
-#if defined(ARDUINO_ARCH_ESP32)
+// The 4848S040 is the exception: its panel is a parallel RGB bus, not SPI,
+// and the whole point of this file is overlapping SPI transactions, so it is
+// built out there like the emulator.
+#if defined(ARDUINO_ARCH_ESP32) && !defined(ESP32_4848S040)
   #define SQW_FRAME_PUSH 1
 #else
   #define SQW_FRAME_PUSH 0
