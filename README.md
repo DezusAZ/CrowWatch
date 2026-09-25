@@ -46,6 +46,10 @@ pio run -e esp32-4848 -t upload
 
 ESP32-4848S040C — 4" 480×480 ST7701 RGB panel, GT911 I2C touch, ESP32-S3.
 
+**Where to buy:** [AliExpress](https://www.aliexpress.us/item/3256808028364930.html)
+— Model **ESP32-4848S040C**, SKU **10100010**, 480×480. It should run about
+**$20–25**; don't pay more than that.
+
 ## Author
 
 DezusAZ
