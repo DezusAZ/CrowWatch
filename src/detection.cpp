@@ -258,6 +258,27 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
             det.type = DetectionType::AIRTAG;
         }
 
+        // Deep payload matchers (v1.38): catch IDs hidden in the advertisement
+        // rather than announced plainly.
+        {
+            const uint8_t* raw = adv->getPayload().data();
+            const uint8_t rawLen = (uint8_t)adv->getPayload().size();
+            // Axon's body-cam tag "BWCDEVICE", address-independent.
+            if (det.type == DetectionType::UNKNOWN && isAxonBwcPayload(raw, rawLen)) {
+                det.type = DetectionType::AXON; label = "Axon-BWC";
+            }
+            // Google Find Hub (FMDN frame types) -- not an Eddystone shop beacon.
+            if (det.type == DetectionType::UNKNOWN && isFmdnPayload(raw, rawLen)) {
+                det.type = DetectionType::GOOGLE_TAG; label = "FindHub";
+            }
+            // A known UUID carried as SERVICE DATA, how most trackers advertise.
+            if (det.type == DetectionType::UNKNOWN) {
+                if (const uint16_t u = serviceDataUuid(raw, rawLen)) {
+                    det.type = lookupUuid(u); label = uuidName(u);
+                }
+            }
+        }
+
         // Service UUIDs
         if (det.type == DetectionType::UNKNOWN && adv->haveServiceUUID()) {
             for (int j = 0; j < adv->getServiceUUIDCount(); j++) {
@@ -275,7 +296,8 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
                         0x3100, 0x3200, 0x3300, 0x3400, 0x3500,  // Raven
                         0xFFFA,  // OpenDroneID
                         0xFD5A,  // Samsung SmartTag
-                        0xFEAA,  // Google Find My Device Network (Eddystone)
+                        // 0xFEAA (Eddystone) handled via isFmdnPayload() frame-type
+                        // check only -- the plain UUID match false-flagged shop beacons.
                         0x3081, 0x3082, 0x3083,  // Flipper Zero, one per case colour
                     };
                     for (uint16_t k : kKnown16) {
