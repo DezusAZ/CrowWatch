@@ -14,25 +14,30 @@ const OuiEntry kOuiTable[] = {
     {{0xE4, 0x05, 0x40}, "Axon-Body",    DetectionType::AXON,       Confidence::LOW_CONF},
     {{0x28, 0x24, 0xFF}, "Axon-Signal",  DetectionType::AXON,       Confidence::LOW_CONF},
 
+    // ---- Other body-camera makers (2026-10-14) ----
+    // Registry-checked. Filed under AXON, which the screens call a body
+    // camera; the label says whose. WatchGuard VIDEO (Motorola) -- not
+    // WatchGuard Technologies, the firewall maker, whose 00:01:21 and
+    // 00:90:7F would name every office firewall a police camera.
+    {{0x00, 0x1D, 0x96}, "WatchGuard",   DetectionType::AXON,       Confidence::MED_CONF},
+    {{0x00, 0x23, 0xBD}, "DigitalAlly",  DetectionType::AXON,       Confidence::MED_CONF},
+
+    // ---- ShotSpotter / SoundThinking gunshot sensors ----
+    // ShotSpotter, Inc.'s own block (IEEE MA-L). Filed with Raven, the other
+    // gunshot sensor, because that is what it is.
+    {{0xD4, 0x11, 0xD6}, "ShotSpotter",  DetectionType::RAVEN,      Confidence::HIGH_CONF},
+
     // ---- Flock Safety (ESP32 modules + LTE backhaul) ----
     // Source: colonelpanichacks/flock-you, @NitekryDPaul, DeFlockJoplin
-    {{0x24, 0x0A, 0xC4}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0x30, 0xAE, 0xA4}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0x24, 0x6F, 0x28}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xCC, 0x50, 0xE3}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xDC, 0x54, 0x75}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xE8, 0x9F, 0x6D}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0x8C, 0xAA, 0xB5}, "Flok-ESP-S3", DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0x34, 0x85, 0x18}, "Flok-ESP-S3", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    //
+    // Seventeen Espressif blocks used to sit here as "Flock-ESP32". Espressif
+    // makes the chip in every ESP32 -- this board, every other SquachWatch,
+    // half the smart plugs in a house -- so they named all of those a Flock
+    // camera, if only at LOW. Taken out 2026-10-14: the projects that test
+    // at real Flock sites (all-cameras-are-beacons, Flock-You's own rewrite)
+    // no longer trust an Espressif block, and Flock's newer cameras run a
+    // Qualcomm radio (the QCA row below).
     {{0xB4, 0x1E, 0x52}, "Flock-MA-L",   DetectionType::FLOCK,      Confidence::HIGH_CONF},
-    {{0xD4, 0xAD, 0xFC}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xAC, 0x67, 0xB2}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0x84, 0xF3, 0xEB}, "Flok-ESP-S3", DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xB4, 0xE6, 0x2D}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xCC, 0xDB, 0xA7}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0x94, 0xB9, 0x7E}, "Flock-ESP32",  DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xA4, 0xCF, 0x12}, "Flok-ESP-S2", DetectionType::FLOCK,      Confidence::LOW_CONF},
-    {{0xC0, 0x49, 0xEF}, "Flok-ESP-C6", DetectionType::FLOCK,      Confidence::LOW_CONF},
     {{0x24, 0xB2, 0xB9}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
     {{0xD0, 0x39, 0x57}, "Flock",        DetectionType::FLOCK,      Confidence::LOW_CONF},
     {{0x00, 0xF4, 0x8D}, "Flock",        DetectionType::FLOCK,      Confidence::LOW_CONF},
@@ -44,6 +49,33 @@ const OuiEntry kOuiTable[] = {
     {{0xD8, 0xF3, 0xBC}, "Flock",        DetectionType::FLOCK,      Confidence::LOW_CONF},
     {{0xB8, 0x35, 0x32}, "Flock",        DetectionType::FLOCK,      Confidence::LOW_CONF},
     {{0x82, 0x6B, 0xF2}, "Flock-DeFlk",  DetectionType::FLOCK,      Confidence::LOW_CONF},
+    // From Flock-You (github.com/colonelpanichacks/flock-you, MIT), issue
+    // #15: the community field list (@NitekryDPaul / DeFlockJoplin, 2026-07-16)
+    // and a Flock camera firmware dump (2026-09-16). Every one is a module
+    // vendor's block -- Liteon, USI, Silicon Labs, Atheros -- so LOW, like
+    // the rows above. Left out: 48:27:EA, which the registry gives
+    // to Samsung Electronics and would call every Samsung TV a Flock.
+    {{0x74, 0x4C, 0xA1}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x9C, 0x2F, 0x9D}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xC0, 0x35, 0x32}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x94, 0x08, 0x53}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xE4, 0xAA, 0xEA}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xF4, 0x6A, 0xDD}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xE8, 0xD0, 0xFC}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xB8, 0x1E, 0xA4}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x70, 0x08, 0x94}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x58, 0x00, 0xE3}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x5C, 0x93, 0xA2}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x64, 0x6E, 0x69}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x14, 0xB5, 0xCD}, "Flock-Liteo", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x08, 0x3A, 0x88}, "Flock-UGSI",  DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xE0, 0x4F, 0x43}, "Flock-UGSI",  DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x58, 0x8E, 0x81}, "Flock-SiLab", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0xEC, 0x1B, 0xBD}, "Flock-SiLab", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    {{0x90, 0x35, 0xEA}, "Flock-SiLab", DetectionType::FLOCK,      Confidence::LOW_CONF},
+    // Atheros's own default: the camera's QCA9377 ships 00:03:7F:50:00:01
+    // in its calibration blobs, and a unit nobody reprogrammed keeps it.
+    {{0x00, 0x03, 0x7F}, "Flock-QCA",     DetectionType::FLOCK,      Confidence::LOW_CONF},
     // Labelled as Sierra Wireless, the LTE modem in a Flock camera. The
     // registry says SPECTRA - TEK, which is neither Sierra nor Flock. The
     // prefix may still turn up on Flock hardware, so it stays -- as the
@@ -79,7 +111,9 @@ const OuiEntry kOuiTable[] = {
 
     // ---- Skimmer OUIs (BT Classic module prefixes) ----
     {{0x20, 0x13, 0x00}, "Skim-Linvor",  DetectionType::SKIMMER,    Confidence::LOW_CONF},
-    {{0x98, 0xD3, 0x00}, "Skim-SPP",     DetectionType::SKIMMER,    Confidence::LOW_CONF},
+    // Was 98:D3:00, which nobody holds. The HC-05/HC-06 modules' maker,
+    // Shenzhen Bolutek, holds 98:D3:31 (IEEE MA-L).
+    {{0x98, 0xD3, 0x31}, "Skim-HC05",    DetectionType::SKIMMER,    Confidence::LOW_CONF},
     {{0x00, 0x1A, 0x7D}, "Skim-CSR",     DetectionType::SKIMMER,    Confidence::LOW_CONF},
 
     // ---- Specific camera vendors ----
@@ -101,6 +135,15 @@ const OuiEntry kOuiTable[] = {
     {{0xBC, 0xDD, 0xC2}, "Arlo",         DetectionType::CAMERA,     Confidence::LOW_CONF},
     {{0x4C, 0x69, 0x05}, "Blink",        DetectionType::CAMERA,     Confidence::LOW_CONF},
     {{0xA4, 0xC1, 0x38}, "Tuya",         DetectionType::CAMERA,     Confidence::LOW_CONF},
+    // Blink by Amazon's own blocks (IEEE MA-L, "Blink by Amazon").
+    {{0x3C, 0xA0, 0x70}, "Blink",        DetectionType::CAMERA,     Confidence::MED_CONF},
+    {{0x70, 0xAD, 0x43}, "Blink",        DetectionType::CAMERA,     Confidence::MED_CONF},
+    {{0x74, 0x13, 0x48}, "Blink",        DetectionType::CAMERA,     Confidence::MED_CONF},
+    {{0x74, 0xAB, 0x93}, "Blink",        DetectionType::CAMERA,     Confidence::MED_CONF},
+    {{0xC8, 0x19, 0xD8}, "Blink",        DetectionType::CAMERA,     Confidence::MED_CONF},
+    {{0xF0, 0x74, 0xC1}, "Blink",        DetectionType::CAMERA,     Confidence::MED_CONF},
+    // i-PRO (Panasonic's security cameras, body cams among them).
+    {{0xD4, 0x2D, 0xC5}, "i-PRO",        DetectionType::CAMERA,     Confidence::HIGH_CONF},
 
     // ---- Ring (own type, not generic CAMERA) ----
     // FC:65:DE and 68:37:E9 were already here under CAMERA; the rest
@@ -130,6 +173,41 @@ const OuiEntry kOuiTable[] = {
     {{0x70, 0x1A, 0xD5}, "Avigilon",     DetectionType::CAMERA,     Confidence::HIGH_CONF},  // Avigilon Alta, registered 2021-04-27
     {{0x00, 0x40, 0x8C}, "Axis",         DetectionType::CAMERA,     Confidence::HIGH_CONF},  // Axis Communications, registered 1998
     {{0xB8, 0xA4, 0x4F}, "Axis",         DetectionType::CAMERA,     Confidence::HIGH_CONF},
+
+    // ---- Camera glasses ----
+    // Luxottica Group's own block (IEEE MA-L): Ray-Ban and Oakley Meta's
+    // maker. Four other "Meta glasses" OUIs circulate (7C:2A:9E, CC:66:0A,
+    // F4:03:43, 5C:E9:1E); the registry gives two to Apple, one to HPE and
+    // one to nobody, so they are not here.
+    {{0x98, 0x59, 0x49}, "Luxottica",    DetectionType::META,       Confidence::MED_CONF},
+
+    // ---- Drones, by maker (2026-10-14) ----
+    // For the drones that do not broadcast Remote ID, or not yet. All IEEE
+    // MA-L. DJI's main blocks are its drones and controllers; the Baiwang
+    // blocks are a DJI subsidiary with a wider range, so LOW. Parrot's two
+    // oldest blocks are mostly its car kits, so LOW too. Left out: DJI's
+    // Ronin and Osmo blocks (camera gimbals), and Autel's (an MA-M, finer
+    // than this table matches).
+    {{0x60, 0x60, 0x1F}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x34, 0xD2, 0x62}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x48, 0x1C, 0xB9}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0xE4, 0x7A, 0x2C}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x58, 0xB8, 0x58}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x04, 0xA8, 0x5A}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x8C, 0x58, 0x23}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x0C, 0x9A, 0xE6}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x88, 0x29, 0x85}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},   // registered 2025-10
+    {{0x4C, 0x43, 0xF6}, "DJI",          DetectionType::DRONE,      Confidence::MED_CONF},   // registered 2025-12
+    {{0x9C, 0x5A, 0x8A}, "DJI-BW",       DetectionType::DRONE,      Confidence::LOW_CONF},
+    {{0xEC, 0x72, 0xF7}, "DJI-BW",       DetectionType::DRONE,      Confidence::LOW_CONF},
+    {{0x34, 0x91, 0xF0}, "DJI-BW",       DetectionType::DRONE,      Confidence::LOW_CONF},
+    {{0xC8, 0xA1, 0x62}, "DJI-BW",       DetectionType::DRONE,      Confidence::LOW_CONF},
+    {{0x38, 0x1D, 0x14}, "Skydio",       DetectionType::DRONE,      Confidence::HIGH_CONF},
+    {{0x90, 0x03, 0xB7}, "Parrot",       DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x90, 0x3A, 0xE6}, "Parrot",       DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0xA0, 0x14, 0x3D}, "Parrot",       DetectionType::DRONE,      Confidence::MED_CONF},
+    {{0x00, 0x12, 0x1C}, "Parrot",       DetectionType::DRONE,      Confidence::LOW_CONF},
+    {{0x00, 0x26, 0x7E}, "Parrot",       DetectionType::DRONE,      Confidence::LOW_CONF},
 
     // ---- Pentest hardware ------------------------------------------
     // Flipper Devices' own MA-L block, verified in the IEEE registry
@@ -164,6 +242,23 @@ const UuidEntry kUuidTable[] = {
     {0x1101, "Skim-SPP",   DetectionType::SKIMMER},   // Classic SPP
     {0xFEED, "Tile",       DetectionType::TILE},      // Tile, Inc. — Bluetooth SIG assigned
     {0xFEEC, "Tile",       DetectionType::TILE},      // Tile, Inc. — second SIG-assigned UUID
+    {0xFD84, "Tile",       DetectionType::TILE},      // Tile, Inc. — third SIG-assigned UUID
+    // Axon / TASER International's SIG-assigned UUIDs (OUI-SPY AXEOFF,
+    // 2026-10-09; FE6B also seen on Axon gear in all-cameras-are-beacons'
+    // captures).
+    {0xFC81, "Axon",       DetectionType::AXON},
+    {0xFE6B, "Axon",       DetectionType::AXON},
+    {0xFE6C, "Axon",       DetectionType::AXON},
+    // More glasses: Meta Platforms' other two UUIDs, Snap's.
+    {0xFEB7, "Meta",       DetectionType::META},
+    {0xFEB8, "Meta",       DetectionType::META},
+    {0xFE45, "Snap",       DetectionType::META},
+    // DULT, the cross-maker "unwanted tracker" standard: a tag away from its
+    // owner announces this whoever made it. Filed under GOOGLE_TAG, which
+    // the screens call TRACKER, as is Chipolo.
+    {0xFCB2, "Tracker",    DetectionType::GOOGLE_TAG},
+    {0xFE33, "Chipolo",    DetectionType::GOOGLE_TAG},
+    {0xFE65, "Chipolo",    DetectionType::GOOGLE_TAG},
     // Its own label, not "Meta": this UUID is the one signature specific to
     // Ray-Ban Meta, and the company-ID rows below say Meta too -- which is
     // any Meta radio, Quest headsets included. Two different pages.
@@ -175,7 +270,10 @@ const UuidEntry kUuidTable[] = {
     {0x3500, "Raven",      DetectionType::RAVEN},
     {0xFFFA, "DroneID",    DetectionType::DRONE},     // OpenDroneID
     {0xFD5A, "SmartTag",   DetectionType::SAMSUNG_TAG}, // Samsung's own SIG-assigned UUID for SmartTag discovery
-    {0xFEAA, "FindMyDev",  DetectionType::GOOGLE_TAG},  // Google "Eddystone" service UUID, also used by the Find My Device network
+    // Google's Find Hub network (FMDN). The UUID is Eddystone's too -- every
+    // shop beacon -- so it only counts as service data whose frame type is
+    // FMDN's 0x40 or 0x41 (see fmdnFrame()); the UUID list never reports it.
+    {0xFEAA, "FindHub",    DetectionType::GOOGLE_TAG},
 
     // Flipper Zero. It advertises one of three 16-bit service UUIDs, one
     // per case variant -- which is also how the desktop detectors tell a
@@ -207,7 +305,9 @@ const SsidEntry kSsidPrefixes[] = {
     {"AB4-",    "Axon-Body4",   DetectionType::AXON},
     {"AXON-",   "Axon-Field",   DetectionType::AXON},
     {"flock-",  "Flock-Setup",  DetectionType::FLOCK},
-    {"FLOCK-",  "Flock-Setup",  DetectionType::FLOCK},
+    // A confirmed Flock hotspot's network, "Flock Camera net." (Flock-You
+    // issue #43). The bare "Flock" and "flock-" above both miss it.
+    {"Flock Camera", "Flock-Cam", DetectionType::FLOCK},
 
     // Hak5 WiFi Pineapple management AP. The documented default is
     // Pineapple_XXXX, the X being the last four of its MAC. It is the
@@ -241,9 +341,20 @@ const MfgIdEntry kMfgIdTable[] = {
     // necessarily a camera pointed at you. The 0xFD5F match remains the
     // specific one.
     {0x01AB, "Meta",       DetectionType::META},      // Meta Platforms
-    {0x058E, "Meta-Tech",  DetectionType::META},      // Meta Platforms Technologies
+    // 0x058E (Meta Platforms Technologies) used to be here. It is what the
+    // Quest headsets send, and no glasses capture has shown it; the real
+    // Ray-Ban Meta sends 0x01AB with 0xFD5F (two independent captures,
+    // 2026-07 and 2026-10). Taken out 2026-10-14.
     {0x0D53, "Luxottica",  DetectionType::META},      // Ray-Ban's manufacturer
     {0x03C2, "Snap",       DetectionType::META},      // Snap Spectacles
+    {0x060C, "Vuzix",      DetectionType::META},      // Vuzix smart glasses
+
+    // ---- Body cameras ----------------------------------------------------
+    // TASER International, now Axon (SIG). OUI-SPY's AXEOFF keys on it.
+    {0x034D, "Axon",       DetectionType::AXON},
+
+    // ---- Trackers ----------------------------------------------------------
+    {0x08C3, "Chipolo",    DetectionType::GOOGLE_TAG},
 
     // ---- Pentest hardware -----------------------------------------------
     // Flipper Devices Inc., from the Bluetooth SIG company identifier list.
@@ -302,6 +413,25 @@ DetectionType lookupUuid(uint16_t uuid16) {
     return DetectionType::UNKNOWN;
 }
 
+bool isBareSerialName(const char* name) {
+    if (!name) return false;
+    for (int i = 0; i < 10; i++) if (name[i] < '0' || name[i] > '9') return false;
+    return name[10] == '\0';
+}
+
+// "FS-" and a hex serial, e.g. FS-BEC46A: a Flock accessory, seen at real
+// Flock sites in 2026-06 (all-cameras-are-beacons). At least four hex digits
+// and nothing else, so "FS-Living Room" is not one.
+bool isFlockFsName(const char* name) {
+    if (!name || strncmp(name, "FS-", 3) != 0) return false;
+    int n = 0;
+    for (const char* p = name + 3; *p; p++, n++) {
+        const char c = *p;
+        if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    return n >= 4 && n <= 12;
+}
+
 DetectionType lookupBtName(const char* name) {
     if (!name) return DetectionType::UNKNOWN;
     for (uint16_t i = 0; i < kBtClassicCount; i++) {
@@ -313,7 +443,14 @@ DetectionType lookupBtName(const char* name) {
     if (strcasestr(name, "Flock"))    return DetectionType::FLOCK;
     if (strcasestr(name, "Penguin"))  return DetectionType::FLOCK;
     if (strcasestr(name, "Pigvision"))return DetectionType::FLOCK;
+    // A Penguin battery pack on its other firmware names itself by its bare
+    // ten-digit serial (Flock-You). Graded LOW where it is used.
+    if (isBareSerialName(name))       return DetectionType::FLOCK;
+    if (isFlockFsName(name))          return DetectionType::FLOCK;
     if (strcasestr(name, "Axon"))     return DetectionType::AXON;
+    // Utility Inc.'s BodyWorn body cam: its activation remote advertises this
+    // (nite-oui-collection field capture, via all-cameras-are-beacons).
+    if (strcasestr(name, "BodyWorn")) return DetectionType::AXON;
     // A Flipper advertises "Flipper " followed by the unit's name. The
     // owner can change it, which is exactly why a name match is graded
     // down where it is used -- it is a string, not a signature. Left in
@@ -325,6 +462,9 @@ DetectionType lookupBtName(const char* name) {
 
 DetectionType lookupSsid(const char* ssid) {
     if (!ssid) return DetectionType::UNKNOWN;
+    // A provisioned camera's bare "Flock" (Flock-You's firmware dump). Exact,
+    // not a prefix: "Flock" as a prefix would take "Flockhart Family WiFi".
+    if (strcasecmp(ssid, "Flock") == 0) return DetectionType::FLOCK;
     for (uint16_t i = 0; i < kSsidCount; i++) {
         size_t n = strlen(kSsidPrefixes[i].prefix);
         if (strncasecmp(ssid, kSsidPrefixes[i].prefix, n) == 0) {
@@ -403,6 +543,57 @@ bool isAirTagPayload(const uint8_t* payload, uint8_t len) {
             payload[i + 2] == 0x12 && payload[i + 3] == 0x19) return true;
     }
     return false;
+}
+
+// Walks the AD structures of a raw advertisement: length, type, data.
+// Calls f(type, data, dataLen) for each; stops early if f returns true.
+template <typename F>
+static bool forEachAd(const uint8_t* p, uint8_t len, F f) {
+    if (!p) return false;
+    for (uint8_t i = 0; i + 1 < len; ) {
+        const uint8_t l = p[i];
+        if (l == 0 || i + 1 + l > len) break;
+        if (f(p[i + 1], p + i + 2, (uint8_t)(l - 1))) return true;
+        i = (uint8_t)(i + 1 + l);
+    }
+    return false;
+}
+
+bool isAxonBwcPayload(const uint8_t* payload, uint8_t len) {
+    // "BWCDEVICE" forwards, and backwards: in the field it rides inside a
+    // 128-bit UUID (AD 0x21), which is little-endian, so the bytes read
+    // "...ECIVEDCWB" (all-cameras-are-beacons, owner-confirmed 2026-09-19).
+    static const char F[] = "BWCDEVICE";
+    const uint8_t n = 9;
+    if (!payload || len < n) return false;
+    for (uint8_t i = 0; i + n <= len; i++) {
+        bool fw = true, bw = true;
+        for (uint8_t k = 0; k < n && (fw || bw); k++) {
+            if (payload[i + k] != (uint8_t)F[k]) fw = false;
+            if (payload[i + k] != (uint8_t)F[n - 1 - k]) bw = false;
+        }
+        if (fw || bw) return true;
+    }
+    return false;
+}
+
+bool isFmdnPayload(const uint8_t* payload, uint8_t len) {
+    return forEachAd(payload, len, [](uint8_t type, const uint8_t* d, uint8_t n) {
+        return type == 0x16 && n >= 3 && d[0] == 0xAA && d[1] == 0xFE && (d[2] == 0x40 || d[2] == 0x41);
+    });
+}
+
+uint16_t serviceDataUuid(const uint8_t* payload, uint8_t len) {
+    uint16_t found = 0;
+    forEachAd(payload, len, [&](uint8_t type, const uint8_t* d, uint8_t n) {
+        if (type != 0x16 || n < 2) return false;
+        const uint16_t u = (uint16_t)(d[0] | (d[1] << 8));
+        if (u == 0xFEAA || u == 0xFFFA) return false;   // their own checks, which read the frame
+        for (uint16_t i = 0; i < kUuidCount; i++)
+            if (kUuidTable[i].uuid == u) { found = u; return true; }
+        return false;
+    });
+    return found;
 }
 
 Confidence confidenceFor(DetectionType t) {

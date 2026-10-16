@@ -41,6 +41,20 @@ extern const uint16_t    kMfgIdCount;
 DetectionType lookupOui(const uint8_t* mac, Confidence* conf = nullptr);
 DetectionType lookupUuid(uint16_t uuid16);
 DetectionType lookupBtName(const char* name);
+// Exactly ten digits and nothing else: a Penguin battery pack's serial.
+bool isBareSerialName(const char* name);
+// "FS-" plus a hex serial: a Flock accessory's BLE name.
+bool isFlockFsName(const char* name);
+// Axon's body-cam tag, "BWCDEVICE", in either byte order, anywhere in a raw
+// advertisement.
+bool isAxonBwcPayload(const uint8_t* payload, uint8_t len);
+// Google Find Hub (FMDN): a service-data structure for 0xFEAA whose frame
+// type is 0x40 or 0x41. Eddystone's own frames (0x00-0x30) are not.
+bool isFmdnPayload(const uint8_t* payload, uint8_t len);
+// The first 16-bit UUID carried as SERVICE DATA (AD 0x16) that is in
+// kUuidTable, or 0. Trackers mostly announce themselves this way rather
+// than in the UUID list.
+uint16_t serviceDataUuid(const uint8_t* payload, uint8_t len);
 DetectionType lookupSsid(const char* ssid);   // case-insensitive prefix
 
 // Friendly vendor label for whichever kSsidPrefixes entry matched
