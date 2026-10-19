@@ -147,4 +147,63 @@ bool merge(const uint8_t* payload, uint8_t len, Info& out, uint32_t now) {
     return false;
 }
 
+// The 0xFFFA service-data structure in a legacy advert, or null. Remote ID is
+// the only place it can live -- the 25-byte message fills the advert, leaving
+// no room to also list 0xFFFA as a service UUID -- so this tells a real drone
+// from anything merely advertising that UUID.
+static const uint8_t* findServiceData(const uint8_t* payload, uint8_t len, uint8_t& size) {
+    if (!payload || len < 4) return nullptr;
+    uint8_t i = 0;
+    while (i < len) {
+        const uint8_t adLen = payload[i];
+        if (adLen == 0) break;
+        if ((uint16_t)i + 1u + adLen > (uint16_t)len) break;
+        const uint8_t  adType = payload[i + 1];
+        const uint8_t* adData = payload + i + 2;
+        const uint8_t  adSize = (uint8_t)(adLen - 1);
+        if (adType == AD_SERVICE_DATA_16 && adSize >= 3 &&
+            rd16(adData) == ODID_UUID && adData[2] == ODID_APP_CODE) {
+            size = adSize;
+            return adData;
+        }
+        i = (uint8_t)(i + 1 + adLen);
+    }
+    return nullptr;
+}
+
+bool present(const uint8_t* payload, uint8_t len) {
+    uint8_t size = 0;
+    return findServiceData(payload, len, size) != nullptr;
+}
+
+// The WiFi Beacon form: an ASD-STAN vendor element (OUI FA:0B:BC, app code
+// 0x0D) packing several messages together, in a beacon's tagged parameters.
+// Many drones broadcast this as well as (or instead of) the Bluetooth form.
+static const uint8_t IE_VENDOR  = 221;
+static const uint8_t ASD_OUI[3] = { 0xFA, 0x0B, 0xBC };
+static const uint8_t MSG_PACK   = 0xF;
+static const uint8_t PACK_MAX   = 9;
+
+bool mergeBeacon(const uint8_t* ies, uint16_t len, Info& out, uint32_t now) {
+    if (!ies) return false;
+    uint16_t i = 0;
+    while ((uint32_t)i + 2u <= len) {
+        const uint8_t id = ies[i], ieLen = ies[i + 1];
+        const uint8_t* body = ies + i + 2;
+        if ((uint32_t)i + 2u + ieLen > len) break;
+        if (id == IE_VENDOR && ieLen >= 8 && memcmp(body, ASD_OUI, 3) == 0 && body[3] == ODID_APP_CODE) {
+            const uint8_t* pack = body + 5;
+            const uint8_t  room = (uint8_t)(ieLen - 5);
+            if (((pack[0] >> 4) & 0x0F) != MSG_PACK || pack[1] != MSG_SIZE) return false;
+            uint8_t n = pack[2];
+            if (n > PACK_MAX) n = PACK_MAX;
+            if (3u + (uint16_t)n * MSG_SIZE > room) n = (uint8_t)((room - 3) / MSG_SIZE);
+            for (uint8_t k = 0; k < n; k++) mergeMessage(pack + 3 + k * MSG_SIZE, out, now);
+            return true;
+        }
+        i = (uint16_t)(i + 2 + ieLen);
+    }
+    return false;
+}
+
 }  // namespace RemoteId

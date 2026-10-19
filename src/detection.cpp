@@ -277,6 +277,11 @@ class BleScanCallbacks : public NimBLEScanCallbacks {
                     det.type = lookupUuid(u); label = uuidName(u);
                 }
             }
+            // A drone whose Remote ID fills the advert, leaving no room to also
+            // list 0xFFFA as a service UUID -- the UUID-list path above misses it.
+            if (det.type == DetectionType::UNKNOWN && RemoteId::present(raw, rawLen)) {
+                det.type = DetectionType::DRONE; label = uuidName(0xFFFA);
+            }
         }
 
         // Service UUIDs
@@ -529,8 +534,16 @@ bool DetectionEngine::init() {
             // device announcing itself to its own kind, not an access point
             // offering a network, and its SSID is throwaway. Its name goes
             // where the SSID would have.
+            // A drone's WiFi Remote ID rides in its beacons as a vendor
+            // element: posted as a drone, named by its serial when the pack
+            // carried a Basic ID. The last four bytes of sig_len are the
+            // frame check sequence, not elements.
+            RemoteId::Info rid;
             char pwnName[33];
-            if (pwnagotchiName(frame, sigLen, pwnName, sizeof(pwnName))) {
+            if (sigLen > 40 && RemoteId::mergeBeacon(frame + 36, (uint16_t)(sigLen - 40), rid, 0)) {
+                g_engine->postWiFi(frame + 10, pkt->rx_ctrl.rssi, pkt->rx_ctrl.channel,
+                                   rid.haveBasic ? rid.serial : "", false, false, true);
+            } else if (pwnagotchiName(frame, sigLen, pwnName, sizeof(pwnName))) {
                 g_engine->postWiFi(frame + 10, pkt->rx_ctrl.rssi,
                                    pkt->rx_ctrl.channel, pwnName, false, true);
             } else {
@@ -1091,7 +1104,7 @@ void DetectionEngine::clearLog() {
 
 void IRAM_ATTR DetectionEngine::postWiFi(const uint8_t* mac, int8_t rssi, uint8_t channel,
                                          const char* ssid, bool encrypted,
-                                         bool pwnagotchi) {
+                                         bool pwnagotchi, bool drone) {
     if (!mac) return;
     // Group-addressed (broadcast/multicast) destinations can never be a
     // real device: bit 0 of byte 0 is the I/G bit, and every OUI in
@@ -1122,6 +1135,7 @@ void IRAM_ATTR DetectionEngine::postWiFi(const uint8_t* mac, int8_t rssi, uint8_
     }
     e.encrypted = encrypted;
     e.pwnagotchi = pwnagotchi;
+    e.drone = drone;
     _wifiQHead = next;
 }
 
@@ -1674,6 +1688,10 @@ void DetectionEngine::processWiFiQ() {
         if (e.pwnagotchi) {
             t = DetectionType::HACKER;
             conf = Confidence::HIGH_CONF;
+        } else if (e.drone) {
+            // The same claim the Bluetooth form makes, in the same bytes.
+            t = DetectionType::DRONE;
+            conf = confidenceFor(t);
         } else if ((evilTwin = (e.ssid[0] && noteApBeacon(e.mac, e.ssid, e.encrypted)))) {
             t = DetectionType::EVILTWIN;
         } else {

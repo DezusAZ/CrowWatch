@@ -54,6 +54,14 @@ const char* uaTypeName(uint8_t t);
 // caller keeps one Info per aircraft and feeds every advert through it.
 bool merge(const uint8_t* payload, uint8_t len, Info& out, uint32_t now);
 
+// Whether a legacy advert carries Remote ID at all (0xFFFA service data).
+bool present(const uint8_t* payload, uint8_t len);
+
+// The WiFi Beacon form: `ies` is a beacon's tagged parameters (everything
+// after the 12 fixed bytes). True when a Remote ID element was found and
+// merged into `out`.
+bool mergeBeacon(const uint8_t* ies, uint16_t len, Info& out, uint32_t now);
+
 void reset(Info& out);
 
 }  // namespace RemoteId

@@ -180,7 +180,7 @@ public:
     // it came from is in the frame, and the frame is gone by then.
     void IRAM_ATTR postWiFi(const uint8_t* mac, int8_t rssi, uint8_t channel,
                             const char* ssid = nullptr, bool encrypted = false,
-                            bool pwnagotchi = false);
+                            bool pwnagotchi = false, bool drone = false);
 
     // Called from the promiscuous WiFi Rx callback (IRAM_ATTR context)
     // when a deauthentication management frame is seen. A single
@@ -435,6 +435,7 @@ private:
         char    ssid[33];  // empty string if none (see postWiFi)
         bool    encrypted; // beacon Privacy bit; meaningless without an ssid
         bool    pwnagotchi;// ssid holds a pwnagotchi's name, not a network's
+        bool    drone;     // beacon carried a WiFi Remote ID element (DRONE)
     };
 
     // WiFi mailbox (filled in IRAM, drained in loop)
