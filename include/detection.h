@@ -589,6 +589,7 @@ private:
     // transmitting on the other 12. See hopChannel().
     uint8_t     _wifiChannel = 1;
     uint32_t    _lastHopMs   = 0;
+    uint16_t    _dwellMs     = 300;   // adaptive per-channel dwell; busy channels get longer
 
     // Index 1..13; 0 is unused. Fed from every captured mgmt/data
     // frame in processWiFiQ() (not just ones that match a known

@@ -1054,10 +1054,29 @@ void DetectionEngine::hopChannel() {
     // defaulted to and only ever sees traffic on that one channel,
     // missing anything (real hardware included, not just test rigs)
     // transmitting elsewhere in the band.
+    // Not an even 300 ms each: most buildings' WiFi sits on two or three
+    // channels and the rest are often silent, so the busy ones (high
+    // _channelActivity) get more of the sweep and the quiet ones a quick look.
+    // The whole sweep still finishes in ~4 s and the shortest look (120 ms)
+    // still outlasts a router's ~100 ms beacon interval.
     uint32_t now = millis();
-    if (now - _lastHopMs < 300) return;
+    if (now - _lastHopMs < _dwellMs) return;
     _lastHopMs = now;
     _wifiChannel = (_wifiChannel % 13) + 1;
+    // Shares from the existing per-channel activity levels: 4 for a channel at
+    // least a quarter as busy as the busiest, 2 for one with anything on it,
+    // 1 for a silent one. Split 3.9 s across the thirteen channels.
+    uint8_t top = 0;
+    for (uint8_t c = 1; c <= 13; c++) if (_channelActivity[c] > top) top = _channelActivity[c];
+    uint16_t total = 0, mine = 2;
+    for (uint8_t c = 1; c <= 13; c++) {
+        const uint8_t a = _channelActivity[c];
+        const uint16_t sh = !top ? 2 : (a * 4u >= top ? 4 : (a ? 2 : 1));
+        total += sh;
+        if (c == _wifiChannel) mine = sh;
+    }
+    _dwellMs = total ? (uint16_t)(3900u * mine / total) : 300;
+    if (_dwellMs < 120) _dwellMs = 120;
     esp_wifi_set_channel(_wifiChannel, WIFI_SECOND_CHAN_NONE);
 }
 
