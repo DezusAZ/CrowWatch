@@ -6,6 +6,7 @@
 #include "state.h"
 #include "sd_log.h"
 #include "remote_id.h"
+#include "spam_watch.h"
 #include <Preferences.h>
 #include <cstring>   // memcmp, for the inline isWatched()/isHunted() below
 
@@ -342,6 +343,10 @@ public:
     return AlertGate::ALLOW;             // not in the log: nothing to go on
     }
 
+    // The spam-flood watch (see spam_watch.h): the alert gate in main.cpp asks
+    // whether a tracker type is being flooded and should stay quiet.
+    SpamWatch& spam() { return _spam; }
+
     bool isWatched(const uint8_t* mac, bool ble) const {
         if (_watchKind != (ble ? WatchKind::BLE : WatchKind::WIFI)) return false;
         return memcmp(mac, _watchMac, 6) == 0;
@@ -598,6 +603,8 @@ private:
     // decayed over time in loop().
     uint8_t     _channelActivity[14] = {0};
     uint32_t    _channelLastMs[14]   = {0};
+    SpamWatch   _spam;                             // tracker-flood suppression (spam_watch.h)
+    uint16_t    _newBle[SpamWatch::TYPES] = {0};   // new BLE rows by type, counted in pushLog
 
     void pushLog(const Detection& d);
     void processWiFiQ();

@@ -1089,6 +1089,16 @@ static bool s_alertLastFree = false;
 // whole job is to interrupt less must never be the thing that overrides it.
 static bool alertMayInterrupt(const Detection& d) {
     const bool exempt = engine.isWatched(d.mac, true) || engine.isWatched(d.mac, false);
+    // A flood of fake trackers of this type (see spam_watch.h): one alert says
+    // so, and the rest are logged without interrupting until five quiet
+    // minutes. A device you asked to WATCH always gets through.
+    if (!exempt && d.channel == 0 && engine.spam().active((uint8_t)d.type, millis())) {
+        if (!engine.spam().takeAnnounce((uint8_t)d.type)) return false;
+        s_alertLastFree = false;
+        Serial.printf("[spam] %s flood announced: %u fakes so far\n",
+                      detectionTypeName(d.type), (unsigned)engine.spam().fakes((uint8_t)d.type));
+        return true;
+    }
     switch (engine.alertGate(d.mac, Settings::autoQuietAfter(), exempt)) {
         case DetectionEngine::AlertGate::HOLD:       return false;
         case DetectionEngine::AlertGate::ALLOW_LAST: s_alertLastFree = true;  return true;

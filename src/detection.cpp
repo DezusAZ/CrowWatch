@@ -1041,6 +1041,24 @@ void DetectionEngine::loop() {
     processWiFiQ();
     processDeauthQ();
     expireStale();
+    // A tracker flood too fast for its fakes to go stale: more new addresses
+    // of one type in a minute than a crowd makes (SpamWatch burst detector).
+    // Counted on the BLE host task in pushLog, read here once a minute.
+    {
+        static uint32_t at = 0;
+        static uint16_t seen[SpamWatch::TYPES];
+        const uint32_t now = millis();
+        if (now - at >= 60000) {
+            at = now;
+            for (uint8_t k = 0; k < SpamWatch::TYPES; k++) {
+                const uint16_t fresh = (uint16_t)(_newBle[k] - seen[k]);
+                seen[k] = _newBle[k];
+                if (_spam.noteBurst(k, fresh, now))
+                    Serial.printf("[spam] %s flood: %u new addresses in a minute; one alert, then quiet\n",
+                                  detectionTypeName((DetectionType)k), (unsigned)fresh);
+            }
+        }
+    }
     decayChannelActivity();
     saveLifetime(millis());
     drainBlackBox(millis());
@@ -1800,6 +1818,9 @@ void DetectionEngine::pushLog(const Detection& d) {
     _typeCounts[(uint8_t)d.type]++;
     _lifetimeTotal++;
     if ((uint8_t)d.type < (uint8_t)DetectionType::COUNT) _lifetimeByType[(uint8_t)d.type]++;
+    // New BLE addresses of a type, for SpamWatch's burst detector (read once a
+    // minute in loop()). channel==0 is the BLE marker (see postBle).
+    if (d.channel == 0 && (uint8_t)d.type < SpamWatch::TYPES) _newBle[(uint8_t)d.type]++;
     // Counted here, on the Bluetooth host task, and written to flash from
     // loop() (see saveLifetime). A flash write stalls both cores for a
     // millisecond and every so often for a sector erase, and two of them
@@ -1906,12 +1927,21 @@ void DetectionEngine::expireStale() {
         uint8_t slot = (_logHead + LOG_CAP - 1 - i) % LOG_CAP;
         if (_log[slot].active && (now - _log[slot].lastSeen) > STALE_MS) {
             _log[slot].active = false;
+            // A BLE address heard for one short burst and never again is what a
+            // fake tag looks like; enough of one type trips SpamWatch (channel
+            // == 0 is the BLE marker).
+            const Detection& g = _log[slot];
+            if (g.channel == 0 && _spam.noteVanish((uint8_t)g.type, g.lastSeen - g.firstSeen, g.hits, now))
+                Serial.printf("[spam] %s flood: short-lived addresses piling up; one alert, then quiet\n",
+                              detectionTypeName(g.type));
             if (_typeCounts[(uint8_t)_log[slot].type] > 0) {
                 _typeCounts[(uint8_t)_log[slot].type]--;
             }
         }
     }
 }
+
+static_assert((uint8_t)DetectionType::COUNT <= SpamWatch::TYPES, "SpamWatch is sized for 32 types");
 
 const Detection* DetectionEngine::logAt(uint8_t idx) const {
     if (idx >= _logCount) return nullptr;
