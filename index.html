@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CrowWatch Flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background:#0a000f; color:#e8e8f0;
+           max-width:640px; margin:48px auto; padding:0 20px; line-height:1.55; }
+    h1 { color:#00fff5; font-weight:700; letter-spacing:0.5px; }
+    a { color:#00fff5; }
+    code { background:#1a1030; padding:2px 6px; border-radius:4px; }
+    .step { margin:0.4em 0; }
+    esp-web-install-button { display:inline-block; margin:18px 0; }
+    .note { margin-top:2.2em; font-size:0.88em; color:#9a9ab0; }
+  </style>
+</head>
+<body>
+  <h1>CrowWatch &mdash; ESP32-4848S040</h1>
+  <p>Flash the latest firmware straight to the board in your hand. Use <b>Chrome</b> or <b>Edge</b> on a computer.</p>
+  <p class="step">1. Plug the 4" board into this computer's USB.</p>
+  <p class="step">2. Click <b>Install</b> and pick the board's serial port.</p>
+  <p class="step">3. Let it finish, then tap reset (or unplug/replug).</p>
+
+  <esp-web-install-button manifest="./manifest.json">
+    <button slot="activate" style="font-size:1.1rem; padding:12px 28px; border:2px solid #00fff5;
+            background:#000; color:#00fff5; border-radius:8px; cursor:pointer;">Install CrowWatch</button>
+    <span slot="unsupported">Your browser can't do web serial &mdash; use Chrome or Edge on desktop.</span>
+    <span slot="not-allowed">Serial access was blocked. Reload and allow the port.</span>
+  </esp-web-install-button>
+
+  <p class="note">480&times;480 ST7701 panel, GT911 touch, ESP32-S3. Flashes a single image to <code>0x0</code>.
+  A fork of <a href="https://github.com/skizzophrenic/SquachWatch-CYD">SquachWatch-CYD</a>;
+  source at <a href="https://github.com/DezusAZ/CrowWatch">DezusAZ/CrowWatch</a>.</p>
+</body>
+</html>
